@@ -1,0 +1,250 @@
+// SPDX-License-Identifier: MIT
+pragma language_version >= 0.19.0;
+
+import CompactStandardLibrary;
+import CompactStandardLibrary prefix std_;
+import "./WerewolfTypes";
+import "./Werewolf" prefix Werewolf_;
+import "./Crypto" prefix Crypto_;
+
+export { 
+    Role, 
+    Phase, 
+    GameState 
+};
+
+export { 
+    Werewolf_games, 
+    Werewolf_playerAlive, 
+    Werewolf_playerPublicKeys,
+    Werewolf_playerRoleCommitments,
+    Werewolf_playerEncryptedRoles,
+    Werewolf_voteNullifiers,
+    Werewolf_gameSecrets
+};
+
+constructor() {}
+
+export circuit createGame(
+    gameId: Bytes<32>, 
+    adminKey: ZswapCoinPublicKey,
+    adminVotePublicKey: Bytes<33>,
+    masterSecretCommitment: Bytes<32>, // New argument
+    actualCount: Uint<32>,
+    werewolfCount: Uint<32>,
+    initialRoot: MerkleTreeDigest
+): [] {
+    return Werewolf_initGame(
+        disclose(gameId), 
+        disclose(adminKey), 
+        disclose(adminVotePublicKey),
+        disclose(masterSecretCommitment),
+        disclose(actualCount), 
+        disclose(werewolfCount),
+        disclose(initialRoot)
+    );
+}
+
+export circuit setupGame(
+    gameId: Bytes<32>,
+    // initialRoot: MerkleTreeDigest,
+    // publicKeys: Vector<10, ZswapCoinPublicKey>,
+    playerIdx: Uint<32>,
+    roleCommitment: Bytes<32>
+    // encryptedRoles: Vector<10, CurvePoint>
+): [] {
+    return Werewolf_initGameSetup(
+        disclose(gameId),
+        // disclose(initialRoot),
+        // disclose(publicKeys),
+        disclose(playerIdx),
+        disclose(roleCommitment),
+        // disclose(encryptedRoles)
+    );
+}
+
+export circuit setupGame5(
+    gameId: Bytes<32>,
+    playerIdx1: Uint<32>,
+    roleCommitment1: Bytes<32>,
+    playerIdx2: Uint<32>,
+    roleCommitment2: Bytes<32>,
+    playerIdx3: Uint<32>,
+    roleCommitment3: Bytes<32>,
+    playerIdx4: Uint<32>,
+    roleCommitment4: Bytes<32>,
+    playerIdx5: Uint<32>,
+    roleCommitment5: Bytes<32>
+): [] { 
+    setupGame4(gameId, playerIdx1, roleCommitment1, playerIdx2, roleCommitment2, playerIdx3, roleCommitment3, playerIdx4, roleCommitment4);
+    setupGame(gameId, playerIdx5, roleCommitment5);
+    return [];
+}
+
+export circuit setupGame4(
+    gameId: Bytes<32>,
+    playerIdx1: Uint<32>,
+    roleCommitment1: Bytes<32>,
+    playerIdx2: Uint<32>,
+    roleCommitment2: Bytes<32>,
+    playerIdx3: Uint<32>,
+    roleCommitment3: Bytes<32>,
+    playerIdx4: Uint<32>,
+    roleCommitment4: Bytes<32>
+): [] { 
+    setupGame3(gameId, playerIdx1, roleCommitment1, playerIdx2, roleCommitment2, playerIdx3, roleCommitment3);
+    setupGame(gameId, playerIdx4, roleCommitment4);
+    return [];
+}
+
+export circuit setupGame3(
+    gameId: Bytes<32>,
+    playerIdx1: Uint<32>,
+    roleCommitment1: Bytes<32>,
+    playerIdx2: Uint<32>,
+    roleCommitment2: Bytes<32>,
+    playerIdx3: Uint<32>,
+    roleCommitment3: Bytes<32>
+): [] { 
+    setupGame2(gameId, playerIdx1, roleCommitment1, playerIdx2, roleCommitment2);
+    setupGame(gameId, playerIdx3, roleCommitment3);
+    return [];
+}
+
+export circuit setupGame2(
+    gameId: Bytes<32>,
+    playerIdx1: Uint<32>,
+    roleCommitment1: Bytes<32>,
+    playerIdx2: Uint<32>,
+    roleCommitment2: Bytes<32>
+): [] { 
+    setupGame(gameId, playerIdx1, roleCommitment1);
+    setupGame(gameId, playerIdx2, roleCommitment2);
+    return [];
+}
+
+export circuit forceEndGame(
+    gameId: Bytes<32>,
+    masterSecret: Bytes<32>
+): [] {
+    return Werewolf_endGame(gameId, masterSecret);
+}
+
+export circuit nightAction(
+    gameId: Bytes<32>,
+    encryptedAction: Bytes<129>,
+    merklePath: MerkleTreePath<10, Bytes<32>>,
+    leafSecret: Bytes<32>
+): [] {
+    return Werewolf_submitNightAction(
+        gameId, 
+        encryptedAction, 
+        merklePath, 
+        leafSecret
+    );
+}
+
+export circuit resolveNightPhase(
+    gameId: Bytes<32>,
+    newRound: Uint<32>,
+    deadPlayerIdx: Uint<32>, 
+    hasDeath: Boolean,
+    newMerkleRoot: MerkleTreeDigest
+): [] {
+    return Werewolf_resolveNight(
+        gameId, 
+        newRound, 
+        deadPlayerIdx, 
+        hasDeath, 
+        newMerkleRoot
+    );
+}
+
+export circuit voteDay(
+    gameId: Bytes<32>,
+    encryptedVote: Bytes<129>,
+    merklePath: MerkleTreePath<10, Bytes<32>>,
+    leafSecret: Bytes<32>
+): [] {
+    return Werewolf_castDayVote(
+        gameId, 
+        encryptedVote, 
+        merklePath, 
+        leafSecret
+    );
+}
+
+export circuit resolveDayPhase(
+    gameId: Bytes<32>,
+    eliminatedIdx: Uint<32>,
+    hasElimination: Boolean
+): [] {
+    return Werewolf_resolveDay(gameId, eliminatedIdx, hasElimination);
+}
+
+export circuit revealPlayerRole(
+    gameId: Bytes<32>,
+    playerIdx: Uint<32>,
+    role: Uint<8>,
+    salt: Bytes<32>
+): [] {
+    return Werewolf_revealRole(gameId, playerIdx, role, salt);
+}
+
+export circuit verifyFairness(
+    gameId: Bytes<32>,
+    masterSecret: Bytes<32>,
+    playerIdx: Uint<32>,
+    assignedRole: Uint<8>
+): Boolean {
+    return Werewolf_verifyGameSetup(
+        gameId, 
+        masterSecret, 
+        playerIdx, 
+        assignedRole
+    );
+}
+
+export circuit getEncryptedVotesForRound(
+    gameId: Bytes<32>,
+    phase: Phase,
+    round: Uint<32>
+): Vector<10, Bytes<129>> {
+    return Werewolf_getEncryptedVotesForRound(gameId, phase, round);
+}
+
+// Helpers
+export circuit getGameState(gameId: Bytes<32>): GameState {
+    const gid = disclose(gameId);
+    assert(Werewolf_games.member(gid), "Game not found");
+    return Werewolf_games.lookup(gid);
+}
+
+export circuit isPlayerAlive(gameId: Bytes<32>, playerIdx: Uint<32>): Boolean {
+    const gid = disclose(gameId);
+    return Werewolf_playerAlive.lookup(gid).lookup(disclose(playerIdx));
+}
+
+export circuit getAdminKey(): ZswapCoinPublicKey {
+    return Werewolf_getAdminKey();
+}
+
+export circuit getGameAdminPublicKey(gameId: Bytes<32>): Bytes<33> {
+    return Werewolf_getGameAdminPublicKey(gameId);
+}
+
+export circuit testComputeCommitment(role: Uint<8>, salt: Bytes<32>): Bytes<32> {
+    return Crypto_commitRole(role, salt);
+}
+
+export circuit testComputeHash(data: Bytes<32>): Bytes<32> {
+    return Crypto_hash(data);
+}
+
+export circuit testComputeSalt(masterSecret: Bytes<32>, playerIdx: Uint<32>): Bytes<32> {
+    return std_persistentHash<[Bytes<32>, Bytes<32>, Uint<32>]>([
+        masterSecret,
+        pad(32, "salt"),
+        playerIdx
+    ]);
+}
