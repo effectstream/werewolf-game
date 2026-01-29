@@ -16,111 +16,34 @@ export {
 export { 
     Werewolf_games, 
     Werewolf_playerAlive, 
-    Werewolf_playerPublicKeys,
-    Werewolf_playerRoleCommitments,
-    Werewolf_playerEncryptedRoles,
-    Werewolf_voteNullifiers,
+    Werewolf_playerPublicKeys, 
+    Werewolf_playerRoleCommitments, 
+    Werewolf_playerEncryptedRoles, 
+    Werewolf_voteNullifiers, 
     Werewolf_gameSecrets
 };
 
 constructor() {}
 
+// Merged Create + Setup
 export circuit createGame(
     gameId: Bytes<32>, 
     adminKey: ZswapCoinPublicKey,
     adminVotePublicKey: Bytes<33>,
-    masterSecretCommitment: Bytes<32>, // New argument
+    masterSecretCommitment: Bytes<32>,
     actualCount: Uint<32>,
     werewolfCount: Uint<32>,
     initialRoot: MerkleTreeDigest
 ): [] {
-    return Werewolf_initGame(
+    return Werewolf_createAndSetupGame(
         disclose(gameId), 
         disclose(adminKey), 
         disclose(adminVotePublicKey),
-        disclose(masterSecretCommitment),
+        disclose(masterSecretCommitment), 
         disclose(actualCount), 
-        disclose(werewolfCount),
+        disclose(werewolfCount), 
         disclose(initialRoot)
     );
-}
-
-export circuit setupGame(
-    gameId: Bytes<32>,
-    // initialRoot: MerkleTreeDigest,
-    // publicKeys: Vector<10, ZswapCoinPublicKey>,
-    playerIdx: Uint<32>,
-    roleCommitment: Bytes<32>
-    // encryptedRoles: Vector<10, CurvePoint>
-): [] {
-    return Werewolf_initGameSetup(
-        disclose(gameId),
-        // disclose(initialRoot),
-        // disclose(publicKeys),
-        disclose(playerIdx),
-        disclose(roleCommitment),
-        // disclose(encryptedRoles)
-    );
-}
-
-export circuit setupGame5(
-    gameId: Bytes<32>,
-    playerIdx1: Uint<32>,
-    roleCommitment1: Bytes<32>,
-    playerIdx2: Uint<32>,
-    roleCommitment2: Bytes<32>,
-    playerIdx3: Uint<32>,
-    roleCommitment3: Bytes<32>,
-    playerIdx4: Uint<32>,
-    roleCommitment4: Bytes<32>,
-    playerIdx5: Uint<32>,
-    roleCommitment5: Bytes<32>
-): [] { 
-    setupGame4(gameId, playerIdx1, roleCommitment1, playerIdx2, roleCommitment2, playerIdx3, roleCommitment3, playerIdx4, roleCommitment4);
-    setupGame(gameId, playerIdx5, roleCommitment5);
-    return [];
-}
-
-export circuit setupGame4(
-    gameId: Bytes<32>,
-    playerIdx1: Uint<32>,
-    roleCommitment1: Bytes<32>,
-    playerIdx2: Uint<32>,
-    roleCommitment2: Bytes<32>,
-    playerIdx3: Uint<32>,
-    roleCommitment3: Bytes<32>,
-    playerIdx4: Uint<32>,
-    roleCommitment4: Bytes<32>
-): [] { 
-    setupGame3(gameId, playerIdx1, roleCommitment1, playerIdx2, roleCommitment2, playerIdx3, roleCommitment3);
-    setupGame(gameId, playerIdx4, roleCommitment4);
-    return [];
-}
-
-export circuit setupGame3(
-    gameId: Bytes<32>,
-    playerIdx1: Uint<32>,
-    roleCommitment1: Bytes<32>,
-    playerIdx2: Uint<32>,
-    roleCommitment2: Bytes<32>,
-    playerIdx3: Uint<32>,
-    roleCommitment3: Bytes<32>
-): [] { 
-    setupGame2(gameId, playerIdx1, roleCommitment1, playerIdx2, roleCommitment2);
-    setupGame(gameId, playerIdx3, roleCommitment3);
-    return [];
-}
-
-export circuit setupGame2(
-    gameId: Bytes<32>,
-    playerIdx1: Uint<32>,
-    roleCommitment1: Bytes<32>,
-    playerIdx2: Uint<32>,
-    roleCommitment2: Bytes<32>
-): [] { 
-    setupGame(gameId, playerIdx1, roleCommitment1);
-    setupGame(gameId, playerIdx2, roleCommitment2);
-    return [];
 }
 
 export circuit forceEndGame(
@@ -130,18 +53,11 @@ export circuit forceEndGame(
     return Werewolf_endGame(gameId, masterSecret);
 }
 
+// Action using Witness
 export circuit nightAction(
-    gameId: Bytes<32>,
-    encryptedAction: Bytes<129>,
-    merklePath: MerkleTreePath<10, Bytes<32>>,
-    leafSecret: Bytes<32>
+    gameId: Bytes<32>
 ): [] {
-    return Werewolf_submitNightAction(
-        gameId, 
-        encryptedAction, 
-        merklePath, 
-        leafSecret
-    );
+    return Werewolf_submitNightAction(gameId);
 }
 
 export circuit resolveNightPhase(
@@ -160,18 +76,11 @@ export circuit resolveNightPhase(
     );
 }
 
+// Action using Witness
 export circuit voteDay(
-    gameId: Bytes<32>,
-    encryptedVote: Bytes<129>,
-    merklePath: MerkleTreePath<10, Bytes<32>>,
-    leafSecret: Bytes<32>
+    gameId: Bytes<32>
 ): [] {
-    return Werewolf_castDayVote(
-        gameId, 
-        encryptedVote, 
-        merklePath, 
-        leafSecret
-    );
+    return Werewolf_castDayVote(gameId);
 }
 
 export circuit resolveDayPhase(
@@ -213,7 +122,10 @@ export circuit getEncryptedVotesForRound(
     return Werewolf_getEncryptedVotesForRound(gameId, phase, round);
 }
 
-// Helpers
+// ============================================
+// HELPERS & TEST UTILS
+// ============================================
+
 export circuit getGameState(gameId: Bytes<32>): GameState {
     const gid = disclose(gameId);
     assert(Werewolf_games.member(gid), "Game not found");
@@ -233,6 +145,7 @@ export circuit getGameAdminPublicKey(gameId: Bytes<32>): Bytes<33> {
     return Werewolf_getGameAdminPublicKey(gameId);
 }
 
+// These are required by ww.test.ts to setup simulation state consistent with the contract logic
 export circuit testComputeCommitment(role: Uint<8>, salt: Bytes<32>): Bytes<32> {
     return Crypto_commitRole(role, salt);
 }
@@ -247,4 +160,46 @@ export circuit testComputeSalt(masterSecret: Bytes<32>, playerIdx: Uint<32>): By
         pad(32, "salt"),
         playerIdx
     ]);
+}
+
+// Internal struct for leaf preimage (matches what std_merkleTreePathRoot uses)
+struct LeafPreimage {
+    domain_sep: Bytes<6>,
+    data: Bytes<32>
+}
+
+// Calculates digest for a Leaf (Bytes32)
+// This MUST match what std_merkleTreePathRoot uses internally: 
+// degradeToTransient(persistentHash({ domain_sep: "mdn:lh", data: leaf }))
+export circuit testLeafDigest(data: Bytes<32>): MerkleTreeDigest {
+    const preimage = LeafPreimage {
+        domain_sep: pad(6, "mdn:lh"),
+        data: data
+    };
+    return MerkleTreeDigest { 
+        field: std_degradeToTransient(std_persistentHash<LeafPreimage>(preimage))
+    };
+}
+
+// Calculates digest for an Internal Node
+// This MUST match what std_merkleTreePathRoot uses internally:
+// transientHash<[Field, Field]>([left.field, right.field])
+export circuit testNodeDigest(left: MerkleTreeDigest, right: MerkleTreeDigest): MerkleTreeDigest {
+    return MerkleTreeDigest { 
+        field: std_transientHash<[Field, Field]>([left.field, right.field]) 
+    };
+}
+
+// Verify proof off-chain logic using on-chain circuit
+export circuit testVerifyMerkleProof(
+    root: MerkleTreeDigest, 
+    leaf: Bytes<32>, 
+    path: MerkleTreePath<10, Bytes<32>>
+): Boolean {
+    return Crypto_verifyMerkleProof(root, leaf, path);
+}
+
+// DEBUG: Calculate Root from Path (to compare with simulation)
+export circuit testMerkleRoot(path: MerkleTreePath<10, Bytes<32>>): MerkleTreeDigest {
+    return std_merkleTreePathRoot<10, Bytes<32>>(path);
 }

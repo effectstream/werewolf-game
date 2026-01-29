@@ -5,6 +5,16 @@ module Werewolf {
     import "./Crypto" prefix Crypto_; 
 
     // =========================================================================
+    // WITNESS DECLARATIONS
+    // =========================================================================
+    
+    // Witness to fetch all player commitments during creation
+    export witness wit_getSetupData(gameId: Bytes<32>): SetupData;
+
+    // Witness to fetch large voting data (Proof + Encrypted Vote)
+    export witness wit_getActionData(gameId: Bytes<32>, round: Uint<32>): ActionData;
+
+    // =========================================================================
     // STATE
     // =========================================================================
 
@@ -23,10 +33,10 @@ module Werewolf {
     }
 
     // =========================================================================
-    // INITIALIZATION
+    // INITIALIZATION (Merged Setup)
     // =========================================================================
 
-    export circuit initGame(
+    export circuit createAndSetupGame(
         gameId: Bytes<32>, 
         adminKey: ZswapCoinPublicKey,
         adminVotePublicKey: Bytes<33>,
@@ -36,8 +46,10 @@ module Werewolf {
         initialRoot: MerkleTreeDigest,
     ): [] {
         assert(!games.member(gameId), "Game ID already exists");
+        // We limit to 10 for the vector size in SetupData
         assert(actualCount <= 10, "Max players exceeded");
 
+        // 1. Initialize Game State
         const state = GameState {
             adminKey: adminKey,
             adminVotePublicKey: adminVotePublicKey,
@@ -47,7 +59,7 @@ module Werewolf {
             aliveCount: actualCount,
             werewolfCount: werewolfCount,
             villagerCount: (actualCount - werewolfCount) as Uint<32>,
-            aliveTreeRoot: MerkleTreeDigest { field: 0 },
+            aliveTreeRoot: initialRoot,
             masterSecretCommitment: masterSecretCommitment,
             transcriptHash: pad(32, "genesis")
         };
@@ -59,28 +71,22 @@ module Werewolf {
         playerEncryptedRoles.insertDefault(gameId);
         playerAlive.insertDefault(gameId);
 
-        games.insert(gameId, GameState {
-            ...state,
-            aliveTreeRoot: initialRoot
-        });
-    }
+        // 2. Consume Witness for Setup Data
+        const setupData = wit_getSetupData(gameId);
 
-    export circuit initGameSetup(
-        gameId: Bytes<32>,
-        // publicKeys: Vector<10, ZswapCoinPublicKey>,
-        playerIdx: Uint<32>,
-        roleCommitment: Bytes<32>
-        // encryptedRoles: Vector<10, CurvePoint>
-    ): [] {
-        assert(games.member(gameId), "Game not found");
-
-        const state = games.lookup(gameId);
-
-        assert(playerIdx < state.playerCount, "Player index out of range");
-
-        assert(!playerRoleCommitments.lookup(gameId).member(playerIdx), "Role already set");
-        playerRoleCommitments.lookup(gameId).insert(playerIdx, roleCommitment);
-        playerAlive.lookup(gameId).insert(playerIdx, true);
+        // 3. Iterate and register players
+        // Compact loops must be constant range, so we loop max (10) and check count
+        for (const i of 0..10) {
+             if (i < actualCount) {
+                // Register Role Commitment
+                playerRoleCommitments.lookup(gameId).insert(
+                    disclose(i as Uint<32>), 
+                    disclose(setupData.roleCommitments[i])
+                );
+                // Set Alive
+                playerAlive.lookup(gameId).insert(i as Uint<32>, true);
+             }
+        }
     }
 
     // =========================================================================
@@ -88,24 +94,23 @@ module Werewolf {
     // =========================================================================
 
     export circuit submitNightAction(
-        _gameId: Bytes<32>,
-        _encryptedAction: Bytes<129>,
-        _merklePath: MerkleTreePath<10, Bytes<32>>,
-        _leafSecret: Bytes<32> 
+        _gameId: Bytes<32>
     ): [] {
         const gameId = disclose(_gameId);
-        const encryptedAction = disclose(_encryptedAction);
-        const merklePath = disclose(_merklePath);
-        const leafSecret = disclose(_leafSecret);
-
         const state = games.lookup(gameId);
         assert(state.phase == Phase.Night, "Not Night phase");
-        
-        // 1. Prove Alive
+
+        // 1. Get Data from Witness
+        const actionData = wit_getActionData(gameId, state.round);
+        const encryptedAction = disclose(actionData.encryptedAction);
+        const merklePath = disclose(actionData.merklePath);
+        const leafSecret = disclose(actionData.leafSecret);
+
+        // 2. Prove Alive
         const leaf = Crypto_hash(leafSecret);
         assert(Crypto_verifyMerkleProof(state.aliveTreeRoot, leaf, merklePath), "Invalid Merkle Proof or Player Dead");
 
-        // 2. Nullifier
+        // 3. Nullifier Check
         const nullifier = Crypto_hash2(
             gameId, 
             Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
@@ -113,11 +118,10 @@ module Werewolf {
         assert(!voteNullifiers.member(nullifier), "Action already submitted");
         voteNullifiers.insert(nullifier);
 
-        // 3. Update Transcript
+        // 4. Update Transcript & Ledger
         const encryptedHash = std_persistentHash<Bytes<129>>(encryptedAction);
         const newTranscript = Crypto_hash2(state.transcriptHash, encryptedHash);
 
-        // 4. Update Count
         const countKey = Crypto_hash2(Crypto_hash2(gameId, pad(32, "night-round")), std_persistentHash<Uint<32>>(state.round));
         const currentCount = movesSubmittedCount.member(countKey) ? movesSubmittedCount.lookup(countKey) : 0 as Uint<32>;
         if (!roundEncryptedVotes.member(countKey)) {
@@ -179,22 +183,23 @@ module Werewolf {
     // =========================================================================
 
     export circuit castDayVote(
-        _gameId: Bytes<32>,
-        _encryptedVote: Bytes<129>,
-        _merklePath: MerkleTreePath<10, Bytes<32>>,
-        _leafSecret: Bytes<32>
+        _gameId: Bytes<32>
     ): [] {
         const gameId = disclose(_gameId);
-        const encryptedVote = disclose(_encryptedVote);
-        const merklePath = disclose(_merklePath);
-        const leafSecret = disclose(_leafSecret);
-
         const state = games.lookup(gameId);
         assert(state.phase == Phase.Day, "Not Day phase");
 
+        // 1. Get Data from Witness
+        const actionData = wit_getActionData(gameId, state.round);
+        const encryptedVote = disclose(actionData.encryptedAction);
+        const merklePath = disclose(actionData.merklePath);
+        const leafSecret = disclose(actionData.leafSecret);
+
+        // 2. Prove Alive
         const leaf = Crypto_hash(leafSecret);
         assert(Crypto_verifyMerkleProof(state.aliveTreeRoot, leaf, merklePath), "Invalid Merkle Proof");
 
+        // 3. Nullifier Check
         const nullifier = Crypto_hash2(
             Crypto_hash2(gameId, pad(32, "day-vote")),
             Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
@@ -202,7 +207,7 @@ module Werewolf {
         assert(!voteNullifiers.member(nullifier), "Double voting detected");
         voteNullifiers.insert(nullifier);
 
-        // Update transcript
+        // 4. Update Transcript & Ledger
         const encryptedHash = std_persistentHash<Bytes<129>>(encryptedVote);
         const newTranscript = Crypto_hash2(state.transcriptHash, encryptedHash);
 
@@ -380,7 +385,6 @@ module Werewolf {
             ];
         }
 
-        // const roundMap = roundEncryptedVotes.lookup(countKey);
         return [
             roundEncryptedVotes.lookup(countKey).member(0 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(0 as Uint<32>) : emptyVote,
             roundEncryptedVotes.lookup(countKey).member(1 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(1 as Uint<32>) : emptyVote,

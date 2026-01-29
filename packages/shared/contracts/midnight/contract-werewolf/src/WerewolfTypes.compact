@@ -15,23 +15,29 @@ module WerewolfTypes {
         Finished
     }
 
-    // Stores the public game state
+    // Data provided by Witness during Game Creation
+    export struct SetupData {
+        roleCommitments: Vector<10, Bytes<32>>
+    }
+
+    // Data provided by Witness during Actions/Voting
+    export struct ActionData {
+        encryptedAction: Bytes<129>,
+        merklePath: MerkleTreePath<10, Bytes<32>>,
+        leafSecret: Bytes<32>
+    }
+
     export struct GameState {
-        adminKey: ZswapCoinPublicKey, // Trusted Node Public Key
-        adminVotePublicKey: Bytes<33>, // ECIES public key for vote encryption
+        adminKey: ZswapCoinPublicKey,
+        adminVotePublicKey: Bytes<33>,
         phase: Phase,
         round: Uint<32>,
         playerCount: Uint<32>,
         aliveCount: Uint<32>,
         werewolfCount: Uint<32>,
         villagerCount: Uint<32>,
-        // Root of the Merkle Tree of ALIVE players
         aliveTreeRoot: MerkleTreeDigest,
-        // Commitment to the Master Secret (Hash(Secret)) used for RNG
-        // Allows verifying game fairness at the end without requiring the Admin
-        // to use their Wallet Private Key as the game entropy source.
         masterSecretCommitment: Bytes<32>,
-        // Rolling hash of all encrypted moves and resolutions
         transcriptHash: Bytes<32>
     }
 }
