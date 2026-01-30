@@ -1,407 +1,408 @@
 module Werewolf {
-    import CompactStandardLibrary;
-    import CompactStandardLibrary prefix std_;
-    import "./WerewolfTypes";
-    import "./Crypto" prefix Crypto_; 
+import CompactStandardLibrary;
+import CompactStandardLibrary prefix std_;
+import "./WerewolfTypes";
+import "./Crypto" prefix Crypto_;
 
-    // =========================================================================
-    // WITNESS DECLARATIONS
-    // =========================================================================
+// =========================================================================
+// WITNESS DECLARATIONS
+// =========================================================================
+
+// Witness to fetch a specific player commitment by index during creation
+export witness wit_getRoleCommitment(gameId: Bytes<32>, n: Uint<32>): Bytes<32>;
+
+// Witness to fetch large voting data (Proof + Encrypted Vote)
+export witness wit_getActionData(gameId: Bytes<32>, round: Uint<32>): ActionData;
+
+// =========================================================================
+// STATE
+// =========================================================================
+
+export ledger games: Map<Bytes<32>, GameState>;
+export ledger playerAlive: Map<Bytes<32>, Map<Uint<32>, Boolean>>;
+export ledger playerPublicKeys: Map<Bytes<32>, Map<Uint<32>, ZswapCoinPublicKey>>;
+export ledger playerRoleCommitments: Map<Bytes<32>, Map<Uint<32>, Bytes<32>>>;
+export ledger playerEncryptedRoles: Map<Bytes<32>, Map<Uint<32>, CurvePoint>>;
+export ledger movesSubmittedCount: Map<Bytes<32>, Uint<32>>;
+export ledger voteNullifiers: Set<Bytes<32>>;
+export ledger gameSecrets: Map<Bytes<32>, Bytes<32>>;
+export ledger roundEncryptedVotes: Map<Bytes<32>, Map<Uint<32>, Bytes<129>>>;
+
+export circuit getAdminKey(): ZswapCoinPublicKey {
+    return std_ownPublicKey();
+}
+
+// =========================================================================
+// INITIALIZATION (Merged Setup)
+// =========================================================================
+
+export circuit createAndSetupGame(
+    gameId: Bytes<32>, 
+    adminKey: ZswapCoinPublicKey,
+    adminVotePublicKey: Bytes<33>,
+    masterSecretCommitment: Bytes<32>,
+    actualCount: Uint<32>,
+    werewolfCount: Uint<32>,
+    initialRoot: MerkleTreeDigest,
+): [] {
+    assert(!games.member(gameId), "Game ID already exists");
+    // We limit to 10 for the vector size in SetupData logic (though struct is gone, game logic assumes 10 max)
+    assert(actualCount <= 10, "Max players exceeded");
+
+    // 1. Initialize Game State
+    const state = GameState {
+        adminKey: adminKey,
+        adminVotePublicKey: adminVotePublicKey,
+        phase: Phase.Night,
+        round: 1,
+        playerCount: actualCount,
+        aliveCount: actualCount,
+        werewolfCount: werewolfCount,
+        villagerCount: (actualCount - werewolfCount) as Uint<32>,
+        aliveTreeRoot: initialRoot,
+        masterSecretCommitment: masterSecretCommitment,
+        transcriptHash: pad(32, "genesis")
+    };
     
-    // Witness to fetch all player commitments during creation
-    export witness wit_getSetupData(gameId: Bytes<32>): SetupData;
+    games.insert(gameId, state);
 
-    // Witness to fetch large voting data (Proof + Encrypted Vote)
-    export witness wit_getActionData(gameId: Bytes<32>, round: Uint<32>): ActionData;
+    playerPublicKeys.insertDefault(gameId);
+    playerRoleCommitments.insertDefault(gameId);
+    playerEncryptedRoles.insertDefault(gameId);
+    playerAlive.insertDefault(gameId);
 
-    // =========================================================================
-    // STATE
-    // =========================================================================
+    // 2. Iterate and register players
+    // Compact loops must be constant range, so we loop max (10) and check count
+    for (const i of 0..10) {
+         if (i < actualCount) {
+            // Call Witness for specific index
+            const commitment = wit_getRoleCommitment(gameId, i as Uint<32>);
 
-    export ledger games: Map<Bytes<32>, GameState>;
-    export ledger playerAlive: Map<Bytes<32>, Map<Uint<32>, Boolean>>;
-    export ledger playerPublicKeys: Map<Bytes<32>, Map<Uint<32>, ZswapCoinPublicKey>>;
-    export ledger playerRoleCommitments: Map<Bytes<32>, Map<Uint<32>, Bytes<32>>>;
-    export ledger playerEncryptedRoles: Map<Bytes<32>, Map<Uint<32>, CurvePoint>>;
-    export ledger movesSubmittedCount: Map<Bytes<32>, Uint<32>>;
-    export ledger voteNullifiers: Set<Bytes<32>>;
-    export ledger gameSecrets: Map<Bytes<32>, Bytes<32>>;
-    export ledger roundEncryptedVotes: Map<Bytes<32>, Map<Uint<32>, Bytes<129>>>;
+            // Register Role Commitment
+            playerRoleCommitments.lookup(gameId).insert(
+                disclose(i as Uint<32>), 
+                disclose(commitment)
+            );
+            // Set Alive
+            playerAlive.lookup(gameId).insert(i as Uint<32>, true);
+         }
+    }
+}
 
-    export circuit getAdminKey(): ZswapCoinPublicKey {
-        return std_ownPublicKey();
+// =========================================================================
+// NIGHT PHASE
+// =========================================================================
+
+export circuit submitNightAction(
+    _gameId: Bytes<32>
+): [] {
+    const gameId = disclose(_gameId);
+    const state = games.lookup(gameId);
+    assert(state.phase == Phase.Night, "Not Night phase");
+
+    // 1. Get Data from Witness
+    const actionData = wit_getActionData(gameId, state.round);
+    const encryptedAction = disclose(actionData.encryptedAction);
+    const merklePath = disclose(actionData.merklePath);
+    const leafSecret = disclose(actionData.leafSecret);
+
+    // 2. Prove Alive
+    const leaf = Crypto_hash(leafSecret);
+    assert(Crypto_verifyMerkleProof(state.aliveTreeRoot, leaf, merklePath), "Invalid Merkle Proof or Player Dead");
+
+    // 3. Nullifier Check
+    const nullifier = Crypto_hash2(
+        gameId, 
+        Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
+    );
+    assert(!voteNullifiers.member(nullifier), "Action already submitted");
+    voteNullifiers.insert(nullifier);
+
+    // 4. Update Transcript & Ledger
+    const encryptedHash = std_persistentHash<Bytes<129>>(encryptedAction);
+    const newTranscript = Crypto_hash2(state.transcriptHash, encryptedHash);
+
+    const countKey = Crypto_hash2(Crypto_hash2(gameId, pad(32, "night-round")), std_persistentHash<Uint<32>>(state.round));
+    const currentCount = movesSubmittedCount.member(countKey) ? movesSubmittedCount.lookup(countKey) : 0 as Uint<32>;
+    if (!roundEncryptedVotes.member(countKey)) {
+        roundEncryptedVotes.insertDefault(countKey);
+    }
+    roundEncryptedVotes.lookup(countKey).insert(currentCount, encryptedAction);
+    movesSubmittedCount.insert(countKey, (currentCount + 1) as Uint<32>);
+
+    // Save State
+    games.insert(gameId, GameState {
+        ...state,
+        transcriptHash: newTranscript
+    });
+}
+
+export circuit resolveNight(
+    _gameId: Bytes<32>,
+    _newRound: Uint<32>,
+    _deadPlayerIdx: Uint<32>, 
+    _hasDeath: Boolean,
+    _newMerkleRoot: MerkleTreeDigest
+): [] {
+    const gameId = disclose(_gameId);
+    const newRound = disclose(_newRound);
+    const deadPlayerIdx = disclose(_deadPlayerIdx);
+    const hasDeath = disclose(_hasDeath);
+    const newMerkleRoot = disclose(_newMerkleRoot);
+
+    const state = games.lookup(gameId);
+    
+    assert(std_ownPublicKey() == state.adminKey, "Only Admin can resolve");
+    
+    if (hasDeath) {
+         assert(playerAlive.lookup(gameId).lookup(deadPlayerIdx), "Player already dead");
+         playerAlive.lookup(gameId).insert(deadPlayerIdx, false);
     }
 
-    // =========================================================================
-    // INITIALIZATION (Merged Setup)
-    // =========================================================================
+    const outcomeHash = std_persistentHash<[Uint<32>, Boolean]>([deadPlayerIdx, hasDeath]);
+    const newTranscript = Crypto_hash2(state.transcriptHash, outcomeHash);
 
-    export circuit createAndSetupGame(
-        gameId: Bytes<32>, 
-        adminKey: ZswapCoinPublicKey,
-        adminVotePublicKey: Bytes<33>,
-        masterSecretCommitment: Bytes<32>,
-        actualCount: Uint<32>,
-        werewolfCount: Uint<32>,
-        initialRoot: MerkleTreeDigest,
-    ): [] {
-        assert(!games.member(gameId), "Game ID already exists");
-        // We limit to 10 for the vector size in SetupData
-        assert(actualCount <= 10, "Max players exceeded");
+    const newState = GameState {
+        adminKey: state.adminKey,
+        adminVotePublicKey: state.adminVotePublicKey,
+        phase: Phase.Day,
+        round: state.round, 
+        playerCount: state.playerCount,
+        aliveCount: hasDeath ? (state.aliveCount - 1) as Uint<32> : state.aliveCount,
+        werewolfCount: state.werewolfCount, 
+        villagerCount: state.villagerCount, 
+        aliveTreeRoot: newMerkleRoot,
+        masterSecretCommitment: state.masterSecretCommitment,
+        transcriptHash: newTranscript
+    };
+    games.insert(gameId, newState);
+}
 
-        // 1. Initialize Game State
-        const state = GameState {
-            adminKey: adminKey,
-            adminVotePublicKey: adminVotePublicKey,
-            phase: Phase.Night,
-            round: 1,
-            playerCount: actualCount,
-            aliveCount: actualCount,
-            werewolfCount: werewolfCount,
-            villagerCount: (actualCount - werewolfCount) as Uint<32>,
-            aliveTreeRoot: initialRoot,
-            masterSecretCommitment: masterSecretCommitment,
-            transcriptHash: pad(32, "genesis")
-        };
+// =========================================================================
+// DAY PHASE
+// =========================================================================
+
+export circuit castDayVote(
+    _gameId: Bytes<32>
+): [] {
+    const gameId = disclose(_gameId);
+    const state = games.lookup(gameId);
+    assert(state.phase == Phase.Day, "Not Day phase");
+
+    // 1. Get Data from Witness
+    const actionData = wit_getActionData(gameId, state.round);
+    const encryptedVote = disclose(actionData.encryptedAction);
+    const merklePath = disclose(actionData.merklePath);
+    const leafSecret = disclose(actionData.leafSecret);
+
+    // 2. Prove Alive
+    const leaf = Crypto_hash(leafSecret);
+    assert(Crypto_verifyMerkleProof(state.aliveTreeRoot, leaf, merklePath), "Invalid Merkle Proof");
+
+    // 3. Nullifier Check
+    const nullifier = Crypto_hash2(
+        Crypto_hash2(gameId, pad(32, "day-vote")),
+        Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
+    );
+    assert(!voteNullifiers.member(nullifier), "Double voting detected");
+    voteNullifiers.insert(nullifier);
+
+    // 4. Update Transcript & Ledger
+    const encryptedHash = std_persistentHash<Bytes<129>>(encryptedVote);
+    const newTranscript = Crypto_hash2(state.transcriptHash, encryptedHash);
+
+    const countKey = Crypto_hash2(
+        Crypto_hash2(gameId, pad(32, "day-round")), 
+        std_persistentHash<Uint<32>>(state.round)
+    );
+    
+    const currentCount = movesSubmittedCount.member(countKey) ? movesSubmittedCount.lookup(countKey) : 0 as Uint<32>;
+    if (!roundEncryptedVotes.member(countKey)) {
+        roundEncryptedVotes.insertDefault(countKey);
+    }
+    roundEncryptedVotes.lookup(countKey).insert(currentCount, encryptedVote);
+    movesSubmittedCount.insert(countKey, (currentCount + 1) as Uint<32>);
+
+    games.insert(gameId, GameState {
+        ...state,
+        transcriptHash: newTranscript
+    });
+}
+
+export circuit resolveDay(
+    _gameId: Bytes<32>,
+    _eliminatedIdx: Uint<32>,
+    _hasElimination: Boolean
+): [] {
+    const gameId = disclose(_gameId);
+    const eliminatedIdx = disclose(_eliminatedIdx);
+    const hasElimination = disclose(_hasElimination);
+
+    const state = games.lookup(gameId);
+    assert(std_ownPublicKey() == state.adminKey, "Only Admin");
+
+    if (hasElimination) {
+        playerAlive.lookup(gameId).insert(eliminatedIdx, false);
+    }
+
+    const outcomeHash = std_persistentHash<[Uint<32>, Boolean]>([eliminatedIdx, hasElimination]);
+    const newTranscript = Crypto_hash2(state.transcriptHash, outcomeHash);
+
+    const nextRound = (state.round + 1) as Uint<32>;
+    const newState = GameState {
+        adminKey: state.adminKey,
+        adminVotePublicKey: state.adminVotePublicKey,
+        phase: Phase.Night,
+        round: nextRound,
+        playerCount: state.playerCount,
+        aliveCount: hasElimination ? (state.aliveCount - 1) as Uint<32> : state.aliveCount,
+        werewolfCount: state.werewolfCount,
+        villagerCount: state.villagerCount,
+        aliveTreeRoot: state.aliveTreeRoot,
+        masterSecretCommitment: state.masterSecretCommitment,
+        transcriptHash: newTranscript
+    };
+    games.insert(gameId, newState);
+}
+
+// =========================================================================
+// GAME END & VERIFICATION
+// =========================================================================
+
+export circuit revealRole(
+    _gameId: Bytes<32>,
+    _playerIdx: Uint<32>,
+    _role: Uint<8>,
+    _salt: Bytes<32>
+): [] {
+    const gameId = disclose(_gameId);
+    const playerIdx = disclose(_playerIdx);
+    const role = disclose(_role);
+    const salt = disclose(_salt);
+
+    const state = games.lookup(gameId);
+    const roleCommitment = playerRoleCommitments.lookup(gameId).lookup(playerIdx);
+
+    const calcCommit = Crypto_commitRole(role, salt);
+    assert(calcCommit == roleCommitment, "Invalid role revelation");
+
+    if (state.phase != Phase.Finished) {
+        const roleEnum = role as Role;
+        const isWolf = roleEnum == Role.Werewolf;
         
-        games.insert(gameId, state);
+        const wwCount = isWolf 
+            ? ((state.werewolfCount > 0 as Uint<32>) ? (state.werewolfCount - 1 as Uint<32>) : 0 as Uint<32>)
+            : state.werewolfCount;
 
-        playerPublicKeys.insertDefault(gameId);
-        playerRoleCommitments.insertDefault(gameId);
-        playerEncryptedRoles.insertDefault(gameId);
-        playerAlive.insertDefault(gameId);
-
-        // 2. Consume Witness for Setup Data
-        const setupData = wit_getSetupData(gameId);
-
-        // 3. Iterate and register players
-        // Compact loops must be constant range, so we loop max (10) and check count
-        for (const i of 0..10) {
-             if (i < actualCount) {
-                // Register Role Commitment
-                playerRoleCommitments.lookup(gameId).insert(
-                    disclose(i as Uint<32>), 
-                    disclose(setupData.roleCommitments[i])
-                );
-                // Set Alive
-                playerAlive.lookup(gameId).insert(i as Uint<32>, true);
-             }
-        }
-    }
-
-    // =========================================================================
-    // NIGHT PHASE
-    // =========================================================================
-
-    export circuit submitNightAction(
-        _gameId: Bytes<32>
-    ): [] {
-        const gameId = disclose(_gameId);
-        const state = games.lookup(gameId);
-        assert(state.phase == Phase.Night, "Not Night phase");
-
-        // 1. Get Data from Witness
-        const actionData = wit_getActionData(gameId, state.round);
-        const encryptedAction = disclose(actionData.encryptedAction);
-        const merklePath = disclose(actionData.merklePath);
-        const leafSecret = disclose(actionData.leafSecret);
-
-        // 2. Prove Alive
-        const leaf = Crypto_hash(leafSecret);
-        assert(Crypto_verifyMerkleProof(state.aliveTreeRoot, leaf, merklePath), "Invalid Merkle Proof or Player Dead");
-
-        // 3. Nullifier Check
-        const nullifier = Crypto_hash2(
-            gameId, 
-            Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
-        );
-        assert(!voteNullifiers.member(nullifier), "Action already submitted");
-        voteNullifiers.insert(nullifier);
-
-        // 4. Update Transcript & Ledger
-        const encryptedHash = std_persistentHash<Bytes<129>>(encryptedAction);
-        const newTranscript = Crypto_hash2(state.transcriptHash, encryptedHash);
-
-        const countKey = Crypto_hash2(Crypto_hash2(gameId, pad(32, "night-round")), std_persistentHash<Uint<32>>(state.round));
-        const currentCount = movesSubmittedCount.member(countKey) ? movesSubmittedCount.lookup(countKey) : 0 as Uint<32>;
-        if (!roundEncryptedVotes.member(countKey)) {
-            roundEncryptedVotes.insertDefault(countKey);
-        }
-        roundEncryptedVotes.lookup(countKey).insert(currentCount, encryptedAction);
-        movesSubmittedCount.insert(countKey, (currentCount + 1) as Uint<32>);
-
-        // Save State
-        games.insert(gameId, GameState {
-            ...state,
-            transcriptHash: newTranscript
-        });
-    }
-
-    export circuit resolveNight(
-        _gameId: Bytes<32>,
-        _newRound: Uint<32>,
-        _deadPlayerIdx: Uint<32>, 
-        _hasDeath: Boolean,
-        _newMerkleRoot: MerkleTreeDigest
-    ): [] {
-        const gameId = disclose(_gameId);
-        const newRound = disclose(_newRound);
-        const deadPlayerIdx = disclose(_deadPlayerIdx);
-        const hasDeath = disclose(_hasDeath);
-        const newMerkleRoot = disclose(_newMerkleRoot);
-
-        const state = games.lookup(gameId);
+        const vilCount = !isWolf
+            ? ((state.villagerCount > 0 as Uint<32>) ? (state.villagerCount - 1 as Uint<32>) : 0 as Uint<32>)
+            : state.villagerCount;
         
-        assert(std_ownPublicKey() == state.adminKey, "Only Admin can resolve");
-        
-        if (hasDeath) {
-             assert(playerAlive.lookup(gameId).lookup(deadPlayerIdx), "Player already dead");
-             playerAlive.lookup(gameId).insert(deadPlayerIdx, false);
-        }
+        const isGameOver = (wwCount == 0 as Uint<32>) || (wwCount >= vilCount);
+        const nextPhase = isGameOver ? Phase.Finished : state.phase;
 
-        const outcomeHash = std_persistentHash<[Uint<32>, Boolean]>([deadPlayerIdx, hasDeath]);
-        const newTranscript = Crypto_hash2(state.transcriptHash, outcomeHash);
-
-        const newState = GameState {
-            adminKey: state.adminKey,
-            adminVotePublicKey: state.adminVotePublicKey,
-            phase: Phase.Day,
-            round: state.round, 
-            playerCount: state.playerCount,
-            aliveCount: hasDeath ? (state.aliveCount - 1) as Uint<32> : state.aliveCount,
-            werewolfCount: state.werewolfCount, 
-            villagerCount: state.villagerCount, 
-            aliveTreeRoot: newMerkleRoot,
-            masterSecretCommitment: state.masterSecretCommitment,
-            transcriptHash: newTranscript
-        };
-        games.insert(gameId, newState);
-    }
-
-    // =========================================================================
-    // DAY PHASE
-    // =========================================================================
-
-    export circuit castDayVote(
-        _gameId: Bytes<32>
-    ): [] {
-        const gameId = disclose(_gameId);
-        const state = games.lookup(gameId);
-        assert(state.phase == Phase.Day, "Not Day phase");
-
-        // 1. Get Data from Witness
-        const actionData = wit_getActionData(gameId, state.round);
-        const encryptedVote = disclose(actionData.encryptedAction);
-        const merklePath = disclose(actionData.merklePath);
-        const leafSecret = disclose(actionData.leafSecret);
-
-        // 2. Prove Alive
-        const leaf = Crypto_hash(leafSecret);
-        assert(Crypto_verifyMerkleProof(state.aliveTreeRoot, leaf, merklePath), "Invalid Merkle Proof");
-
-        // 3. Nullifier Check
-        const nullifier = Crypto_hash2(
-            Crypto_hash2(gameId, pad(32, "day-vote")),
-            Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
-        );
-        assert(!voteNullifiers.member(nullifier), "Double voting detected");
-        voteNullifiers.insert(nullifier);
-
-        // 4. Update Transcript & Ledger
-        const encryptedHash = std_persistentHash<Bytes<129>>(encryptedVote);
-        const newTranscript = Crypto_hash2(state.transcriptHash, encryptedHash);
-
-        const countKey = Crypto_hash2(
-            Crypto_hash2(gameId, pad(32, "day-round")), 
-            std_persistentHash<Uint<32>>(state.round)
-        );
-        
-        const currentCount = movesSubmittedCount.member(countKey) ? movesSubmittedCount.lookup(countKey) : 0 as Uint<32>;
-        if (!roundEncryptedVotes.member(countKey)) {
-            roundEncryptedVotes.insertDefault(countKey);
-        }
-        roundEncryptedVotes.lookup(countKey).insert(currentCount, encryptedVote);
-        movesSubmittedCount.insert(countKey, (currentCount + 1) as Uint<32>);
-
-        games.insert(gameId, GameState {
-            ...state,
-            transcriptHash: newTranscript
-        });
-    }
-
-    export circuit resolveDay(
-        _gameId: Bytes<32>,
-        _eliminatedIdx: Uint<32>,
-        _hasElimination: Boolean
-    ): [] {
-        const gameId = disclose(_gameId);
-        const eliminatedIdx = disclose(_eliminatedIdx);
-        const hasElimination = disclose(_hasElimination);
-
-        const state = games.lookup(gameId);
-        assert(std_ownPublicKey() == state.adminKey, "Only Admin");
-
-        if (hasElimination) {
-            playerAlive.lookup(gameId).insert(eliminatedIdx, false);
-        }
-
-        const outcomeHash = std_persistentHash<[Uint<32>, Boolean]>([eliminatedIdx, hasElimination]);
-        const newTranscript = Crypto_hash2(state.transcriptHash, outcomeHash);
-
-        const nextRound = (state.round + 1) as Uint<32>;
-        const newState = GameState {
-            adminKey: state.adminKey,
-            adminVotePublicKey: state.adminVotePublicKey,
-            phase: Phase.Night,
-            round: nextRound,
-            playerCount: state.playerCount,
-            aliveCount: hasElimination ? (state.aliveCount - 1) as Uint<32> : state.aliveCount,
-            werewolfCount: state.werewolfCount,
-            villagerCount: state.villagerCount,
-            aliveTreeRoot: state.aliveTreeRoot,
-            masterSecretCommitment: state.masterSecretCommitment,
-            transcriptHash: newTranscript
-        };
-        games.insert(gameId, newState);
-    }
-
-    // =========================================================================
-    // GAME END & VERIFICATION
-    // =========================================================================
-
-    export circuit revealRole(
-        _gameId: Bytes<32>,
-        _playerIdx: Uint<32>,
-        _role: Uint<8>,
-        _salt: Bytes<32>
-    ): [] {
-        const gameId = disclose(_gameId);
-        const playerIdx = disclose(_playerIdx);
-        const role = disclose(_role);
-        const salt = disclose(_salt);
-
-        const state = games.lookup(gameId);
-        const roleCommitment = playerRoleCommitments.lookup(gameId).lookup(playerIdx);
-
-        const calcCommit = Crypto_commitRole(role, salt);
-        assert(calcCommit == roleCommitment, "Invalid role revelation");
-
-        if (state.phase != Phase.Finished) {
-            const roleEnum = role as Role;
-            const isWolf = roleEnum == Role.Werewolf;
-            
-            const wwCount = isWolf 
-                ? ((state.werewolfCount > 0 as Uint<32>) ? (state.werewolfCount - 1 as Uint<32>) : 0 as Uint<32>)
-                : state.werewolfCount;
-
-            const vilCount = !isWolf
-                ? ((state.villagerCount > 0 as Uint<32>) ? (state.villagerCount - 1 as Uint<32>) : 0 as Uint<32>)
-                : state.villagerCount;
-            
-            const isGameOver = (wwCount == 0 as Uint<32>) || (wwCount >= vilCount);
-            const nextPhase = isGameOver ? Phase.Finished : state.phase;
-
-            games.insert(disclose(gameId), GameState {
-                ...state,
-                phase: nextPhase,
-                werewolfCount: wwCount,
-                villagerCount: vilCount
-            });
-        }
-    }
-
-    export circuit endGame(
-        _gameId: Bytes<32>,
-        _masterSecret: Bytes<32>
-    ): [] {
-        const gameId = disclose(_gameId);
-        const masterSecret = disclose(_masterSecret);
-
-        const state = games.lookup(gameId);
-        assert(std_ownPublicKey() == state.adminKey, "Only Admin");
-
-        // Verify Secret against Commitment made in initGame
-        const calculatedCommit = Crypto_hash(masterSecret);
-        assert(calculatedCommit == state.masterSecretCommitment, "Invalid Master Secret for this Game");
-
-        gameSecrets.insert(gameId, masterSecret);
-        
         games.insert(disclose(gameId), GameState {
             ...state,
-            phase: Phase.Finished
+            phase: nextPhase,
+            werewolfCount: wwCount,
+            villagerCount: vilCount
         });
     }
+}
 
-    export circuit verifyGameSetup(
-        _gameId: Bytes<32>,
-        _masterSecret: Bytes<32>,
-        _playerIdx: Uint<32>,
-        _assignedRole: Uint<8>
-    ): Boolean {
-        const gameId = disclose(_gameId);
-        const masterSecret = disclose(_masterSecret);
-        const playerIdx = disclose(_playerIdx);
-        const assignedRole = disclose(_assignedRole);
+export circuit endGame(
+    _gameId: Bytes<32>,
+    _masterSecret: Bytes<32>
+): [] {
+    const gameId = disclose(_gameId);
+    const masterSecret = disclose(_masterSecret);
 
-        const state = games.lookup(gameId);
-        
-        // Check secret is valid for this game
-        const calculatedCommit = Crypto_hash(masterSecret);
-        if (calculatedCommit != state.masterSecretCommitment) return false;
+    const state = games.lookup(gameId);
+    assert(std_ownPublicKey() == state.adminKey, "Only Admin");
 
-        const saltSeed = std_persistentHash<[Bytes<32>, Bytes<32>, Uint<32>]>([
-            masterSecret, 
-            pad(32, "salt"), 
-            playerIdx
-        ]);
-        const derivedSalt = saltSeed;
+    // Verify Secret against Commitment made in initGame
+    const calculatedCommit = Crypto_hash(masterSecret);
+    assert(calculatedCommit == state.masterSecretCommitment, "Invalid Master Secret for this Game");
 
-        const roleCommitment = playerRoleCommitments.lookup(gameId).lookup(playerIdx);
-        const derivedCommit = Crypto_commitRole(assignedRole, derivedSalt);
+    gameSecrets.insert(gameId, masterSecret);
+    
+    games.insert(disclose(gameId), GameState {
+        ...state,
+        phase: Phase.Finished
+    });
+}
 
-        return derivedCommit == roleCommitment;
-    }
+export circuit verifyGameSetup(
+    _gameId: Bytes<32>,
+    _masterSecret: Bytes<32>,
+    _playerIdx: Uint<32>,
+    _assignedRole: Uint<8>
+): Boolean {
+    const gameId = disclose(_gameId);
+    const masterSecret = disclose(_masterSecret);
+    const playerIdx = disclose(_playerIdx);
+    const assignedRole = disclose(_assignedRole);
 
-    export circuit getEncryptedVotesForRound(
-        _gameId: Bytes<32>,
-        _phase: Phase,
-        _round: Uint<32>
-    ): Vector<10, Bytes<129>> {
-        const gameId = disclose(_gameId);
-        const phase = disclose(_phase);
-        const round = disclose(_round);
+    const state = games.lookup(gameId);
+    
+    // Check secret is valid for this game
+    const calculatedCommit = Crypto_hash(masterSecret);
+    if (calculatedCommit != state.masterSecretCommitment) return false;
 
-        const roundPrefix = phase == Phase.Day ? pad(32, "day-round") : pad(32, "night-round");
-        const countKey = Crypto_hash2(
-            Crypto_hash2(gameId, roundPrefix),
-            std_persistentHash<Uint<32>>(round)
-        );
+    const saltSeed = std_persistentHash<[Bytes<32>, Bytes<32>, Uint<32>]>([
+        masterSecret, 
+        pad(32, "salt"), 
+        playerIdx
+    ]);
+    const derivedSalt = saltSeed;
 
-        const emptyVote = pad(129, "0");
-        if (!roundEncryptedVotes.member(countKey)) {
-            return [
-                emptyVote, emptyVote, emptyVote, emptyVote, emptyVote,
-                emptyVote, emptyVote, emptyVote, emptyVote, emptyVote
-            ];
-        }
+    const roleCommitment = playerRoleCommitments.lookup(gameId).lookup(playerIdx);
+    const derivedCommit = Crypto_commitRole(assignedRole, derivedSalt);
 
+    return derivedCommit == roleCommitment;
+}
+
+export circuit getEncryptedVotesForRound(
+    _gameId: Bytes<32>,
+    _phase: Phase,
+    _round: Uint<32>
+): Vector<10, Bytes<129>> {
+    const gameId = disclose(_gameId);
+    const phase = disclose(_phase);
+    const round = disclose(_round);
+
+    const roundPrefix = phase == Phase.Day ? pad(32, "day-round") : pad(32, "night-round");
+    const countKey = Crypto_hash2(
+        Crypto_hash2(gameId, roundPrefix),
+        std_persistentHash<Uint<32>>(round)
+    );
+
+    const emptyVote = pad(129, "0");
+    if (!roundEncryptedVotes.member(countKey)) {
         return [
-            roundEncryptedVotes.lookup(countKey).member(0 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(0 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(1 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(1 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(2 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(2 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(3 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(3 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(4 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(4 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(5 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(5 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(6 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(6 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(7 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(7 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(8 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(8 as Uint<32>) : emptyVote,
-            roundEncryptedVotes.lookup(countKey).member(9 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(9 as Uint<32>) : emptyVote
+            emptyVote, emptyVote, emptyVote, emptyVote, emptyVote,
+            emptyVote, emptyVote, emptyVote, emptyVote, emptyVote
         ];
     }
 
-    export circuit getGameAdminPublicKey(_gameId: Bytes<32>): Bytes<33> {
-        const gameId = disclose(_gameId);
-        assert(games.member(gameId), "Game not found");
-        return games.lookup(gameId).adminVotePublicKey;
-    }
+    return [
+        roundEncryptedVotes.lookup(countKey).member(0 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(0 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(1 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(1 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(2 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(2 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(3 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(3 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(4 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(4 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(5 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(5 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(6 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(6 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(7 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(7 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(8 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(8 as Uint<32>) : emptyVote,
+        roundEncryptedVotes.lookup(countKey).member(9 as Uint<32>) ? roundEncryptedVotes.lookup(countKey).lookup(9 as Uint<32>) : emptyVote
+    ];
+}
+
+export circuit getGameAdminPublicKey(_gameId: Bytes<32>): Bytes<33> {
+    const gameId = disclose(_gameId);
+    assert(games.member(gameId), "Game not found");
+    return games.lookup(gameId).adminVotePublicKey;
+}
+
 }

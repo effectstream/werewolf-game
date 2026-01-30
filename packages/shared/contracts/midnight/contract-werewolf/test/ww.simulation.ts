@@ -334,17 +334,24 @@ class RuntimeMerkleTree {
 // =============================================================================
 
 const witnesses = {
-  wit_getSetupData: (
+  wit_getRoleCommitment: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
+    _gameId: Uint8Array,
+    n: number | bigint,
   ) => {
     if (!privateState.activeActor?.getSetupData) {
       throw new Error("No setup data");
     }
-    return [privateState, privateState.activeActor.getSetupData()];
+    const setup = privateState.activeActor.getSetupData();
+    const index = Number(n);
+    if (index < 0 || index >= setup.roleCommitments.length) {
+      throw new Error(`Role commitment index ${index} out of bounds`);
+    }
+    return [privateState, setup.roleCommitments[index]];
   },
   wit_getActionData: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _: any,
+    _gameId: Uint8Array,
     round: bigint,
   ) => {
     if (!privateState.activeActor?.getActionData) {

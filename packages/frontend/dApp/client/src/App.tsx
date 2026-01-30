@@ -55,6 +55,24 @@ type PlayerProfile = {
   role?: number;
 };
 
+type WitnessSetupData = {
+  roleCommitments: Uint8Array[];
+};
+
+type WitnessActionData = {
+  encryptedAction: Uint8Array;
+  merklePath: {
+    leaf: Uint8Array;
+    path: { sibling: { field: bigint }; goes_left: boolean }[];
+  };
+  leafSecret: Uint8Array;
+};
+
+type WitnessPrivateState = {
+  setupData: Map<string, WitnessSetupData>;
+  nextAction?: WitnessActionData;
+};
+
 type GameState = {
   gameId: Uint8Array;
   masterSecret: Uint8Array;
@@ -390,18 +408,32 @@ function App() {
 
   const runtimeWitnesses = useMemo(
     () => ({
-      wit_getSetupData: () => {
-        throw new Error("Witness not configured in frontend.");
+      wit_getRoleCommitment: (
+        _: unknown,
+        gameId: Uint8Array,
+        n: number | bigint,
+      ) => {
+        const id = bytesToHex(gameId);
+        throw new Error(
+          `Witness not configured in frontend (role commitment ${n} for ${id}).`,
+        );
       },
-      wit_getActionData: () => {
-        throw new Error("Witness not configured in frontend.");
+      wit_getActionData: (
+        _: unknown,
+        gameId: Uint8Array,
+        round: number | bigint,
+      ) => {
+        const id = bytesToHex(gameId);
+        throw new Error(
+          `Witness not configured in frontend (action for ${id} round ${round}).`,
+        );
       },
     }),
     [],
   );
 
   const runtimeContract = useMemo(
-    () => new WerewolfRuntimeContract(runtimeWitnesses as any),
+    () => new WerewolfRuntimeContract(runtimeWitnesses),
     [runtimeWitnesses],
   );
 
@@ -632,34 +664,40 @@ function App() {
       roleCommitments.push(new Uint8Array(32));
     }
     const key = toHexString(gameId);
-    await midnightProviders.privateStateProvider.set("werewolfPrivateState", {
+    const state: WitnessPrivateState = {
       setupData: new Map([[key, { roleCommitments }]]),
       nextAction: undefined,
-    });
+    };
+    await midnightProviders.privateStateProvider.set(
+      "werewolfPrivateState",
+      state,
+    );
   };
 
   const stageNextAction = async (
     gameId: Uint8Array,
-    action: {
-      encryptedAction: Uint8Array;
-      merklePath: {
-        leaf: Uint8Array;
-        path: { sibling: { field: bigint }; goes_left: boolean }[];
-      };
-      leafSecret: Uint8Array;
-    },
+    action: WitnessActionData,
   ) => {
     if (!midnightProviders?.privateStateProvider?.set) {
       throw new Error("Private state provider not available.");
     }
     const key = toHexString(gameId);
-    await midnightProviders.privateStateProvider.set("werewolfPrivateState", {
-      setupData: new Map([[key, {
-        roleCommitments: Array.from({ length: MAX_PLAYERS }, () =>
-          new Uint8Array(32)),
-      }]]),
+    const state: WitnessPrivateState = {
+      setupData: new Map([[
+        key,
+        {
+          roleCommitments: Array.from(
+            { length: MAX_PLAYERS },
+            () => new Uint8Array(32),
+          ),
+        },
+      ]]),
       nextAction: action,
-    });
+    };
+    await midnightProviders.privateStateProvider.set(
+      "werewolfPrivateState",
+      state,
+    );
   };
 
   const getRoundEncryptedVotes = (
