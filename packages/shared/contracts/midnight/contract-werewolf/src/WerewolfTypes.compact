@@ -17,7 +17,8 @@ export enum Phase {
 
 // Data provided by Witness during Actions/Voting
 export struct ActionData {
-    encryptedAction: Bytes<129>,
+    // Encrypted payload (Target + Round + Random) packed into 24 bits
+    encryptedAction: Bytes<3>,
     merklePath: MerkleTreePath<10, Bytes<32>>,
     leafSecret: Bytes<32>
 }

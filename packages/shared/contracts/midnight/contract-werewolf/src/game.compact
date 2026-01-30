@@ -16,7 +16,6 @@ export {
 export { 
     Werewolf_games, 
     Werewolf_playerAlive, 
-    Werewolf_playerPublicKeys, 
     Werewolf_playerRoleCommitments, 
     Werewolf_playerEncryptedRoles, 
     Werewolf_voteNullifiers, 
@@ -115,7 +114,7 @@ export circuit getEncryptedVotesForRound(
     gameId: Bytes<32>,
     phase: Phase,
     round: Uint<32>
-): Vector<10, Bytes<129>> {
+): Vector<10, Bytes<3>> {
     return Werewolf_getEncryptedVotesForRound(gameId, phase, round);
 }
 

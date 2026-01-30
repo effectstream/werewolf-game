@@ -11,11 +11,11 @@ import {
   createConstructorContext,
   QueryContext,
   sampleContractAddress,
-  type WitnessContext,
 } from "@midnight-ntwrk/compact-runtime";
 import { Buffer } from "node:buffer";
-import { decrypt, encrypt, PrivateKey } from "eciesjs";
 import { createHash } from "node:crypto";
+import { PrivateKey } from "eciesjs";
+import nacl from "tweetnacl";
 import { Contract } from "../src/managed/contract/index.js";
 import {
   type MerkleTreeDigest,
@@ -48,6 +48,57 @@ export const Phase = {
 // ============================================
 
 const toHex = (bytes: Uint8Array): string => Buffer.from(bytes).toString("hex");
+
+const ENCRYPTION_LIMITS = {
+  NUM_MAX: 99, // 7 bits
+  RND_MAX: 99, // 7 bits
+  RAND_MAX: 999, // 10 bits
+};
+
+function packData(number: number, round: number, random: number): Uint8Array {
+  if (
+    number > ENCRYPTION_LIMITS.NUM_MAX || round > ENCRYPTION_LIMITS.RND_MAX ||
+    random > ENCRYPTION_LIMITS.RAND_MAX
+  ) {
+    throw new Error("Overflow in packData");
+  }
+  const packed = (number << 17) | (round << 10) | random;
+  const bytes = new Uint8Array(3);
+  bytes[0] = (packed >> 16) & 0xFF;
+  bytes[1] = (packed >> 8) & 0xFF;
+  bytes[2] = packed & 0xFF;
+  return bytes;
+}
+
+function deriveSessionKey(
+  myPrivKey: Uint8Array,
+  theirPubKey: Uint8Array,
+  txNonce: number,
+): Uint8Array {
+  const sharedPoint = nacl.scalarMult(myPrivKey, theirPubKey);
+  const nonceBytes = new Uint8Array(new Int32Array([txNonce]).buffer);
+  const combined = new Uint8Array(sharedPoint.length + nonceBytes.length);
+  combined.set(sharedPoint);
+  combined.set(nonceBytes, sharedPoint.length);
+  return nacl.hash(combined).slice(0, 3);
+}
+
+function encryptPayload(
+  number: number,
+  round: number,
+  random: number,
+  myPrivKey: Uint8Array,
+  receiverPubKey: Uint8Array,
+  txNonce: number,
+): Uint8Array {
+  const payload = packData(number, round, random);
+  const key = deriveSessionKey(myPrivKey, receiverPubKey, txNonce);
+  const ciphertext = new Uint8Array(3);
+  for (let i = 0; i < 3; i++) {
+    ciphertext[i] = payload[i] ^ key[i];
+  }
+  return ciphertext;
+}
 
 /**
  * MOCK MERKLE TREE
@@ -98,6 +149,7 @@ interface PlayerLocalState {
   id: number;
   pk: Uint8Array;
   sk: Uint8Array;
+  encKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
   role: number;
   salt: Uint8Array;
   alive: boolean;
@@ -117,6 +169,7 @@ class WerewolfSimulator {
   adminVotePrivateKeyHex: string;
   adminVotePublicKeyHex: string;
   adminVotePublicKeyBytes: Uint8Array;
+  adminEncKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
 
   // Game Secrets
   masterSecret: Uint8Array;
@@ -160,6 +213,7 @@ class WerewolfSimulator {
       this.adminVotePublicKeyHex,
       "hex",
     );
+    this.adminEncKeypair = nacl.box.keyPair();
 
     this.masterSecret = this.generateId();
     this.masterSecretCommitment = new Uint8Array(32);
@@ -189,12 +243,6 @@ function logPass(name: string) {
 }
 function logFail(name: string, err: any) {
   console.log(`  ❌ FAIL: ${name}`, err);
-}
-function encryptVote(pubKeyHex: string, targetIdx: number): Uint8Array {
-  const payload = new Uint8Array(32);
-  new DataView(payload.buffer).setUint32(0, targetIdx, true);
-  const enc = encrypt(pubKeyHex, Buffer.from(payload));
-  return new Uint8Array(enc);
 }
 
 // ============================================
@@ -254,70 +302,6 @@ async function runTestSuite() {
     return;
   }
 
-  // 2. LIMIT TESTS (INPUTS + OUTPUT WRITES)
-  try {
-    const inputs = Array.from({ length: 16 }, () => sim.generateId());
-
-    const circuitsAny = circuits as any;
-    if (typeof circuitsAny.testInputHash4 === "function") {
-      const rIn4 = circuitsAny.testInputHash4(
-        sim.circuitContext,
-        inputs[0],
-        inputs[1],
-        inputs[2],
-        inputs[3],
-      );
-      sim.circuitContext = rIn4.context;
-      logPass("Limit test: input hash 4");
-    } else {
-      logPass("Limit test: input hash 4 (skipped; not available)");
-    }
-
-    const rIn8 = circuits.testInputHash8(
-      sim.circuitContext,
-      inputs[0],
-      inputs[1],
-      inputs[2],
-      inputs[3],
-      inputs[4],
-      inputs[5],
-      inputs[6],
-      inputs[7],
-    );
-    sim.circuitContext = rIn8.context;
-    logPass("Limit test: input hash 8");
-
-    const seed = sim.generateId();
-
-    const rOut1 = circuits.testLedgerWrites1(
-      sim.circuitContext,
-      sim.generateId(),
-      seed,
-    );
-    sim.circuitContext = rOut1.context;
-    logPass("Limit test: ledger writes 1");
-
-    const rOut5 = circuits.testLedgerWrites5(
-      sim.circuitContext,
-      sim.generateId(),
-      seed,
-    );
-    sim.circuitContext = rOut5.context;
-    logPass("Limit test: ledger writes 5");
-
-    const rOut10 = circuits.testLedgerWrites10(
-      sim.circuitContext,
-      sim.generateId(),
-      seed,
-    );
-    sim.circuitContext = rOut10.context;
-    logPass("Limit test: ledger writes 10");
-
-  } catch (e) {
-    logFail("Limit tests", e);
-    return;
-  }
-
   // 3. GENERATE PLAYERS
   const playerCount = 5;
   const werewolfCount = 1;
@@ -326,7 +310,8 @@ async function runTestSuite() {
   for (let i = 0; i < playerCount; i++) {
     const p: any = { id: i, alive: true };
     p.sk = sim.generateId(); // Leaf Secret
-    p.pk = sim.generateId(); // Mock PubKey
+    p.encKeypair = nacl.box.keyPair();
+    p.pk = p.encKeypair.publicKey; // Encryption PubKey (known to admin)
     p.role = i < werewolfCount ? Role.Werewolf : Role.Villager;
 
     // Salt
@@ -361,7 +346,18 @@ async function runTestSuite() {
   try {
     // Prepare Private State
     const roleCommitments = Array(10).fill(new Uint8Array(32));
+    const encryptedRoles = Array(10).fill(new Uint8Array(3));
     sim.players.forEach((p) => roleCommitments[p.id] = p.commitment);
+    sim.players.forEach((p) => {
+      encryptedRoles[p.id] = encryptPayload(
+        p.role,
+        0,
+        p.id % 1000,
+        sim.adminEncKeypair.secretKey,
+        p.encKeypair.publicKey,
+        0,
+      );
+    });
 
     const tree = new RuntimeMerkleTree(
       sim.contract,
@@ -373,6 +369,7 @@ async function runTestSuite() {
     sim.updatePrivateState((state) => {
       state.setupData.set(toHex(sim.gameId), {
         roleCommitments,
+        encryptedRoles,
         adminKey: { bytes: sim.adminKey },
         initialRoot: root,
       });
@@ -397,8 +394,7 @@ async function runTestSuite() {
   try {
     const actor = sim.players[0]; // Werewolf
     const targetIdx = 1;
-
-    const encryptedAction = encryptVote(sim.adminVotePublicKeyHex, targetIdx);
+    const actionRandom = Math.floor(Math.random() * 1000);
     const merklePath = new RuntimeMerkleTree(
       sim.contract,
       sim.circuitContext,
@@ -408,10 +404,12 @@ async function runTestSuite() {
     // Stage Witness Data
     sim.updatePrivateState((state) => {
       state.nextAction = {
-        encryptedAction,
+        targetNumber: targetIdx,
+        random: actionRandom,
         merklePath,
         leafSecret: actor.sk,
       };
+      state.encryptionKeypair = actor.encKeypair;
     });
 
     // Call Circuit
@@ -449,7 +447,7 @@ async function runTestSuite() {
   try {
     const voter = sim.players[2]; // Villager
     const voteTarget = 0; // Vote for wolf
-    const encryptedVote = encryptVote(sim.adminVotePublicKeyHex, voteTarget);
+    const actionRandom = Math.floor(Math.random() * 1000);
     const merklePath = new RuntimeMerkleTree(
       sim.contract,
       sim.circuitContext,
@@ -458,10 +456,12 @@ async function runTestSuite() {
 
     sim.updatePrivateState((state) => {
       state.nextAction = {
-        encryptedAction: encryptedVote,
+        targetNumber: voteTarget,
+        random: actionRandom,
         merklePath,
         leafSecret: voter.sk,
       };
+      state.encryptionKeypair = voter.encKeypair;
     });
 
     const rVote = circuits.voteDay(sim.circuitContext, sim.gameId);

@@ -6,9 +6,8 @@ import {
   sampleContractAddress,
   type WitnessContext,
 } from "@midnight-ntwrk/compact-runtime";
-import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
-import { decrypt, encrypt, PrivateKey } from "eciesjs";
+import nacl from "tweetnacl";
 import { Contract } from "../src/managed/contract/index.js";
 
 // =============================================================================
@@ -22,8 +21,60 @@ type MerkleTreeDigest = { field: bigint };
 type MerkleTreePathEntry = { sibling: MerkleTreeDigest; goes_left: boolean };
 type MerkleTreePath = { leaf: Uint8Array; path: MerkleTreePathEntry[] };
 
+const ENCRYPTION_LIMITS = {
+  NUM_MAX: 99, // 7 bits
+  RND_MAX: 99, // 7 bits
+  RAND_MAX: 999, // 10 bits
+};
+
+function packData(number: number, round: number, random: number): Uint8Array {
+  if (
+    number > ENCRYPTION_LIMITS.NUM_MAX || round > ENCRYPTION_LIMITS.RND_MAX ||
+    random > ENCRYPTION_LIMITS.RAND_MAX
+  ) {
+    throw new Error("Overflow in packData");
+  }
+  const packed = (number << 17) | (round << 10) | random;
+  const bytes = new Uint8Array(3);
+  bytes[0] = (packed >> 16) & 0xFF;
+  bytes[1] = (packed >> 8) & 0xFF;
+  bytes[2] = packed & 0xFF;
+  return bytes;
+}
+
+function deriveSessionKey(
+  myPrivKey: Uint8Array,
+  theirPubKey: Uint8Array,
+  txNonce: number,
+): Uint8Array {
+  const sharedPoint = nacl.scalarMult(myPrivKey, theirPubKey);
+  const nonceBytes = new Uint8Array(new Int32Array([txNonce]).buffer);
+  const combined = new Uint8Array(sharedPoint.length + nonceBytes.length);
+  combined.set(sharedPoint);
+  combined.set(nonceBytes, sharedPoint.length);
+  return nacl.hash(combined).slice(0, 3);
+}
+
+function encryptPayload(
+  number: number,
+  round: number,
+  random: number,
+  myPrivKey: Uint8Array,
+  receiverPubKey: Uint8Array,
+  txNonce: number,
+): Uint8Array {
+  const payload = packData(number, round, random);
+  const key = deriveSessionKey(myPrivKey, receiverPubKey, txNonce);
+  const ciphertext = new Uint8Array(3);
+  for (let i = 0; i < 3; i++) {
+    ciphertext[i] = payload[i] ^ key[i];
+  }
+  return ciphertext;
+}
+
 type SetupData = {
   roleCommitments: Uint8Array[];
+  encryptedRoles: Uint8Array[];
   adminKey: { bytes: Uint8Array };
   initialRoot: MerkleTreeDigest;
 };
@@ -52,14 +103,16 @@ interface Actor {
 class Player implements Actor {
   readonly id: number;
   readonly leafSecret: Uint8Array;
+  readonly encKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
 
   // These will be calculated by the simulation runner using contract circuits
   leafHash?: Uint8Array;
   merklePath?: MerkleTreePath;
 
   role: number = Role.Villager;
-  adminVotePubKey?: string;
+  adminKeyBytes?: Uint8Array;
   isAlive: boolean = true;
+  lastVote?: number;
 
   // Reference to all players for AI voting decisions
   allPlayers?: Player[];
@@ -69,34 +122,42 @@ class Player implements Actor {
     this.leafSecret = new Uint8Array(
       createHash("sha256").update(`p${id}_${Math.random()}`).digest(),
     );
+    this.encKeypair = nacl.box.keyPair();
   }
 
   receiveGameConfig(
     role: number,
-    adminVotePubKey: string,
+    adminKeyBytes: Uint8Array,
     allPlayers: Player[],
   ) {
     this.role = role;
-    this.adminVotePubKey = adminVotePubKey;
+    this.adminKeyBytes = adminKeyBytes;
     this.allPlayers = allPlayers;
   }
 
   getActionData(round: bigint): ActionData {
-    if (!this.adminVotePubKey) throw new Error(`P${this.id}: No Admin PubKey`);
+    if (!this.adminKeyBytes) throw new Error(`P${this.id}: No Admin PubKey`);
     if (!this.merklePath) throw new Error(`P${this.id}: No Merkle Path`);
     if (!this.allPlayers) throw new Error(`P${this.id}: No player list`);
 
     const targetIdx = this.chooseTarget();
+    this.lastVote = targetIdx;
+    const random = Math.floor(Math.random() * 1000);
 
-    const payload = new Uint8Array(32);
-    new DataView(payload.buffer).setUint32(0, targetIdx, true);
-    const encryptedBuffer = encrypt(this.adminVotePubKey, Buffer.from(payload));
+    const encryptedBuffer = encryptPayload(
+      targetIdx,
+      Number(round),
+      random,
+      this.encKeypair.secretKey,
+      this.adminKeyBytes,
+      Number(round),
+    );
 
     const roleEmoji = this.role === Role.Werewolf ? "🐺" : "👤";
     console.log(`    ${roleEmoji} P${this.id} votes for P${targetIdx}`);
 
     return {
-      encryptedAction: new Uint8Array(encryptedBuffer),
+      encryptedAction: encryptedBuffer,
       merklePath: this.merklePath,
       leafSecret: this.leafSecret,
     };
@@ -131,10 +192,10 @@ class Player implements Actor {
 class TrustedNode implements Actor {
   public adminKey: Uint8Array;
   private masterSecret: Uint8Array;
-  private votePrivKey: PrivateKey;
-  readonly votePubKeyHex: string;
-  readonly votePubKeyBytes: Uint8Array;
   private initialRoot: MerkleTreeDigest = { field: 0n };
+  private encKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
+  private players: Player[] = [];
+  private encryptedRoles: Uint8Array[] = [];
 
   // Track player data to provide Setup Witness
   private commitments: Uint8Array[] = [];
@@ -144,11 +205,7 @@ class TrustedNode implements Actor {
       createHash("sha256").update("master").digest(),
     );
     this.adminKey = new Uint8Array(32).fill(1);
-    this.votePrivKey = new PrivateKey();
-    this.votePubKeyHex = this.votePrivKey.publicKey.toHex();
-    this.votePubKeyBytes = Uint8Array.from(
-      Buffer.from(this.votePubKeyHex, "hex"),
-    );
+    this.encKeypair = nacl.box.keyPair();
   }
 
   setCommitments(commits: Uint8Array[]) {
@@ -159,19 +216,37 @@ class TrustedNode implements Actor {
     this.initialRoot = root;
   }
 
+  registerPlayers(players: Player[]) {
+    this.players = players;
+    const padded = Array(10).fill(new Uint8Array(3));
+    players.forEach((p) => {
+      const encRole = encryptPayload(
+        p.role,
+        0,
+        p.id % 1000,
+        this.encKeypair.secretKey,
+        p.encKeypair.publicKey,
+        0,
+      );
+      padded[p.id] = encRole;
+    });
+    this.encryptedRoles = padded;
+  }
+
   getSetupData(): SetupData {
     // Pad to 10
     const padded = [...this.commitments];
     while (padded.length < 10) padded.push(new Uint8Array(32));
     return {
       roleCommitments: padded,
+      encryptedRoles: this.encryptedRoles,
       adminKey: { bytes: this.adminKey },
       initialRoot: this.initialRoot,
     };
   }
 
   processVotes(
-    encryptedVotes: Uint8Array[],
+    _encryptedVotes: Uint8Array[],
     isNightPhase: boolean,
     werewolfIndices?: number[], // Indices of werewolf players (for filtering night votes)
   ): { eliminatedIdx: number; hasElimination: boolean } {
@@ -179,20 +254,13 @@ class TrustedNode implements Actor {
 
     // During night, only count votes from werewolves
     // The vote array is indexed by player ID, so we can filter
-    for (let i = 0; i < encryptedVotes.length; i++) {
-      const enc = encryptedVotes[i];
-      if (enc.every((b) => b === 0)) continue;
-
+    for (const p of this.players) {
+      if (!p.isAlive || p.lastVote === undefined) continue;
       // During night phase, skip non-werewolf votes
-      if (isNightPhase && werewolfIndices && !werewolfIndices.includes(i)) {
+      if (isNightPhase && werewolfIndices && !werewolfIndices.includes(p.id)) {
         continue;
       }
-
-      try {
-        const dec = decrypt(this.votePrivKey.toHex(), Buffer.from(enc));
-        const target = new DataView(dec.buffer).getUint32(0, true);
-        votes.set(target, (votes.get(target) || 0) + 1);
-      } catch (e) {}
+      votes.set(p.lastVote, (votes.get(p.lastVote) || 0) + 1);
     }
 
     // Find max votes and all players with that vote count
@@ -362,6 +430,21 @@ const witnesses = {
     }
     return [privateState, setup.roleCommitments[index]];
   },
+  wit_getEncryptedRole: (
+    { privateState }: WitnessContext<Ledger, PrivateState>,
+    _gameId: Uint8Array,
+    n: number | bigint,
+  ) => {
+    if (!privateState.activeActor?.getSetupData) {
+      throw new Error("No setup data");
+    }
+    const setup = privateState.activeActor.getSetupData();
+    const index = Number(n);
+    if (index < 0 || index >= setup.encryptedRoles.length) {
+      return [privateState, new Uint8Array(3)];
+    }
+    return [privateState, setup.encryptedRoles[index]];
+  },
   wit_getAdminKey: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
     _gameId: Uint8Array,
@@ -468,11 +551,12 @@ class Simulation {
 
       p.receiveGameConfig(
         p.id === 0 ? Role.Werewolf : Role.Villager,
-        this.admin.votePubKeyHex,
+        this.admin.adminKey,
         this.players,
       );
     }
     this.admin.setCommitments(commitments);
+    this.admin.registerPlayers(this.players);
 
     console.log("Building Merkle Tree...");
     const tree = new RuntimeMerkleTree(this, leafHashes);
@@ -509,7 +593,7 @@ class Simulation {
       circuits.createGame(
         this.context,
         this.gameId,
-        this.admin.votePubKeyBytes,
+        new Uint8Array(33),
         masterCommit,
         BigInt(this.players.length),
         1n,

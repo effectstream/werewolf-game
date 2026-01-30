@@ -30,6 +30,7 @@ type PlayerLocalState = {
   id: number;
   pk: Uint8Array;
   sk: Uint8Array;
+  encKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
   role: number;
   salt: Uint8Array;
   alive: boolean;
@@ -53,16 +54,19 @@ type PlayerProfile = {
   merklePath: { sibling: { field: bigint }; goes_left: boolean }[];
   adminVotePublicKeyHex: string;
   role?: number;
+  encKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
 };
 
 type WitnessSetupData = {
   roleCommitments: Uint8Array[];
+  encryptedRoles: Uint8Array[];
   adminKey: { bytes: Uint8Array };
   initialRoot: { field: bigint };
 };
 
 type WitnessActionData = {
-  encryptedAction: Uint8Array;
+  targetNumber: number;
+  random: number;
   merklePath: {
     leaf: Uint8Array;
     path: { sibling: { field: bigint }; goes_left: boolean }[];
@@ -73,6 +77,7 @@ type WitnessActionData = {
 type WitnessPrivateState = {
   setupData: Map<string, WitnessSetupData>;
   nextAction?: WitnessActionData;
+  encryptionKeypair?: { secretKey: Uint8Array; publicKey: Uint8Array };
 };
 
 type GameState = {
@@ -407,6 +412,10 @@ function App() {
   const [playerNightPayloadInput, setPlayerNightPayloadInput] = useState("");
   const [playerDayPayloadInput, setPlayerDayPayloadInput] = useState("");
   const [playerLastEncryptedHex, setPlayerLastEncryptedHex] = useState("");
+  const [nightVoteInputs, setNightVoteInputs] = useState<string[]>([]);
+  const [dayVoteInputs, setDayVoteInputs] = useState<string[]>([]);
+  const [nightEliminationInput, setNightEliminationInput] = useState("0");
+  const [dayEliminationInput, setDayEliminationInput] = useState("0");
 
   const runtimeWitnesses = useMemo(
     () => ({
@@ -418,6 +427,16 @@ function App() {
         const id = bytesToHex(gameId);
         throw new Error(
           `Witness not configured in frontend (role commitment ${n} for ${id}).`,
+        );
+      },
+      wit_getEncryptedRole: (
+        _: unknown,
+        gameId: Uint8Array,
+        n: number | bigint,
+      ) => {
+        const id = bytesToHex(gameId);
+        throw new Error(
+          `Witness not configured in frontend (encrypted role ${n} for ${id}).`,
         );
       },
       wit_getAdminKey: (_: unknown, gameId: Uint8Array) => {
@@ -613,7 +632,27 @@ function App() {
       merklePath,
       adminVotePublicKeyHex: bundle.adminVotePublicKeyHex,
       role: bundle.role,
+      encKeypair: {
+        publicKey: randomBytes32(),
+        secretKey: randomBytes32(),
+      },
     };
+  };
+
+  const parseOptionalIndex = (value: string): number | null => {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const clampIndex = (value: number, max: number) =>
+    Math.max(0, Math.min(max, value));
+
+  const normalizeVoteInputs = (inputs: string[], count: number) => {
+    const next = [...inputs];
+    while (next.length < count) next.push("0");
+    return next.slice(0, count);
   };
 
   const normalizeLedgerArg = (value: unknown, label: string): unknown => {
@@ -679,12 +718,17 @@ function App() {
     while (roleCommitments.length < MAX_PLAYERS) {
       roleCommitments.push(new Uint8Array(32));
     }
+    const encryptedRoles = Array.from(
+      { length: MAX_PLAYERS },
+      () => new Uint8Array(3),
+    );
     const key = toHexString(gameId);
     const state: WitnessPrivateState = {
       setupData: new Map([[
         key,
         {
           roleCommitments,
+          encryptedRoles,
           adminKey: { bytes: adminKeyBytes },
           initialRoot,
         },
@@ -700,6 +744,7 @@ function App() {
   const stageNextAction = async (
     gameId: Uint8Array,
     action: WitnessActionData,
+    encryptionKeypair: { secretKey: Uint8Array; publicKey: Uint8Array },
   ) => {
     if (!midnightProviders?.privateStateProvider?.set) {
       throw new Error("Private state provider not available.");
@@ -713,11 +758,16 @@ function App() {
             { length: MAX_PLAYERS },
             () => new Uint8Array(32),
           ),
+          encryptedRoles: Array.from(
+            { length: MAX_PLAYERS },
+            () => new Uint8Array(3),
+          ),
           adminKey: { bytes: new Uint8Array(32) },
           initialRoot: { field: 0n },
         },
       ]]),
       nextAction: action,
+      encryptionKeypair,
     };
     await midnightProviders.privateStateProvider.set(
       "werewolfPrivateState",
@@ -980,6 +1030,10 @@ function App() {
       const players: PlayerLocalState[] = roles.map((role, id) => {
         const sk = randomBytes32();
         const pk = randomBytes32();
+        const encKeypair = {
+          publicKey: randomBytes32(),
+          secretKey: randomBytes32(),
+        };
         const salt = new Uint8Array(
           (pureCircuits as any).testComputeSalt(masterSecret, BigInt(id)),
         );
@@ -993,6 +1047,7 @@ function App() {
           id,
           pk,
           sk,
+          encKeypair,
           role,
           salt,
           alive: true,
@@ -1039,6 +1094,14 @@ function App() {
       });
       setNightVotes([]);
       setDayVotes([]);
+      setNightVoteInputs(
+        Array.from({ length: playerCount }, () => "0"),
+      );
+      setDayVoteInputs(
+        Array.from({ length: playerCount }, () => "0"),
+      );
+      setNightEliminationInput("0");
+      setDayEliminationInput("0");
       setRevealPlayerIdx(0);
       setStatus(
         `Game created.\n\nGameId: 0x${
@@ -1094,26 +1157,31 @@ function App() {
     try {
       const targets: number[] = [];
       let lastEncryptedHex = "";
+      const voteInputs = normalizeVoteInputs(
+        nightVoteInputs,
+        game.players.length,
+      );
+      setNightVoteInputs(voteInputs);
       for (const player of game.players) {
         if (!player.alive) continue;
-        const nightTarget = pickRandomAliveNonWerewolf(game.players) ??
+        const rawTarget = parseOptionalIndex(voteInputs[player.id]);
+        const fallback = pickRandomAliveNonWerewolf(game.players) ??
           pickRandomAlive(game.players);
-        const targetIdx = nightTarget ? nightTarget.id : 0;
+        const targetIdx = rawTarget == null
+          ? (fallback ? fallback.id : 0)
+          : clampIndex(rawTarget, game.players.length - 1);
         const payloadBytes = nightActionPayloadInput.trim()
           ? parseBytes32(nightActionPayloadInput, "Night action payload")
           : encodeVoteTarget(targetIdx);
-        const encryptedAction = encryptPayload(
-          game.adminVotePublicKeyHex,
-          payloadBytes,
-        );
-        lastEncryptedHex = bytesToHex(encryptedAction);
+        lastEncryptedHex = "";
         const path = game.tree.getProof(player.id, player.leaf);
 
         await stageNextAction(game.gameId, {
-          encryptedAction,
+          targetNumber: decodeVoteTarget(payloadBytes),
+          random: Math.floor(Math.random() * 1000),
           merklePath: path,
           leafSecret: player.sk,
-        });
+        }, player.encKeypair);
         await callWerewolfMethod(
           midnightWallet.contract.werewolf,
           "nightAction",
@@ -1147,6 +1215,44 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
+      const manualTarget = parseOptionalIndex(nightEliminationInput);
+      if (manualTarget != null) {
+        const targetIdx = clampIndex(manualTarget, game.players.length - 1);
+        const hasDeath = aliveCount(game.players) > 1 &&
+          game.players[targetIdx]?.alive;
+
+        await callWerewolfMethod(
+          midnightWallet.contract.werewolf,
+          "resolveNightPhase",
+          [
+            game.gameId,
+            BigInt(game.round + 1),
+            BigInt(targetIdx),
+            hasDeath,
+            game.tree.getRoot(),
+          ],
+        );
+
+        const nextPlayers = game.players.map((p) =>
+          hasDeath && p.id === targetIdx ? { ...p, alive: false } : p
+        );
+        const outcome = getOutcome(nextPlayers);
+
+        setGame({
+          ...game,
+          players: nextPlayers,
+          round: game.round + 1,
+          phase: outcome ? Phase.Finished : Phase.Day,
+        });
+        setNightVotes([]);
+        setStatus(
+          outcome
+            ? `Night resolved. Trusted node eliminated P${targetIdx}. ${outcome}`
+            : `Night resolved. Trusted node eliminated P${targetIdx}.`,
+        );
+        return;
+      }
+
       const latestLedgerState = midnightProviders
         ? await refreshLedgerState()
         : ledgerState;
@@ -1236,25 +1342,30 @@ function App() {
     try {
       const targets: number[] = [];
       let lastEncryptedHex = "";
+      const voteInputs = normalizeVoteInputs(
+        dayVoteInputs,
+        game.players.length,
+      );
+      setDayVoteInputs(voteInputs);
       for (const player of game.players) {
         if (!player.alive) continue;
-        const dayTarget = pickRandomAlive(game.players);
-        const targetIdx = dayTarget ? dayTarget.id : 0;
+        const rawTarget = parseOptionalIndex(voteInputs[player.id]);
+        const fallback = pickRandomAlive(game.players);
+        const targetIdx = rawTarget == null
+          ? (fallback ? fallback.id : 0)
+          : clampIndex(rawTarget, game.players.length - 1);
         const payloadBytes = dayVotePayloadInput.trim()
           ? parseBytes32(dayVotePayloadInput, "Day vote payload")
           : encodeVoteTarget(targetIdx);
-        const encryptedVote = encryptPayload(
-          game.adminVotePublicKeyHex,
-          payloadBytes,
-        );
-        lastEncryptedHex = bytesToHex(encryptedVote);
+        lastEncryptedHex = "";
         const path = game.tree.getProof(player.id, player.leaf);
 
         await stageNextAction(game.gameId, {
-          encryptedAction: encryptedVote,
+          targetNumber: decodeVoteTarget(payloadBytes),
+          random: Math.floor(Math.random() * 1000),
           merklePath: path,
           leafSecret: player.sk,
-        });
+        }, player.encKeypair);
         await callWerewolfMethod(midnightWallet.contract.werewolf, "voteDay", [
           game.gameId,
         ]);
@@ -1287,27 +1398,24 @@ function App() {
       const payloadBytes = playerNightPayloadInput.trim()
         ? parseBytes32(playerNightPayloadInput, "Night action payload")
         : encodeVoteTarget(parseCount(playerTargetIdxInput, 0));
-      const encryptedAction = encryptPayload(
-        playerProfile.adminVotePublicKeyHex,
-        payloadBytes,
-      );
       const leaf = new Uint8Array(
         (pureCircuits as any).testComputeHash(playerProfile.leafSecret),
       );
       const path = { leaf, path: playerProfile.merklePath };
 
       await stageNextAction(playerProfile.gameId, {
-        encryptedAction,
+        targetNumber: decodeVoteTarget(payloadBytes),
+        random: Math.floor(Math.random() * 1000),
         merklePath: path,
         leafSecret: playerProfile.leafSecret,
-      });
+      }, playerProfile.encKeypair);
       await callWerewolfMethod(
         midnightWallet.contract.werewolf,
         "nightAction",
         [playerProfile.gameId],
       );
 
-      setPlayerLastEncryptedHex(bytesToHex(encryptedAction));
+      setPlayerLastEncryptedHex("");
       setStatus("Night action submitted.");
     } catch (e: any) {
       console.error("Player night action failed:", e);
@@ -1332,27 +1440,24 @@ function App() {
       const payloadBytes = playerDayPayloadInput.trim()
         ? parseBytes32(playerDayPayloadInput, "Day vote payload")
         : encodeVoteTarget(parseCount(playerTargetIdxInput, 0));
-      const encryptedVote = encryptPayload(
-        playerProfile.adminVotePublicKeyHex,
-        payloadBytes,
-      );
       const leaf = new Uint8Array(
         (pureCircuits as any).testComputeHash(playerProfile.leafSecret),
       );
       const path = { leaf, path: playerProfile.merklePath };
 
       await stageNextAction(playerProfile.gameId, {
-        encryptedAction: encryptedVote,
+        targetNumber: decodeVoteTarget(payloadBytes),
+        random: Math.floor(Math.random() * 1000),
         merklePath: path,
         leafSecret: playerProfile.leafSecret,
-      });
+      }, playerProfile.encKeypair);
       await callWerewolfMethod(
         midnightWallet.contract.werewolf,
         "voteDay",
         [playerProfile.gameId],
       );
 
-      setPlayerLastEncryptedHex(bytesToHex(encryptedVote));
+      setPlayerLastEncryptedHex("");
       setStatus("Day vote submitted.");
     } catch (e: any) {
       console.error("Player day vote failed:", e);
@@ -1374,6 +1479,37 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
+      const manualTarget = parseOptionalIndex(dayEliminationInput);
+      if (manualTarget != null) {
+        const targetIdx = clampIndex(manualTarget, game.players.length - 1);
+        const hasElimination = aliveCount(game.players) > 1 &&
+          game.players[targetIdx]?.alive;
+
+        await callWerewolfMethod(
+          midnightWallet.contract.werewolf,
+          "resolveDayPhase",
+          [game.gameId, BigInt(targetIdx), hasElimination],
+        );
+
+        const nextPlayers = game.players.map((p) =>
+          hasElimination && p.id === targetIdx ? { ...p, alive: false } : p
+        );
+        const outcome = getOutcome(nextPlayers);
+
+        setGame({
+          ...game,
+          players: nextPlayers,
+          phase: outcome ? Phase.Finished : Phase.Night,
+        });
+        setDayVotes([]);
+        setStatus(
+          outcome
+            ? `Day resolved. Trusted node eliminated P${targetIdx}. ${outcome}`
+            : `Day resolved. Trusted node eliminated P${targetIdx}.`,
+        );
+        return;
+      }
+
       const latestLedgerState = midnightProviders
         ? await refreshLedgerState()
         : ledgerState;
@@ -1543,6 +1679,10 @@ function App() {
     setGame(null);
     setNightVotes([]);
     setDayVotes([]);
+    setNightVoteInputs([]);
+    setDayVoteInputs([]);
+    setNightEliminationInput("0");
+    setDayEliminationInput("0");
     setRevealPlayerIdx(0);
     setStatus("Game state cleared.");
   };
@@ -1602,7 +1742,7 @@ function App() {
 
         <div className="columns">
           <div className="column">
-            <div className="column-title">Trusted Node Actions</div>
+            <div className="column-title">Trusted Node</div>
             <div className="form">
               <div className="label">Game setup</div>
               <div className="field">
@@ -1651,30 +1791,22 @@ function App() {
               </button>
             </div>
 
-            {game && playerBundles.length > 0 && (
-              <div className="form">
-                <div className="label">Player bundles</div>
-                <div className="mono">
-                  Share one bundle per player. Night filtering assumes
-                  submissions are in player-id order.
-                </div>
-                {playerBundles.map((bundle) => (
-                  <div className="field" key={bundle.playerId}>
-                    <div className="label">Player {bundle.playerId}</div>
-                    <textarea
-                      className="input"
-                      rows={6}
-                      readOnly
-                      value={JSON.stringify(bundle, null, 2)}
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-
             {game && (
               <div className="form">
                 <div className="label">Night resolution</div>
+                <div className="field">
+                  <div className="label">Eliminate player index</div>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={game.players.length - 1}
+                    value={nightEliminationInput}
+                    onChange={(event) =>
+                      setNightEliminationInput(event.target.value)}
+                    disabled={loading}
+                  />
+                </div>
                 <button
                   type="button"
                   className="btn"
@@ -1689,6 +1821,19 @@ function App() {
             {game && (
               <div className="form">
                 <div className="label">Day resolution</div>
+                <div className="field">
+                  <div className="label">Eliminate player index</div>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={game.players.length - 1}
+                    value={dayEliminationInput}
+                    onChange={(event) =>
+                      setDayEliminationInput(event.target.value)}
+                    disabled={loading}
+                  />
+                </div>
                 <button
                   type="button"
                   className="btn"
@@ -1713,312 +1858,94 @@ function App() {
                 </button>
               </div>
             )}
-
-            {ledgerState && (
-              <div className="form">
-                <div className="label">Ledger state</div>
-                <div className="field">
-                  <div className="label">Map</div>
-                  <select
-                    className="input"
-                    value={ledgerMapName}
-                    onChange={(event) => setLedgerMapName(event.target.value)}
-                    disabled={loading || ledgerMaps.length === 0}
-                  >
-                    {ledgerMaps.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="field">
-                  <div className="label">Args (JSON)</div>
-                  <input
-                    className="input"
-                    type="text"
-                    value={ledgerArgsInput}
-                    onChange={(event) => setLedgerArgsInput(event.target.value)}
-                    placeholder='e.g. "0x..." or ["0x...", 1]'
-                    disabled={loading}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => handleLedgerMapCall("isEmpty")}
-                  disabled={loading || !ledgerMapName}
-                >
-                  Map isEmpty
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => handleLedgerMapCall("size")}
-                  disabled={loading || !ledgerMapName}
-                >
-                  Map size
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => handleLedgerMapCall("member")}
-                  disabled={loading || !ledgerMapName}
-                >
-                  Map member
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => handleLedgerMapCall("lookup")}
-                  disabled={loading || !ledgerMapName}
-                >
-                  Map lookup
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => handleLedgerMapCall("iterator")}
-                  disabled={loading || !ledgerMapName}
-                >
-                  Map keys
-                </button>
-              </div>
-            )}
           </div>
 
           <div className="column">
-            <div className="column-title">Player Actions</div>
-            <div className="form">
-              <div className="label">Player bundle (single browser)</div>
-              <div className="field">
-                <div className="label">Bundle JSON</div>
-                <textarea
-                  className="input"
-                  rows={6}
-                  value={playerBundleInput}
-                  onChange={(event) => setPlayerBundleInput(event.target.value)}
-                  placeholder='Paste JSON from "Player bundles"'
-                  disabled={loading}
-                />
-              </div>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleLoadPlayerBundle}
-                disabled={loading || !playerBundleInput.trim()}
-              >
-                Load player bundle
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={handleClearPlayerBundle}
-                disabled={loading}
-              >
-                Clear player bundle
-              </button>
-              {playerProfile && (
-                <div className="mono">
-                  Loaded P{playerProfile.playerId} — game{" "}
-                  {bytesToHex(playerProfile.gameId)}
+            <div className="column-title">Player Votes</div>
+            {game ? (
+              <>
+                <div className="form">
+                  <div className="label">Night votes</div>
+                  {game.players.map((player) => (
+                    <div className="field" key={`night-${player.id}`}>
+                      <div className="label">
+                        P{player.id} {player.alive ? "(alive)" : "(dead)"}
+                      </div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={game.players.length - 1}
+                        value={nightVoteInputs[player.id] ?? "0"}
+                        onChange={(event) =>
+                          setNightVoteInputs((prev) => {
+                            const next = normalizeVoteInputs(
+                              prev,
+                              game.players.length,
+                            );
+                            next[player.id] = event.target.value;
+                            return next;
+                          })}
+                        disabled={loading || !player.alive}
+                      />
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleSubmitNightActions}
+                    disabled={loading || game.phase !== Phase.Night}
+                  >
+                    Submit night actions
+                  </button>
+                  {nightVotes.length > 0 && (
+                    <div className="mono">
+                      Night votes: {nightVotes.join(", ")}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
 
-            {playerProfile && (
-              <div className="form">
-                <div className="label">Single player actions</div>
-                <div className="field">
-                  <div className="label">Vote target (player index)</div>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={MAX_PLAYERS - 1}
-                    value={playerTargetIdxInput}
-                    onChange={(event) =>
-                      setPlayerTargetIdxInput(event.target.value)}
-                    disabled={loading}
-                  />
+                <div className="form">
+                  <div className="label">Day votes</div>
+                  {game.players.map((player) => (
+                    <div className="field" key={`day-${player.id}`}>
+                      <div className="label">
+                        P{player.id} {player.alive ? "(alive)" : "(dead)"}
+                      </div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={game.players.length - 1}
+                        value={dayVoteInputs[player.id] ?? "0"}
+                        onChange={(event) =>
+                          setDayVoteInputs((prev) => {
+                            const next = normalizeVoteInputs(
+                              prev,
+                              game.players.length,
+                            );
+                            next[player.id] = event.target.value;
+                            return next;
+                          })}
+                        disabled={loading || !player.alive}
+                      />
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleSubmitDayVotes}
+                    disabled={loading || game.phase !== Phase.Day}
+                  >
+                    Submit day votes
+                  </button>
+                  {dayVotes.length > 0 && (
+                    <div className="mono">Day votes: {dayVotes.join(", ")}</div>
+                  )}
                 </div>
-                <div className="field">
-                  <div className="label">
-                    Night payload override (bytes32 hex)
-                  </div>
-                  <input
-                    className="input"
-                    type="text"
-                    value={playerNightPayloadInput}
-                    onChange={(event) =>
-                      setPlayerNightPayloadInput(event.target.value)}
-                    placeholder='e.g. "0x..."'
-                    disabled={loading}
-                  />
-                </div>
-                <div className="field">
-                  <div className="label">
-                    Day payload override (bytes32 hex)
-                  </div>
-                  <input
-                    className="input"
-                    type="text"
-                    value={playerDayPayloadInput}
-                    onChange={(event) =>
-                      setPlayerDayPayloadInput(event.target.value)}
-                    placeholder='e.g. "0x..."'
-                    disabled={loading}
-                  />
-                </div>
-                <div className="field">
-                  <div className="label">Last encrypted payload</div>
-                  <input
-                    className="input"
-                    type="text"
-                    readOnly
-                    value={playerLastEncryptedHex}
-                    placeholder="Encrypted payload will appear here"
-                    tabIndex={-1}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleSubmitPlayerNightAction}
-                  disabled={loading}
-                >
-                  Submit night action (player)
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleSubmitPlayerDayVote}
-                  disabled={loading}
-                >
-                  Submit day vote (player)
-                </button>
-              </div>
-            )}
-
-            {game && (
-              <div className="form">
-                <div className="label">Night phase (simulate all)</div>
-                <div className="field">
-                  <div className="label">
-                    Night action payload (bytes32 hex)
-                  </div>
-                  <input
-                    className="input"
-                    type="text"
-                    value={nightActionPayloadInput}
-                    onChange={(event) =>
-                      setNightActionPayloadInput(event.target.value)}
-                    placeholder='e.g. "0x..."'
-                    disabled={loading}
-                  />
-                </div>
-                <div className="field">
-                  <div className="label">Encrypted night action</div>
-                  <input
-                    className="input"
-                    type="text"
-                    readOnly
-                    value={nightActionEncryptedHex}
-                    placeholder="Encrypted payload will appear here"
-                    tabIndex={-1}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleSubmitNightActions}
-                  disabled={loading || game.phase !== Phase.Night}
-                >
-                  Submit night actions (all alive)
-                </button>
-                {nightVotes.length > 0 && (
-                  <div className="mono">
-                    Night votes decoded: {nightVotes.join(", ")}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {game && (
-              <div className="form">
-                <div className="label">Day phase (simulate all)</div>
-                <div className="field">
-                  <div className="label">Day vote payload (bytes32 hex)</div>
-                  <input
-                    className="input"
-                    type="text"
-                    value={dayVotePayloadInput}
-                    onChange={(event) =>
-                      setDayVotePayloadInput(event.target.value)}
-                    placeholder='e.g. "0x..."'
-                    disabled={loading}
-                  />
-                </div>
-                <div className="field">
-                  <div className="label">Encrypted day vote</div>
-                  <input
-                    className="input"
-                    type="text"
-                    readOnly
-                    value={dayVoteEncryptedHex}
-                    placeholder="Encrypted payload will appear here"
-                    tabIndex={-1}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={handleSubmitDayVotes}
-                  disabled={loading || game.phase !== Phase.Day}
-                >
-                  Submit day votes (all alive)
-                </button>
-                {dayVotes.length > 0 && (
-                  <div className="mono">
-                    Day votes decoded: {dayVotes.join(", ")}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {game && (
-              <div className="form">
-                <div className="label">Player proofs</div>
-                <div className="field">
-                  <div className="label">Player index</div>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={game.players.length - 1}
-                    value={revealPlayerIdx}
-                    onChange={(event) =>
-                      setRevealPlayerIdx(Number(event.target.value))}
-                    disabled={loading}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleRevealRole}
-                  disabled={loading}
-                >
-                  Reveal player role
-                </button>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleVerifyFairness}
-                  disabled={loading}
-                >
-                  Verify fairness
-                </button>
-              </div>
+              </>
+            ) : (
+              <div className="mono">Create a game to enter votes.</div>
             )}
           </div>
         </div>
