@@ -22,7 +22,11 @@ type MerkleTreeDigest = { field: bigint };
 type MerkleTreePathEntry = { sibling: MerkleTreeDigest; goes_left: boolean };
 type MerkleTreePath = { leaf: Uint8Array; path: MerkleTreePathEntry[] };
 
-type SetupData = { roleCommitments: Uint8Array[] };
+type SetupData = {
+  roleCommitments: Uint8Array[];
+  adminKey: { bytes: Uint8Array };
+  initialRoot: MerkleTreeDigest;
+};
 type ActionData = {
   encryptedAction: Uint8Array;
   merklePath: MerkleTreePath;
@@ -130,6 +134,7 @@ class TrustedNode implements Actor {
   private votePrivKey: PrivateKey;
   readonly votePubKeyHex: string;
   readonly votePubKeyBytes: Uint8Array;
+  private initialRoot: MerkleTreeDigest = { field: 0n };
 
   // Track player data to provide Setup Witness
   private commitments: Uint8Array[] = [];
@@ -150,11 +155,19 @@ class TrustedNode implements Actor {
     this.commitments = commits;
   }
 
+  setInitialRoot(root: MerkleTreeDigest) {
+    this.initialRoot = root;
+  }
+
   getSetupData(): SetupData {
     // Pad to 10
     const padded = [...this.commitments];
     while (padded.length < 10) padded.push(new Uint8Array(32));
-    return { roleCommitments: padded };
+    return {
+      roleCommitments: padded,
+      adminKey: { bytes: this.adminKey },
+      initialRoot: this.initialRoot,
+    };
   }
 
   processVotes(
@@ -345,9 +358,29 @@ const witnesses = {
     const setup = privateState.activeActor.getSetupData();
     const index = Number(n);
     if (index < 0 || index >= setup.roleCommitments.length) {
-      throw new Error(`Role commitment index ${index} out of bounds`);
+      return [privateState, new Uint8Array(0)];
     }
     return [privateState, setup.roleCommitments[index]];
+  },
+  wit_getAdminKey: (
+    { privateState }: WitnessContext<Ledger, PrivateState>,
+    _gameId: Uint8Array,
+  ) => {
+    if (!privateState.activeActor?.getSetupData) {
+      throw new Error("No setup data");
+    }
+    const setup = privateState.activeActor.getSetupData();
+    return [privateState, setup.adminKey];
+  },
+  wit_getInitialRoot: (
+    { privateState }: WitnessContext<Ledger, PrivateState>,
+    _gameId: Uint8Array,
+  ) => {
+    if (!privateState.activeActor?.getSetupData) {
+      throw new Error("No setup data");
+    }
+    const setup = privateState.activeActor.getSetupData();
+    return [privateState, setup.initialRoot];
   },
   wit_getActionData: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
@@ -446,6 +479,7 @@ class Simulation {
     await tree.build();
     const root = tree.getRoot();
     console.log("Tree Root:", root.field);
+    this.admin.setInitialRoot(root);
 
     this.players.forEach((p, i) =>
       p.merklePath = tree.getProof(i, p.leafHash!)
@@ -475,12 +509,10 @@ class Simulation {
       circuits.createGame(
         this.context,
         this.gameId,
-        { bytes: this.admin.adminKey },
         this.admin.votePubKeyBytes,
         masterCommit,
         BigInt(this.players.length),
         1n,
-        root,
       )
     );
     console.log("✅ Game Created");

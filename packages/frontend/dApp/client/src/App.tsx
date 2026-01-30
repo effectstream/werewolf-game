@@ -57,6 +57,8 @@ type PlayerProfile = {
 
 type WitnessSetupData = {
   roleCommitments: Uint8Array[];
+  adminKey: { bytes: Uint8Array };
+  initialRoot: { field: bigint };
 };
 
 type WitnessActionData = {
@@ -418,6 +420,18 @@ function App() {
           `Witness not configured in frontend (role commitment ${n} for ${id}).`,
         );
       },
+      wit_getAdminKey: (_: unknown, gameId: Uint8Array) => {
+        const id = bytesToHex(gameId);
+        throw new Error(
+          `Witness not configured in frontend (admin key for ${id}).`,
+        );
+      },
+      wit_getInitialRoot: (_: unknown, gameId: Uint8Array) => {
+        const id = bytesToHex(gameId);
+        throw new Error(
+          `Witness not configured in frontend (initial root for ${id}).`,
+        );
+      },
       wit_getActionData: (
         _: unknown,
         gameId: Uint8Array,
@@ -654,7 +668,9 @@ function App() {
 
   const stageSetupData = async (
     gameId: Uint8Array,
+    adminKeyBytes: Uint8Array,
     commitments: Uint8Array[],
+    initialRoot: { field: bigint },
   ) => {
     if (!midnightProviders?.privateStateProvider?.set) {
       throw new Error("Private state provider not available.");
@@ -665,7 +681,14 @@ function App() {
     }
     const key = toHexString(gameId);
     const state: WitnessPrivateState = {
-      setupData: new Map([[key, { roleCommitments }]]),
+      setupData: new Map([[
+        key,
+        {
+          roleCommitments,
+          adminKey: { bytes: adminKeyBytes },
+          initialRoot,
+        },
+      ]]),
       nextAction: undefined,
     };
     await midnightProviders.privateStateProvider.set(
@@ -690,6 +713,8 @@ function App() {
             { length: MAX_PLAYERS },
             () => new Uint8Array(32),
           ),
+          adminKey: { bytes: new Uint8Array(32) },
+          initialRoot: { field: 0n },
         },
       ]]),
       nextAction: action,
@@ -982,17 +1007,20 @@ function App() {
       );
       const initialRoot = tree.getRoot();
 
-      await stageSetupData(gameId, players.map((p) => p.commitment));
+      await stageSetupData(
+        gameId,
+        adminKeyBytes,
+        players.map((p) => p.commitment),
+        initialRoot,
+      );
 
       setStatus("Creating game…");
       await callWerewolfMethod(midnightWallet.contract.werewolf, "createGame", [
         gameId,
-        { bytes: adminKeyBytes },
         adminVotePublicKeyBytes,
         masterSecretCommitment,
         BigInt(playerCount),
         BigInt(werewolfCount),
-        initialRoot,
       ]);
 
       setGame({

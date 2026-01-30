@@ -11,6 +11,12 @@ import "./Crypto" prefix Crypto_;
 // Witness to fetch a specific player commitment by index during creation
 export witness wit_getRoleCommitment(gameId: Bytes<32>, n: Uint<32>): Bytes<32>;
 
+// Witness to fetch the admin key during creation
+export witness wit_getAdminKey(gameId: Bytes<32>): ZswapCoinPublicKey;
+
+// Witness to fetch the initial merkle root during creation
+export witness wit_getInitialRoot(gameId: Bytes<32>): MerkleTreeDigest;
+
 // Witness to fetch large voting data (Proof + Encrypted Vote)
 export witness wit_getActionData(gameId: Bytes<32>, round: Uint<32>): ActionData;
 
@@ -27,6 +33,7 @@ export ledger movesSubmittedCount: Map<Bytes<32>, Uint<32>>;
 export ledger voteNullifiers: Set<Bytes<32>>;
 export ledger gameSecrets: Map<Bytes<32>, Bytes<32>>;
 export ledger roundEncryptedVotes: Map<Bytes<32>, Map<Uint<32>, Bytes<129>>>;
+export ledger testOutputMap: Map<Bytes<32>, Map<Uint<32>, Bytes<32>>>;
 
 export circuit getAdminKey(): ZswapCoinPublicKey {
     return std_ownPublicKey();
@@ -38,20 +45,21 @@ export circuit getAdminKey(): ZswapCoinPublicKey {
 
 export circuit createAndSetupGame(
     gameId: Bytes<32>, 
-    adminKey: ZswapCoinPublicKey,
     adminVotePublicKey: Bytes<33>,
     masterSecretCommitment: Bytes<32>,
     actualCount: Uint<32>,
-    werewolfCount: Uint<32>,
-    initialRoot: MerkleTreeDigest,
+    werewolfCount: Uint<32>
 ): [] {
     assert(!games.member(gameId), "Game ID already exists");
     // We limit to 10 for the vector size in SetupData logic (though struct is gone, game logic assumes 10 max)
     assert(actualCount <= 10, "Max players exceeded");
 
+    const adminKey = wit_getAdminKey(gameId);
+    const initialRoot = wit_getInitialRoot(gameId);
+
     // 1. Initialize Game State
     const state = GameState {
-        adminKey: adminKey,
+        adminKey: disclose(adminKey),
         adminVotePublicKey: adminVotePublicKey,
         phase: Phase.Night,
         round: 1,
@@ -59,7 +67,7 @@ export circuit createAndSetupGame(
         aliveCount: actualCount,
         werewolfCount: werewolfCount,
         villagerCount: (actualCount - werewolfCount) as Uint<32>,
-        aliveTreeRoot: initialRoot,
+        aliveTreeRoot: disclose(initialRoot),
         masterSecretCommitment: masterSecretCommitment,
         transcriptHash: pad(32, "genesis")
     };
@@ -75,18 +83,19 @@ export circuit createAndSetupGame(
     // Compact loops must be constant range, so we loop max (10) and check count
     for (const i of 0..10) {
          if (i < actualCount) {
-            // Call Witness for specific index
+    //         // Call Witness for specific index
             const commitment = wit_getRoleCommitment(gameId, i as Uint<32>);
-
-            // Register Role Commitment
-            playerRoleCommitments.lookup(gameId).insert(
-                disclose(i as Uint<32>), 
-                disclose(commitment)
-            );
-            // Set Alive
+            const x = i as Uint<32>;
+    //         // Register Role Commitment
+            // playerRoleCommitments.lookup(gameId).insert(
+            //     disclose(x), 
+            //     disclose(commitment)
+            // );
+    //         // Set Alive
             playerAlive.lookup(gameId).insert(i as Uint<32>, true);
          }
     }
+    
 }
 
 // =========================================================================

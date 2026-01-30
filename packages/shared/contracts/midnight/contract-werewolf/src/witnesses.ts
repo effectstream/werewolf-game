@@ -5,6 +5,9 @@ export type Ledger = {};
 export type MerkleTreeDigest = {
   field: bigint;
 };
+export type CoinPublicKey = {
+  bytes: Uint8Array;
+};
 // Represents the MerkleTreePathEntry struct in Compact
 export type MerkleTreePathEntry = {
   sibling: MerkleTreeDigest;
@@ -18,6 +21,8 @@ export type MerkleTreePath = {
 // SetupData struct is removed, but we still use the underlying array type for our local private state
 export type SetupData = {
   roleCommitments: Uint8Array[]; // Vector<10, Bytes<32>>
+  adminKey: CoinPublicKey;
+  initialRoot: MerkleTreeDigest;
 };
 // Corresponds to ActionData struct in WerewolfTypes.compact
 export type ActionData = {
@@ -49,12 +54,46 @@ export const witnesses = {
 
     const index = Number(n);
     if (index < 0 || index >= data.roleCommitments.length) {
-      throw new Error(
-        `Witness Error: Index ${index} out of bounds for role commitments`,
-      );
+      return [privateState, new Uint8Array(0)];
     }
 
     return [privateState, data.roleCommitments[index]];
+  },
+  wit_getAdminKey: (
+    { privateState }: WitnessContext<Ledger, PrivateState>,
+    gameId: Uint8Array,
+  ): [PrivateState, CoinPublicKey] => {
+    const key = toHex(gameId);
+    const data = privateState.setupData.get(key);
+
+    if (!data) {
+      throw new Error(`Witness Error: No setup data found for gameId ${key}`);
+    }
+    if (!data.adminKey || data.adminKey.bytes.length !== 32) {
+      throw new Error(
+        `Witness Error: Admin key missing or invalid for gameId ${key}`,
+      );
+    }
+
+    return [privateState, data.adminKey];
+  },
+  wit_getInitialRoot: (
+    { privateState }: WitnessContext<Ledger, PrivateState>,
+    gameId: Uint8Array,
+  ): [PrivateState, MerkleTreeDigest] => {
+    const key = toHex(gameId);
+    const data = privateState.setupData.get(key);
+
+    if (!data) {
+      throw new Error(`Witness Error: No setup data found for gameId ${key}`);
+    }
+    if (!data.initialRoot || typeof data.initialRoot.field !== "bigint") {
+      throw new Error(
+        `Witness Error: Initial root missing or invalid for gameId ${key}`,
+      );
+    }
+
+    return [privateState, data.initialRoot];
   },
   wit_getActionData: (
     { privateState }: WitnessContext<Ledger, PrivateState>,

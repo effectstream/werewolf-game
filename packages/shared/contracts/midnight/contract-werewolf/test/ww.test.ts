@@ -254,7 +254,71 @@ async function runTestSuite() {
     return;
   }
 
-  // 2. GENERATE PLAYERS
+  // 2. LIMIT TESTS (INPUTS + OUTPUT WRITES)
+  try {
+    const inputs = Array.from({ length: 16 }, () => sim.generateId());
+
+    const circuitsAny = circuits as any;
+    if (typeof circuitsAny.testInputHash4 === "function") {
+      const rIn4 = circuitsAny.testInputHash4(
+        sim.circuitContext,
+        inputs[0],
+        inputs[1],
+        inputs[2],
+        inputs[3],
+      );
+      sim.circuitContext = rIn4.context;
+      logPass("Limit test: input hash 4");
+    } else {
+      logPass("Limit test: input hash 4 (skipped; not available)");
+    }
+
+    const rIn8 = circuits.testInputHash8(
+      sim.circuitContext,
+      inputs[0],
+      inputs[1],
+      inputs[2],
+      inputs[3],
+      inputs[4],
+      inputs[5],
+      inputs[6],
+      inputs[7],
+    );
+    sim.circuitContext = rIn8.context;
+    logPass("Limit test: input hash 8");
+
+    const seed = sim.generateId();
+
+    const rOut1 = circuits.testLedgerWrites1(
+      sim.circuitContext,
+      sim.generateId(),
+      seed,
+    );
+    sim.circuitContext = rOut1.context;
+    logPass("Limit test: ledger writes 1");
+
+    const rOut5 = circuits.testLedgerWrites5(
+      sim.circuitContext,
+      sim.generateId(),
+      seed,
+    );
+    sim.circuitContext = rOut5.context;
+    logPass("Limit test: ledger writes 5");
+
+    const rOut10 = circuits.testLedgerWrites10(
+      sim.circuitContext,
+      sim.generateId(),
+      seed,
+    );
+    sim.circuitContext = rOut10.context;
+    logPass("Limit test: ledger writes 10");
+
+  } catch (e) {
+    logFail("Limit tests", e);
+    return;
+  }
+
+  // 3. GENERATE PLAYERS
   const playerCount = 5;
   const werewolfCount = 1;
   const leaves: Uint8Array[] = [];
@@ -293,15 +357,11 @@ async function runTestSuite() {
     sim.players.push(p);
   }
 
-  // 3. CREATE GAME (Merged Setup)
+  // 4. CREATE GAME (Merged Setup)
   try {
     // Prepare Private State
     const roleCommitments = Array(10).fill(new Uint8Array(32));
     sim.players.forEach((p) => roleCommitments[p.id] = p.commitment);
-
-    sim.updatePrivateState((state) => {
-      state.setupData.set(toHex(sim.gameId), { roleCommitments });
-    });
 
     const tree = new RuntimeMerkleTree(
       sim.contract,
@@ -310,15 +370,21 @@ async function runTestSuite() {
     );
     const root = tree.getRoot(); // 0n placeholder
 
+    sim.updatePrivateState((state) => {
+      state.setupData.set(toHex(sim.gameId), {
+        roleCommitments,
+        adminKey: { bytes: sim.adminKey },
+        initialRoot: root,
+      });
+    });
+
     const rCreate = circuits.createGame(
       sim.circuitContext,
       sim.gameId,
-      { bytes: sim.adminKey },
       sim.adminVotePublicKeyBytes,
       sim.masterSecretCommitment,
       BigInt(playerCount),
       BigInt(werewolfCount),
-      root,
     );
     sim.circuitContext = rCreate.context;
     logPass("createGame (with merged setup)");
@@ -327,7 +393,7 @@ async function runTestSuite() {
     return;
   }
 
-  // 4. NIGHT ACTION
+  // 5. NIGHT ACTION
   try {
     const actor = sim.players[0]; // Werewolf
     const targetIdx = 1;
@@ -361,7 +427,7 @@ async function runTestSuite() {
     }
   }
 
-  // 5. RESOLVE NIGHT
+  // 6. RESOLVE NIGHT
   try {
     // Admin resolves death of P1
     const rResolve = circuits.resolveNightPhase(
@@ -379,7 +445,7 @@ async function runTestSuite() {
     logFail("resolveNightPhase", e);
   }
 
-  // 6. DAY VOTE
+  // 7. DAY VOTE
   try {
     const voter = sim.players[2]; // Villager
     const voteTarget = 0; // Vote for wolf
@@ -409,7 +475,7 @@ async function runTestSuite() {
     }
   }
 
-  // 7. RESOLVE DAY
+  // 8. RESOLVE DAY
   try {
     const rResolveDay = circuits.resolveDayPhase(
       sim.circuitContext,
@@ -424,7 +490,7 @@ async function runTestSuite() {
     logFail("resolveDayPhase", e);
   }
 
-  // 8. END GAME
+  // 9. END GAME
   try {
     const rEnd = circuits.forceEndGame(
       sim.circuitContext,

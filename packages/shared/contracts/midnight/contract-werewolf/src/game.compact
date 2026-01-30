@@ -20,7 +20,8 @@ export {
     Werewolf_playerRoleCommitments, 
     Werewolf_playerEncryptedRoles, 
     Werewolf_voteNullifiers, 
-    Werewolf_gameSecrets
+    Werewolf_gameSecrets,
+    Werewolf_testOutputMap
 };
 
 constructor() {}
@@ -28,21 +29,17 @@ constructor() {}
 // Merged Create + Setup
 export circuit createGame(
     gameId: Bytes<32>, 
-    adminKey: ZswapCoinPublicKey,
     adminVotePublicKey: Bytes<33>,
     masterSecretCommitment: Bytes<32>,
     actualCount: Uint<32>,
-    werewolfCount: Uint<32>,
-    initialRoot: MerkleTreeDigest
+    werewolfCount: Uint<32>
 ): [] {
     return Werewolf_createAndSetupGame(
         disclose(gameId), 
-        disclose(adminKey), 
         disclose(adminVotePublicKey),
         disclose(masterSecretCommitment), 
         disclose(actualCount), 
-        disclose(werewolfCount), 
-        disclose(initialRoot)
+        disclose(werewolfCount)
     );
 }
 
