@@ -38,6 +38,8 @@ export async function loginMidnight() {
       werewolf: null,
       erc7683: null,
     },
+    providers: null,
+    addresses: null,
     wallet: null,
   } as any;
 
@@ -49,6 +51,8 @@ export async function loginMidnight() {
 
     response.stateA.werewolf = addresses;
     response.addr = addresses.shieldedAddress;
+    response.providers = providers;
+    response.addresses = addresses;
 
     const {
       contract,

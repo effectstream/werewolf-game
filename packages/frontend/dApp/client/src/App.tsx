@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import { loginMidnight } from "./interface.ts";
-import { callWerewolfMethod } from "./contracts/contract.ts";
+import { callWerewolfMethod, connectToContract } from "./contracts/contract.ts";
 import { fromHex } from "@midnight-ntwrk/compact-runtime";
 import {
   Contract as WerewolfRuntimeContract,
   pureCircuits,
 } from "../../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
-import { witnesses as werewolfWitnesses } from "../../../../shared/contracts/midnight/contract-werewolf/src/witnesses.ts";
-import { PrivateKey, encrypt } from "eciesjs";
+import { Buffer } from "node:buffer";
+import { decrypt, encrypt, PrivateKey } from "eciesjs";
 
 const MAX_PLAYERS = 10;
 
@@ -35,6 +35,24 @@ type PlayerLocalState = {
   alive: boolean;
   commitment: Uint8Array;
   leaf: Uint8Array;
+};
+
+type PlayerBundle = {
+  gameId: string;
+  playerId: number;
+  leafSecret: string;
+  merklePath: { sibling: { field: string }; goes_left: boolean }[];
+  adminVotePublicKeyHex: string;
+  role?: number;
+};
+
+type PlayerProfile = {
+  gameId: Uint8Array;
+  playerId: number;
+  leafSecret: Uint8Array;
+  merklePath: { sibling: { field: bigint }; goes_left: boolean }[];
+  adminVotePublicKeyHex: string;
+  role?: number;
 };
 
 type GameState = {
@@ -94,6 +112,14 @@ const hexToBytes = (hex: string): Uint8Array => {
 
 const bytesToHex = (bytes: Uint8Array) => `0x${toHexString(bytes)}`;
 
+const padBytes32 = (value: string) => {
+  const bytes = new Uint8Array(32);
+  for (let i = 0; i < Math.min(value.length, 32); i++) {
+    bytes[i] = value.charCodeAt(i);
+  }
+  return bytes;
+};
+
 const roleName = (role: number) => {
   switch (role) {
     case Role.Villager:
@@ -132,7 +158,11 @@ const encodeVoteTarget = (targetIdx: number): Uint8Array => {
 };
 
 const decodeVoteTarget = (payload: Uint8Array): number => {
-  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const view = new DataView(
+    payload.buffer,
+    payload.byteOffset,
+    payload.byteLength,
+  );
   return view.getUint32(0, true);
 };
 
@@ -152,29 +182,60 @@ const encryptPayload = (
   return bytes;
 };
 
-const pickTargetFromVotes = (
+const isZeroBytes = (bytes: Uint8Array) => {
+  for (const byte of bytes) {
+    if (byte !== 0) return false;
+  }
+  return true;
+};
+
+const resolveVotes = (
   voteTargets: number[],
   players: PlayerLocalState[],
-) => {
+  isNight: boolean,
+): { targetIdx: number; hasElimination: boolean; info: string } => {
   const counts = new Map<number, number>();
   for (const targetIdx of voteTargets) {
     const target = players.find((p) => p.id === targetIdx);
     if (!target || !target.alive) continue;
     counts.set(targetIdx, (counts.get(targetIdx) ?? 0) + 1);
   }
-  if (counts.size === 0) return null;
-
-  let bestIdx: number | null = null;
-  let bestCount = -1;
-  for (const [idx, count] of counts.entries()) {
-    if (count > bestCount || (count === bestCount && idx < (bestIdx ?? idx))) {
-      bestIdx = idx;
-      bestCount = count;
-    }
+  if (counts.size === 0) {
+    return {
+      targetIdx: 0,
+      hasElimination: false,
+      info: "No valid votes.",
+    };
   }
-  return bestIdx === null
-    ? null
-    : players.find((p) => p.id === bestIdx) ?? null;
+
+  let maxVotes = 0;
+  for (const count of counts.values()) {
+    if (count > maxVotes) maxVotes = count;
+  }
+  const tied: number[] = [];
+  for (const [idx, count] of counts.entries()) {
+    if (count === maxVotes) tied.push(idx);
+  }
+  if (tied.length === 1) {
+    return {
+      targetIdx: tied[0],
+      hasElimination: true,
+      info: `Consensus on player ${tied[0]}.`,
+    };
+  }
+  if (isNight) {
+    const pick = tied[Math.floor(Math.random() * tied.length)];
+    return {
+      targetIdx: pick,
+      hasElimination: true,
+      info: `Night tie; randomly selected player ${pick}.`,
+    };
+  }
+  return {
+    targetIdx: 0,
+    hasElimination: false,
+    info: `Day tie; no elimination.`,
+  };
 };
 
 const pickRandomAlive = (players: PlayerLocalState[]) => {
@@ -184,9 +245,7 @@ const pickRandomAlive = (players: PlayerLocalState[]) => {
 };
 
 const pickRandomAliveNonWerewolf = (players: PlayerLocalState[]) => {
-  const candidates = players.filter((p) =>
-    p.alive && p.role !== Role.Werewolf
-  );
+  const candidates = players.filter((p) => p.alive && p.role !== Role.Werewolf);
   if (candidates.length === 0) return null;
   return candidates[Math.floor(Math.random() * candidates.length)];
 };
@@ -230,9 +289,13 @@ class RuntimeMerkleTree {
   readonly leafDigests: bigint[];
   readonly levels: bigint[][];
   readonly root: { field: bigint };
-  readonly contract: any;
+  readonly contract: WerewolfRuntimeContract;
 
-  constructor(contract: any, leaves: Uint8Array[], depth = 10) {
+  constructor(
+    contract: WerewolfRuntimeContract,
+    leaves: Uint8Array[],
+    depth = 10,
+  ) {
     this.contract = contract;
     this.depth = depth;
     this.leaves = leaves;
@@ -244,7 +307,9 @@ class RuntimeMerkleTree {
     const digests = new Array<bigint>(totalLeaves);
     for (let i = 0; i < totalLeaves; i++) {
       const leaf = i < leaves.length ? leaves[i] : zeroLeaf;
-      digests[i] = i < leaves.length ? this.computeLeafDigest(leaf) : zeroDigest;
+      digests[i] = i < leaves.length
+        ? this.computeLeafDigest(leaf)
+        : zeroDigest;
     }
 
     this.leafDigests = digests;
@@ -267,7 +332,8 @@ class RuntimeMerkleTree {
   }
 
   getProof(index: number, leaf: Uint8Array) {
-    const pathEntries: { sibling: { field: bigint }; goes_left: boolean }[] = [];
+    const pathEntries: { sibling: { field: bigint }; goes_left: boolean }[] =
+      [];
     let idx = index;
     for (let level = 0; level < this.depth; level++) {
       const siblingIdx = idx ^ 1;
@@ -281,7 +347,7 @@ class RuntimeMerkleTree {
 
   private computeLeafDigest(leaf: Uint8Array): bigint {
     const domain_sep = new Uint8Array([109, 100, 110, 58, 108, 104]); // "mdn:lh"
-    const bytes = this.contract._persistentHash_1({ domain_sep, data: leaf });
+    const bytes = this.contract._persistentHash_7({ domain_sep, data: leaf });
     return this.contract._degradeToTransient_0(bytes);
   }
 
@@ -293,6 +359,7 @@ class RuntimeMerkleTree {
 function App() {
   const [loading, setLoading] = useState(false);
   const [midnightWallet, setMidnightWallet] = useState<any>(null);
+  const [midnightProviders, setMidnightProviders] = useState<any>(null);
   const [midnightAddress, setMidnightAddress] = useState("");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string>("");
@@ -312,10 +379,30 @@ function App() {
   const [dayVotePayloadInput, setDayVotePayloadInput] = useState("");
   const [nightActionEncryptedHex, setNightActionEncryptedHex] = useState("");
   const [dayVoteEncryptedHex, setDayVoteEncryptedHex] = useState("");
+  const [playerBundleInput, setPlayerBundleInput] = useState("");
+  const [playerProfile, setPlayerProfile] = useState<PlayerProfile | null>(
+    null,
+  );
+  const [playerTargetIdxInput, setPlayerTargetIdxInput] = useState("0");
+  const [playerNightPayloadInput, setPlayerNightPayloadInput] = useState("");
+  const [playerDayPayloadInput, setPlayerDayPayloadInput] = useState("");
+  const [playerLastEncryptedHex, setPlayerLastEncryptedHex] = useState("");
+
+  const runtimeWitnesses = useMemo(
+    () => ({
+      wit_getSetupData: () => {
+        throw new Error("Witness not configured in frontend.");
+      },
+      wit_getActionData: () => {
+        throw new Error("Witness not configured in frontend.");
+      },
+    }),
+    [],
+  );
 
   const runtimeContract = useMemo(
-    () => new (WerewolfRuntimeContract as any)(werewolfWitnesses),
-    [],
+    () => new WerewolfRuntimeContract(runtimeWitnesses as any),
+    [runtimeWitnesses],
   );
 
   const ledgerState = midnightWallet?.stateB?.werewolf ?? null;
@@ -330,6 +417,24 @@ function App() {
       })
       .sort();
   }, [ledgerState]);
+
+  const playerBundles = useMemo(() => {
+    if (!game) return [];
+    return game.players.map((player) => {
+      const proof = game.tree.getProof(player.id, player.leaf);
+      return {
+        gameId: bytesToHex(game.gameId),
+        playerId: player.id,
+        leafSecret: bytesToHex(player.sk),
+        merklePath: proof.path.map((entry) => ({
+          sibling: { field: entry.sibling.field.toString() },
+          goes_left: entry.goes_left,
+        })),
+        adminVotePublicKeyHex: game.adminVotePublicKeyHex,
+        role: player.role,
+      } satisfies PlayerBundle;
+    });
+  }, [game]);
 
   useEffect(() => {
     if (!ledgerMapName && ledgerMaps.length > 0) {
@@ -413,6 +518,58 @@ function App() {
     throw new Error(`${label} must be 32 bytes.`);
   };
 
+  const parsePlayerBundle = (raw: string): PlayerProfile => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      throw new Error("Player bundle must be valid JSON.");
+    }
+    if (Array.isArray(parsed)) {
+      if (parsed.length !== 1) {
+        throw new Error("Paste a single player bundle (not an array).");
+      }
+      parsed = parsed[0];
+    }
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Player bundle must be an object.");
+    }
+    const bundle = parsed as PlayerBundle;
+    if (!bundle.gameId || !bundle.leafSecret || !bundle.adminVotePublicKeyHex) {
+      throw new Error("Player bundle missing required fields.");
+    }
+    if (!Array.isArray(bundle.merklePath)) {
+      throw new Error("Player bundle merklePath must be an array.");
+    }
+    const merklePath = bundle.merklePath.map((entry, idx) => {
+      if (
+        !entry ||
+        typeof entry !== "object" ||
+        typeof entry.goes_left !== "boolean" ||
+        !entry.sibling ||
+        typeof entry.sibling.field === "undefined"
+      ) {
+        throw new Error(`Invalid merklePath entry at index ${idx}.`);
+      }
+      const fieldValue = entry.sibling.field;
+      const field = typeof fieldValue === "bigint"
+        ? fieldValue
+        : BigInt(fieldValue);
+      return {
+        sibling: { field },
+        goes_left: entry.goes_left,
+      };
+    });
+    return {
+      gameId: parseBytes32(bundle.gameId, "gameId"),
+      playerId: bundle.playerId,
+      leafSecret: parseBytes32(bundle.leafSecret, "leafSecret"),
+      merklePath,
+      adminVotePublicKeyHex: bundle.adminVotePublicKeyHex,
+      role: bundle.role,
+    };
+  };
+
   const normalizeLedgerArg = (value: unknown, label: string): unknown => {
     if (typeof value === "string") {
       const trimmed = value.trim();
@@ -431,10 +588,14 @@ function App() {
       return Number.isInteger(value) ? BigInt(value) : value;
     }
     if (Array.isArray(value)) {
-      if (value.length === 32 && value.every((item) => typeof item === "number")) {
+      if (
+        value.length === 32 && value.every((item) => typeof item === "number")
+      ) {
         return Uint8Array.from(value);
       }
-      return value.map((item, idx) => normalizeLedgerArg(item, `${label}[${idx}]`));
+      return value.map((item, idx) =>
+        normalizeLedgerArg(item, `${label}[${idx}]`)
+      );
     }
     if (value && typeof value === "object") {
       if ("bytes" in value) {
@@ -449,18 +610,114 @@ function App() {
       if ("field" in value) {
         const fieldValue = (value as { field: unknown }).field;
         if (typeof fieldValue === "string" && /^\d+$/.test(fieldValue.trim())) {
-          return { ...(value as Record<string, unknown>), field: BigInt(fieldValue) };
+          return {
+            ...(value as Record<string, unknown>),
+            field: BigInt(fieldValue),
+          };
         }
       }
     }
     return value;
   };
 
+  const stageSetupData = async (
+    gameId: Uint8Array,
+    commitments: Uint8Array[],
+  ) => {
+    if (!midnightProviders?.privateStateProvider?.set) {
+      throw new Error("Private state provider not available.");
+    }
+    const roleCommitments = [...commitments];
+    while (roleCommitments.length < MAX_PLAYERS) {
+      roleCommitments.push(new Uint8Array(32));
+    }
+    const key = toHexString(gameId);
+    await midnightProviders.privateStateProvider.set("werewolfPrivateState", {
+      setupData: new Map([[key, { roleCommitments }]]),
+      nextAction: undefined,
+    });
+  };
+
+  const stageNextAction = async (
+    gameId: Uint8Array,
+    action: {
+      encryptedAction: Uint8Array;
+      merklePath: {
+        leaf: Uint8Array;
+        path: { sibling: { field: bigint }; goes_left: boolean }[];
+      };
+      leafSecret: Uint8Array;
+    },
+  ) => {
+    if (!midnightProviders?.privateStateProvider?.set) {
+      throw new Error("Private state provider not available.");
+    }
+    const key = toHexString(gameId);
+    await midnightProviders.privateStateProvider.set("werewolfPrivateState", {
+      setupData: new Map([[key, {
+        roleCommitments: Array.from({ length: MAX_PLAYERS }, () =>
+          new Uint8Array(32)),
+      }]]),
+      nextAction: action,
+    });
+  };
+
+  const getRoundEncryptedVotes = (
+    state: any,
+    gameId: Uint8Array,
+    phase: number,
+    round: number,
+  ): Uint8Array[] => {
+    const votesMap = state?.roundEncryptedVotes;
+    if (!votesMap || typeof votesMap.member !== "function") {
+      throw new Error("Ledger roundEncryptedVotes map not available.");
+    }
+    const roundPrefix = padBytes32(
+      phase === Phase.Day ? "day-round" : "night-round",
+    );
+    const roundHash = runtimeContract._persistentHash_3(BigInt(round));
+    const countKey = runtimeContract._hash2_0(
+      (runtimeContract as any)._hash2_0(gameId, roundPrefix),
+      roundHash,
+    );
+    const emptyVote = new Uint8Array(129);
+    if (!votesMap.member(countKey)) {
+      return Array.from({ length: MAX_PLAYERS }, () => emptyVote);
+    }
+    const roundMap = votesMap.lookup(countKey);
+    return Array.from({ length: MAX_PLAYERS }, (_, idx) => {
+      const key = BigInt(idx);
+      return roundMap.member(key) ? roundMap.lookup(key) : emptyVote;
+    });
+  };
+
+  const decryptVoteTargets = (
+    encryptedVotes: Uint8Array[],
+    adminVotePrivateKeyHex: string,
+    isNight: boolean,
+    werewolfIndices: number[],
+  ): number[] => {
+    const targets: number[] = [];
+    for (let i = 0; i < encryptedVotes.length; i++) {
+      const enc = encryptedVotes[i];
+      if (!enc || isZeroBytes(enc)) continue;
+      if (isNight && !werewolfIndices.includes(i)) continue;
+      try {
+        const dec = decrypt(adminVotePrivateKeyHex, Buffer.from(enc));
+        const payload = dec instanceof Uint8Array ? dec : new Uint8Array(dec);
+        targets.push(decodeVoteTarget(payload));
+      } catch (e) {
+        console.warn("Failed to decrypt vote payload", e);
+      }
+    }
+    return targets;
+  };
+
   const getAdminKeyBytes = () => {
     const adminKeySource =
       midnightWallet?.stateA?.werewolf?.shieldedCoinPublicKey ??
-      midnightWallet?.stateA?.werewolf?.coinPublicKey ??
-      midnightWallet?.stateA?.werewolf?.shieldedCoinPublicKey?.bytes;
+        midnightWallet?.stateA?.werewolf?.coinPublicKey ??
+        midnightWallet?.stateA?.werewolf?.shieldedCoinPublicKey?.bytes;
 
     if (!adminKeySource) {
       throw new Error("Wallet coin public key not available.");
@@ -475,6 +732,7 @@ function App() {
     try {
       const data = await loginMidnight();
       setMidnightWallet(data);
+      setMidnightProviders(data?.providers ?? null);
       setMidnightAddress(data?.addr ?? "");
       setStatus("Connected to Midnight wallet.");
     } catch (e: any) {
@@ -558,18 +816,62 @@ function App() {
     try {
       setLoading(true);
       if (method !== "iterator" && typeof map[method] !== "function") {
-        throw new Error(`Ledger map method not found: ${ledgerMapName}.${method}`);
+        throw new Error(
+          `Ledger map method not found: ${ledgerMapName}.${method}`,
+        );
       }
-      const args = method === "isEmpty" || method === "size" || method === "iterator"
-        ? []
-        : parseLedgerArgs();
+      const args =
+        method === "isEmpty" || method === "size" || method === "iterator"
+          ? []
+          : parseLedgerArgs();
       const result = method === "iterator"
         ? Array.from(map as Iterable<unknown>)
         : map[method](...args);
       setStatus(`${ledgerMapName}.${method}:\n${stringifyWithBigInt(result)}`);
     } catch (e: any) {
       console.error(`Ledger map call failed (${ledgerMapName}.${method})`, e);
-      setError(e?.message ?? `Ledger map call failed: ${ledgerMapName}.${method}`);
+      setError(
+        e?.message ?? `Ledger map call failed: ${ledgerMapName}.${method}`,
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const refreshLedgerState = async () => {
+    if (!midnightProviders) {
+      throw new Error("Connect Midnight wallet first.");
+    }
+    const contractAddress = midnightWallet?.contractAddress?.werewolf;
+    if (!contractAddress) {
+      throw new Error("Contract address not available.");
+    }
+    const { contract, state } = await connectToContract(
+      midnightProviders,
+      contractAddress,
+    );
+    setMidnightWallet((prev: any) =>
+      prev
+        ? {
+          ...prev,
+          contract: { ...prev.contract, werewolf: contract },
+          stateB: { ...prev.stateB, werewolf: state },
+        }
+        : prev
+    );
+    return state;
+  };
+
+  const handleRefreshLedgerState = async () => {
+    setError("");
+    setStatus("");
+    setLoading(true);
+    try {
+      await refreshLedgerState();
+      setStatus("Ledger state refreshed.");
+    } catch (e: any) {
+      console.error("Failed to refresh ledger state:", e);
+      setError(e?.message ?? "Failed to refresh ledger state.");
     } finally {
       setLoading(false);
     }
@@ -602,12 +904,13 @@ function App() {
       const adminVotePublicKeyBytes = hexToBytes(adminVotePublicKeyHex);
       const masterSecret = randomBytes32();
       const masterSecretCommitment = new Uint8Array(
-        (pureCircuits as any).testComputeHash(masterSecret),
+        pureCircuits.testComputeHash(masterSecret),
       );
 
       const roles = shuffle(
-        Array.from({ length: playerCount }, (_, idx) =>
-          idx < werewolfCount ? Role.Werewolf : Role.Villager
+        Array.from(
+          { length: playerCount },
+          (_, idx) => idx < werewolfCount ? Role.Werewolf : Role.Villager,
         ),
       );
 
@@ -641,6 +944,8 @@ function App() {
       );
       const initialRoot = tree.getRoot();
 
+      await stageSetupData(gameId, players.map((p) => p.commitment));
+
       setStatus("Creating game…");
       await callWerewolfMethod(midnightWallet.contract.werewolf, "createGame", [
         gameId,
@@ -651,44 +956,6 @@ function App() {
         BigInt(werewolfCount),
         initialRoot,
       ]);
-
-      setStatus("Setting up player commitments…");
-      const setupBatch = async (batch: PlayerLocalState[]) => {
-        if (batch.length === 1) {
-          await callWerewolfMethod(
-            midnightWallet.contract.werewolf,
-            "setupGame",
-            [gameId, BigInt(batch[0].id), batch[0].commitment],
-          );
-          return;
-        }
-        if (batch.length === 2) {
-          await callWerewolfMethod(
-            midnightWallet.contract.werewolf,
-            "setupGame2",
-            [
-              gameId,
-              BigInt(batch[0].id),
-              batch[0].commitment,
-              BigInt(batch[1].id),
-              batch[1].commitment,
-            ],
-          );
-          return;
-        }
-        throw new Error(`Unsupported setup batch size: ${batch.length}`);
-      };
-
-      for (let i = 0; i < players.length;) {
-        const remaining = players.length - i;
-        if (remaining >= 2) {
-          await setupBatch(players.slice(i, i + 2));
-          i += 2;
-        } else {
-          await setupBatch(players.slice(i, i + 1));
-          i += 1;
-        }
-      }
 
       setGame({
         gameId,
@@ -708,7 +975,9 @@ function App() {
       setDayVotes([]);
       setRevealPlayerIdx(0);
       setStatus(
-        `Game created.\n\nGameId: 0x${toHexString(gameId)}\nPlayers: ${playerCount}\nWerewolves: ${werewolfCount}`,
+        `Game created.\n\nGameId: 0x${
+          toHexString(gameId)
+        }\nPlayers: ${playerCount}\nWerewolves: ${werewolfCount}`,
       );
     } catch (e: any) {
       console.error("Create game failed:", e);
@@ -717,6 +986,29 @@ function App() {
       setLoading(false);
       setTxTimer({ start: null, elapsed: 0 });
     }
+  };
+
+  const handleLoadPlayerBundle = () => {
+    setError("");
+    setStatus("");
+    try {
+      const profile = parsePlayerBundle(playerBundleInput.trim());
+      setPlayerProfile(profile);
+      setStatus(
+        `Loaded player ${profile.playerId} (game ${
+          bytesToHex(profile.gameId)
+        }).`,
+      );
+    } catch (e: any) {
+      console.error("Failed to load player bundle:", e);
+      setError(e?.message ?? "Failed to load player bundle.");
+    }
+  };
+
+  const handleClearPlayerBundle = () => {
+    setPlayerProfile(null);
+    setPlayerBundleInput("");
+    setPlayerLastEncryptedHex("");
   };
 
   const handleSubmitNightActions = async () => {
@@ -751,10 +1043,15 @@ function App() {
         lastEncryptedHex = bytesToHex(encryptedAction);
         const path = game.tree.getProof(player.id, player.leaf);
 
+        await stageNextAction(game.gameId, {
+          encryptedAction,
+          merklePath: path,
+          leafSecret: player.sk,
+        });
         await callWerewolfMethod(
           midnightWallet.contract.werewolf,
           "nightAction",
-          [game.gameId, encryptedAction, path, player.sk],
+          [game.gameId],
         );
         targets.push(decodeVoteTarget(payloadBytes));
       }
@@ -780,17 +1077,41 @@ function App() {
       setError("Create a game first.");
       return;
     }
-    if (nightVotes.length === 0) {
-      setError("No night actions recorded.");
-      return;
-    }
 
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
-      const target = pickTargetFromVotes(nightVotes, game.players);
-      const hasDeath = target !== null && aliveCount(game.players) > 1;
-      const targetIdx = target ? target.id : 0;
+      const latestLedgerState = midnightProviders
+        ? await refreshLedgerState()
+        : ledgerState;
+      if (!latestLedgerState) {
+        throw new Error(
+          "Ledger state unavailable. Refresh ledger state first.",
+        );
+      }
+      const encryptedVotes = getRoundEncryptedVotes(
+        latestLedgerState,
+        game.gameId,
+        Phase.Night,
+        game.round,
+      );
+      const werewolfIndices = game.players
+        .filter((p) => p.role === Role.Werewolf)
+        .map((p) => p.id);
+      const voteTargets = decryptVoteTargets(
+        encryptedVotes,
+        game.adminVotePrivateKeyHex,
+        true,
+        werewolfIndices,
+      );
+      if (voteTargets.length === 0) {
+        throw new Error("No decryptable night votes found.");
+      }
+      setNightVotes(voteTargets);
+
+      const result = resolveVotes(voteTargets, game.players, true);
+      const hasDeath = result.hasElimination && aliveCount(game.players) > 1;
+      const targetIdx = result.targetIdx;
 
       await callWerewolfMethod(
         midnightWallet.contract.werewolf,
@@ -818,8 +1139,8 @@ function App() {
       setNightVotes([]);
       setStatus(
         outcome
-          ? `Night resolved. ${outcome} Game finished.`
-          : `Night resolved. Player ${targetIdx} ${
+          ? `Night resolved. ${result.info} ${outcome} Game finished.`
+          : `Night resolved. ${result.info} Player ${targetIdx} ${
             hasDeath ? "died" : "survived"
           }.`,
       );
@@ -863,11 +1184,13 @@ function App() {
         lastEncryptedHex = bytesToHex(encryptedVote);
         const path = game.tree.getProof(player.id, player.leaf);
 
+        await stageNextAction(game.gameId, {
+          encryptedAction: encryptedVote,
+          merklePath: path,
+          leafSecret: player.sk,
+        });
         await callWerewolfMethod(midnightWallet.contract.werewolf, "voteDay", [
           game.gameId,
-          encryptedVote,
-          path,
-          player.sk,
         ]);
         targets.push(decodeVoteTarget(payloadBytes));
       }
@@ -884,6 +1207,96 @@ function App() {
     }
   };
 
+  const handleSubmitPlayerNightAction = async () => {
+    setError("");
+    setStatus("");
+    if (!playerProfile || !midnightWallet?.contract?.werewolf) {
+      setError("Load a player bundle first.");
+      return;
+    }
+
+    setLoading(true);
+    setTxTimer({ start: Date.now(), elapsed: 0 });
+    try {
+      const payloadBytes = playerNightPayloadInput.trim()
+        ? parseBytes32(playerNightPayloadInput, "Night action payload")
+        : encodeVoteTarget(parseCount(playerTargetIdxInput, 0));
+      const encryptedAction = encryptPayload(
+        playerProfile.adminVotePublicKeyHex,
+        payloadBytes,
+      );
+      const leaf = new Uint8Array(
+        (pureCircuits as any).testComputeHash(playerProfile.leafSecret),
+      );
+      const path = { leaf, path: playerProfile.merklePath };
+
+      await stageNextAction(playerProfile.gameId, {
+        encryptedAction,
+        merklePath: path,
+        leafSecret: playerProfile.leafSecret,
+      });
+      await callWerewolfMethod(
+        midnightWallet.contract.werewolf,
+        "nightAction",
+        [playerProfile.gameId],
+      );
+
+      setPlayerLastEncryptedHex(bytesToHex(encryptedAction));
+      setStatus("Night action submitted.");
+    } catch (e: any) {
+      console.error("Player night action failed:", e);
+      setError(e?.message ?? "Player night action failed.");
+    } finally {
+      setLoading(false);
+      setTxTimer({ start: null, elapsed: 0 });
+    }
+  };
+
+  const handleSubmitPlayerDayVote = async () => {
+    setError("");
+    setStatus("");
+    if (!playerProfile || !midnightWallet?.contract?.werewolf) {
+      setError("Load a player bundle first.");
+      return;
+    }
+
+    setLoading(true);
+    setTxTimer({ start: Date.now(), elapsed: 0 });
+    try {
+      const payloadBytes = playerDayPayloadInput.trim()
+        ? parseBytes32(playerDayPayloadInput, "Day vote payload")
+        : encodeVoteTarget(parseCount(playerTargetIdxInput, 0));
+      const encryptedVote = encryptPayload(
+        playerProfile.adminVotePublicKeyHex,
+        payloadBytes,
+      );
+      const leaf = new Uint8Array(
+        (pureCircuits as any).testComputeHash(playerProfile.leafSecret),
+      );
+      const path = { leaf, path: playerProfile.merklePath };
+
+      await stageNextAction(playerProfile.gameId, {
+        encryptedAction: encryptedVote,
+        merklePath: path,
+        leafSecret: playerProfile.leafSecret,
+      });
+      await callWerewolfMethod(
+        midnightWallet.contract.werewolf,
+        "voteDay",
+        [playerProfile.gameId],
+      );
+
+      setPlayerLastEncryptedHex(bytesToHex(encryptedVote));
+      setStatus("Day vote submitted.");
+    } catch (e: any) {
+      console.error("Player day vote failed:", e);
+      setError(e?.message ?? "Player day vote failed.");
+    } finally {
+      setLoading(false);
+      setTxTimer({ start: null, elapsed: 0 });
+    }
+  };
+
   const handleResolveDay = async () => {
     setError("");
     setStatus("");
@@ -891,17 +1304,39 @@ function App() {
       setError("Create a game first.");
       return;
     }
-    if (dayVotes.length === 0) {
-      setError("No day votes recorded.");
-      return;
-    }
 
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
-      const target = pickTargetFromVotes(dayVotes, game.players);
-      const hasElimination = target !== null && aliveCount(game.players) > 1;
-      const targetIdx = target ? target.id : 0;
+      const latestLedgerState = midnightProviders
+        ? await refreshLedgerState()
+        : ledgerState;
+      if (!latestLedgerState) {
+        throw new Error(
+          "Ledger state unavailable. Refresh ledger state first.",
+        );
+      }
+      const encryptedVotes = getRoundEncryptedVotes(
+        latestLedgerState,
+        game.gameId,
+        Phase.Day,
+        game.round,
+      );
+      const voteTargets = decryptVoteTargets(
+        encryptedVotes,
+        game.adminVotePrivateKeyHex,
+        false,
+        [],
+      );
+      if (voteTargets.length === 0) {
+        throw new Error("No decryptable day votes found.");
+      }
+      setDayVotes(voteTargets);
+
+      const result = resolveVotes(voteTargets, game.players, false);
+      const hasElimination = result.hasElimination &&
+        aliveCount(game.players) > 1;
+      const targetIdx = result.targetIdx;
 
       await callWerewolfMethod(
         midnightWallet.contract.werewolf,
@@ -922,8 +1357,8 @@ function App() {
       setDayVotes([]);
       setStatus(
         outcome
-          ? `Day resolved. ${outcome} Game finished.`
-          : `Day resolved. Player ${targetIdx} ${
+          ? `Day resolved. ${result.info} ${outcome} Game finished.`
+          : `Day resolved. ${result.info} Player ${targetIdx} ${
             hasElimination ? "eliminated" : "survived"
           }.`,
       );
@@ -1019,10 +1454,14 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
-      await callWerewolfMethod(midnightWallet.contract.werewolf, "forceEndGame", [
-        game.gameId,
-        game.masterSecret,
-      ]);
+      await callWerewolfMethod(
+        midnightWallet.contract.werewolf,
+        "forceEndGame",
+        [
+          game.gameId,
+          game.masterSecret,
+        ],
+      );
       setGame({ ...game, phase: Phase.Finished });
       setStatus("Force ended the game.");
     } catch (e: any) {
@@ -1070,17 +1509,27 @@ function App() {
           >
             Add funds
           </button>
+
+          <button
+            type="button"
+            className="btn"
+            onClick={handleRefreshLedgerState}
+            disabled={loading || !midnightAddress}
+            title={!midnightAddress ? "Connect wallet first" : undefined}
+          >
+            Refresh ledger
+          </button>
         </div>
 
         {game && (
           <div className="info">
             <div className="label">Game info</div>
             <div className="mono">
-              {`GameId: 0x${toHexString(game.gameId)}\nRound: ${
-                game.round
-              }\nPhase: ${phaseName(game.phase)}\nPlayers: ${
-                game.playerCount
-              }\nWerewolves: ${game.werewolfCount}`}
+              {`GameId: 0x${
+                toHexString(game.gameId)
+              }\nRound: ${game.round}\nPhase: ${
+                phaseName(game.phase)
+              }\nPlayers: ${game.playerCount}\nWerewolves: ${game.werewolfCount}`}
             </div>
           </div>
         )}
@@ -1110,7 +1559,8 @@ function App() {
                   min={1}
                   max={MAX_PLAYERS - 1}
                   value={werewolfCountInput}
-                  onChange={(event) => setWerewolfCountInput(event.target.value)}
+                  onChange={(event) =>
+                    setWerewolfCountInput(event.target.value)}
                   disabled={loading}
                 />
               </div>
@@ -1134,6 +1584,27 @@ function App() {
                 Reset local game state
               </button>
             </div>
+
+            {game && playerBundles.length > 0 && (
+              <div className="form">
+                <div className="label">Player bundles</div>
+                <div className="mono">
+                  Share one bundle per player. Night filtering assumes
+                  submissions are in player-id order.
+                </div>
+                {playerBundles.map((bundle) => (
+                  <div className="field" key={bundle.playerId}>
+                    <div className="label">Player {bundle.playerId}</div>
+                    <textarea
+                      className="input"
+                      rows={6}
+                      readOnly
+                      value={JSON.stringify(bundle, null, 2)}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
 
             {game && (
               <div className="form">
@@ -1252,11 +1723,124 @@ function App() {
 
           <div className="column">
             <div className="column-title">Player Actions</div>
+            <div className="form">
+              <div className="label">Player bundle (single browser)</div>
+              <div className="field">
+                <div className="label">Bundle JSON</div>
+                <textarea
+                  className="input"
+                  rows={6}
+                  value={playerBundleInput}
+                  onChange={(event) => setPlayerBundleInput(event.target.value)}
+                  placeholder='Paste JSON from "Player bundles"'
+                  disabled={loading}
+                />
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleLoadPlayerBundle}
+                disabled={loading || !playerBundleInput.trim()}
+              >
+                Load player bundle
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={handleClearPlayerBundle}
+                disabled={loading}
+              >
+                Clear player bundle
+              </button>
+              {playerProfile && (
+                <div className="mono">
+                  Loaded P{playerProfile.playerId} — game{" "}
+                  {bytesToHex(playerProfile.gameId)}
+                </div>
+              )}
+            </div>
+
+            {playerProfile && (
+              <div className="form">
+                <div className="label">Single player actions</div>
+                <div className="field">
+                  <div className="label">Vote target (player index)</div>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={MAX_PLAYERS - 1}
+                    value={playerTargetIdxInput}
+                    onChange={(event) =>
+                      setPlayerTargetIdxInput(event.target.value)}
+                    disabled={loading}
+                  />
+                </div>
+                <div className="field">
+                  <div className="label">
+                    Night payload override (bytes32 hex)
+                  </div>
+                  <input
+                    className="input"
+                    type="text"
+                    value={playerNightPayloadInput}
+                    onChange={(event) =>
+                      setPlayerNightPayloadInput(event.target.value)}
+                    placeholder='e.g. "0x..."'
+                    disabled={loading}
+                  />
+                </div>
+                <div className="field">
+                  <div className="label">
+                    Day payload override (bytes32 hex)
+                  </div>
+                  <input
+                    className="input"
+                    type="text"
+                    value={playerDayPayloadInput}
+                    onChange={(event) =>
+                      setPlayerDayPayloadInput(event.target.value)}
+                    placeholder='e.g. "0x..."'
+                    disabled={loading}
+                  />
+                </div>
+                <div className="field">
+                  <div className="label">Last encrypted payload</div>
+                  <input
+                    className="input"
+                    type="text"
+                    readOnly
+                    value={playerLastEncryptedHex}
+                    placeholder="Encrypted payload will appear here"
+                    tabIndex={-1}
+                  />
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleSubmitPlayerNightAction}
+                  disabled={loading}
+                >
+                  Submit night action (player)
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={handleSubmitPlayerDayVote}
+                  disabled={loading}
+                >
+                  Submit day vote (player)
+                </button>
+              </div>
+            )}
+
             {game && (
               <div className="form">
-                <div className="label">Night phase</div>
+                <div className="label">Night phase (simulate all)</div>
                 <div className="field">
-                  <div className="label">Night action payload (bytes32 hex)</div>
+                  <div className="label">
+                    Night action payload (bytes32 hex)
+                  </div>
                   <input
                     className="input"
                     type="text"
@@ -1296,7 +1880,7 @@ function App() {
 
             {game && (
               <div className="form">
-                <div className="label">Day phase</div>
+                <div className="label">Day phase (simulate all)</div>
                 <div className="field">
                   <div className="label">Day vote payload (bytes32 hex)</div>
                   <input

@@ -204,6 +204,8 @@ const displayWerewolfLedgerState = async (
 
 type WerewolfMethodArgType =
   | "bytes32"
+  | "bytes33"
+  | "bytes129"
   | "uint32"
   | "uint8"
   | "boolean"
@@ -228,33 +230,11 @@ export const WEREWOLF_METHODS = [
     args: [
       { name: "gameId", type: "bytes32" },
       { name: "adminKey", type: "coinPublicKey" },
+      { name: "adminVotePublicKey", type: "bytes33" },
       { name: "masterSecretCommitment", type: "bytes32" },
       { name: "actualCount", type: "uint32" },
       { name: "werewolfCount", type: "uint32" },
       { name: "initialRoot", type: "merkleDigest" },
-    ],
-  },
-  {
-    name: "setupGame",
-    caller: "trustedNode",
-    args: [
-      { name: "gameId", type: "bytes32" },
-      // { name: "initialRoot", type: "merkleDigest" },
-      // { name: "publicKeys", type: "coinPublicKeyVec10" },
-      { name: "playerIdx", type: "uint32" },
-      { name: "roleCommitment", type: "bytes32" },
-      // { name: "encryptedRoles", type: "curvePointVec10" },
-    ],
-  },
-  {
-    name: "setupGame2",
-    caller: "trustedNode",
-    args: [
-      { name: "gameId", type: "bytes32" },
-      { name: "playerIdx1", type: "uint32" },
-      { name: "roleCommitment1", type: "bytes32" },
-      { name: "playerIdx2", type: "uint32" },
-      { name: "roleCommitment2", type: "bytes32" },
     ],
   },
   {
@@ -270,9 +250,6 @@ export const WEREWOLF_METHODS = [
     caller: "player",
     args: [
       { name: "gameId", type: "bytes32" },
-      { name: "encryptedAction", type: "bytes32" },
-      { name: "merklePath", type: "merklePath" },
-      { name: "leafSecret", type: "bytes32" },
     ],
   },
   {
@@ -291,9 +268,6 @@ export const WEREWOLF_METHODS = [
     caller: "player",
     args: [
       { name: "gameId", type: "bytes32" },
-      { name: "encryptedVote", type: "bytes32" },
-      { name: "merklePath", type: "merklePath" },
-      { name: "leafSecret", type: "bytes32" },
     ],
   },
   {
@@ -324,6 +298,20 @@ export const WEREWOLF_METHODS = [
       { name: "playerIdx", type: "uint32" },
       { name: "assignedRole", type: "uint8" },
     ],
+  },
+  {
+    name: "getEncryptedVotesForRound",
+    caller: "any",
+    args: [
+      { name: "gameId", type: "bytes32" },
+      { name: "phase", type: "uint8" },
+      { name: "round", type: "uint32" },
+    ],
+  },
+  {
+    name: "getGameAdminPublicKey",
+    caller: "any",
+    args: [{ name: "gameId", type: "bytes32" }],
   },
   {
     name: "getGameState",

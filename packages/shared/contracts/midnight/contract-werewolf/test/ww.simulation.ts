@@ -67,7 +67,11 @@ class Player implements Actor {
     );
   }
 
-  receiveGameConfig(role: number, adminVotePubKey: string, allPlayers: Player[]) {
+  receiveGameConfig(
+    role: number,
+    adminVotePubKey: string,
+    allPlayers: Player[],
+  ) {
     this.role = role;
     this.adminVotePubKey = adminVotePubKey;
     this.allPlayers = allPlayers;
@@ -95,8 +99,10 @@ class Player implements Actor {
   }
 
   private chooseTarget(): number {
-    const alivePlayers = this.allPlayers!.filter((p) => p.isAlive && p.id !== this.id);
-    
+    const alivePlayers = this.allPlayers!.filter((p) =>
+      p.isAlive && p.id !== this.id
+    );
+
     if (alivePlayers.length === 0) {
       // Fallback: vote for self (shouldn't happen)
       return this.id;
@@ -119,7 +125,7 @@ class Player implements Actor {
 }
 
 class TrustedNode implements Actor {
-  readonly adminKey: Uint8Array;
+  public adminKey: Uint8Array;
   private masterSecret: Uint8Array;
   private votePrivKey: PrivateKey;
   readonly votePubKeyHex: string;
@@ -157,18 +163,18 @@ class TrustedNode implements Actor {
     werewolfIndices?: number[], // Indices of werewolf players (for filtering night votes)
   ): { eliminatedIdx: number; hasElimination: boolean } {
     const votes = new Map<number, number>();
-    
+
     // During night, only count votes from werewolves
     // The vote array is indexed by player ID, so we can filter
     for (let i = 0; i < encryptedVotes.length; i++) {
       const enc = encryptedVotes[i];
       if (enc.every((b) => b === 0)) continue;
-      
+
       // During night phase, skip non-werewolf votes
       if (isNightPhase && werewolfIndices && !werewolfIndices.includes(i)) {
         continue;
       }
-      
+
       try {
         const dec = decrypt(this.votePrivKey.toHex(), Buffer.from(enc));
         const target = new DataView(dec.buffer).getUint32(0, true);
@@ -203,10 +209,18 @@ class TrustedNode implements Actor {
         const randomIdx = Math.floor(Math.random() * tiedPlayers.length);
         target = tiedPlayers[randomIdx];
         hasElimination = true;
-        console.log(`    [Node] Night tie! Randomly eliminating P${target} from tied players: ${tiedPlayers.map(p => `P${p}`).join(', ')}`);
+        console.log(
+          `    [Node] Night tie! Randomly eliminating P${target} from tied players: ${
+            tiedPlayers.map((p) => `P${p}`).join(", ")
+          }`,
+        );
       } else {
         // Day: no elimination on tie
-        console.log(`    [Node] Day vote tie! No elimination. Tied players: ${tiedPlayers.map(p => `P${p}`).join(', ')}`);
+        console.log(
+          `    [Node] Day vote tie! No elimination. Tied players: ${
+            tiedPlayers.map((p) => `P${p}`).join(", ")
+          }`,
+        );
         // Return 0 as placeholder index (hasElimination=false means it won't be used)
         return { eliminatedIdx: 0, hasElimination: false };
       }
@@ -341,7 +355,7 @@ const witnesses = {
 };
 
 class Simulation {
-  contract: Contract<PrivateState, typeof witnesses>;
+  contract: Contract;
   context: CircuitContext<PrivateState>;
   gameId: Uint8Array;
   admin: TrustedNode;
@@ -388,7 +402,7 @@ class Simulation {
     const adminKeyRes = await this.runCircuit(() =>
       circuits.getAdminKey(this.context)
     );
-    (this.admin as any).adminKey = adminKeyRes.bytes;
+    this.admin.adminKey = adminKeyRes.bytes;
 
     const commitments: Uint8Array[] = [];
     const leafHashes: Uint8Array[] = [];
@@ -412,7 +426,11 @@ class Simulation {
       );
       commitments.push(comm);
 
-      p.receiveGameConfig(p.id === 0 ? Role.Werewolf : Role.Villager, this.admin.votePubKeyHex, this.players);
+      p.receiveGameConfig(
+        p.id === 0 ? Role.Werewolf : Role.Villager,
+        this.admin.votePubKeyHex,
+        this.players,
+      );
     }
     this.admin.setCommitments(commitments);
 
@@ -465,10 +483,17 @@ class Simulation {
     let gameOver = false;
     let winner: "werewolves" | "villagers" | null = null;
 
-    const checkWinCondition = (): { gameOver: boolean; winner: "werewolves" | "villagers" | null } => {
+    const checkWinCondition = (): {
+      gameOver: boolean;
+      winner: "werewolves" | "villagers" | null;
+    } => {
       const alivePlayers = this.players.filter((p) => p.isAlive);
-      const aliveWerewolves = alivePlayers.filter((p) => p.role === Role.Werewolf);
-      const aliveVillagers = alivePlayers.filter((p) => p.role !== Role.Werewolf);
+      const aliveWerewolves = alivePlayers.filter((p) =>
+        p.role === Role.Werewolf
+      );
+      const aliveVillagers = alivePlayers.filter((p) =>
+        p.role !== Role.Werewolf
+      );
 
       if (aliveWerewolves.length === 0) {
         return { gameOver: true, winner: "villagers" };
@@ -483,7 +508,9 @@ class Simulation {
       const alive = this.players.filter((p) => p.isAlive);
       const wolves = alive.filter((p) => p.role === Role.Werewolf).length;
       const villagers = alive.length - wolves;
-      console.log(`    📊 Status: ${alive.length} alive (🐺 ${wolves} werewolves, 👤 ${villagers} villagers)`);
+      console.log(
+        `    📊 Status: ${alive.length} alive (🐺 ${wolves} werewolves, 👤 ${villagers} villagers)`,
+      );
     };
 
     while (!gameOver) {
@@ -512,7 +539,11 @@ class Simulation {
       const werewolfIndices = this.players
         .filter((p) => p.role === Role.Werewolf)
         .map((p) => p.id);
-      const nightRes = this.admin.processVotes(nightVotes as Uint8Array[], true, werewolfIndices);
+      const nightRes = this.admin.processVotes(
+        nightVotes as Uint8Array[],
+        true,
+        werewolfIndices,
+      );
 
       await this.runCircuit(() =>
         circuits.resolveNightPhase(
@@ -528,8 +559,12 @@ class Simulation {
       if (nightRes.hasElimination) {
         const victim = this.players[nightRes.eliminatedIdx];
         victim.isAlive = false;
-        const roleStr = victim.role === Role.Werewolf ? "🐺 Werewolf" : "👤 Villager";
-        console.log(`    💀 P${nightRes.eliminatedIdx} (${roleStr}) was killed in the night!`);
+        const roleStr = victim.role === Role.Werewolf
+          ? "🐺 Werewolf"
+          : "👤 Villager";
+        console.log(
+          `    💀 P${nightRes.eliminatedIdx} (${roleStr}) was killed in the night!`,
+        );
       } else {
         console.log(`    😮 No one died tonight!`);
       }
@@ -545,7 +580,9 @@ class Simulation {
       for (const p of this.players) {
         if (!p.isAlive) continue;
         this.context.currentPrivateState.activeActor = p;
-        await this.runCircuit(() => circuits.voteDay(this.context, this.gameId));
+        await this.runCircuit(() =>
+          circuits.voteDay(this.context, this.gameId)
+        );
       }
 
       this.context.currentPrivateState.activeActor = this.admin;
@@ -571,8 +608,12 @@ class Simulation {
       if (dayRes.hasElimination) {
         const victim = this.players[dayRes.eliminatedIdx];
         victim.isAlive = false;
-        const roleStr = victim.role === Role.Werewolf ? "🐺 Werewolf" : "👤 Villager";
-        console.log(`    🔥 P${dayRes.eliminatedIdx} (${roleStr}) was executed by the village!`);
+        const roleStr = victim.role === Role.Werewolf
+          ? "🐺 Werewolf"
+          : "👤 Villager";
+        console.log(
+          `    🔥 P${dayRes.eliminatedIdx} (${roleStr}) was executed by the village!`,
+        );
       } else {
         console.log(`    🤷 The village couldn't decide. No one was executed.`);
       }
