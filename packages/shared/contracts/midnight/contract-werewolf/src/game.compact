@@ -27,7 +27,7 @@ constructor() {}
 
 // Merged Create + Setup
 export circuit createGame(
-    gameId: Bytes<32>, 
+    gameId: Uint<32>, 
     adminVotePublicKey: Bytes<33>,
     masterSecretCommitment: Bytes<32>,
     actualCount: Uint<32>,
@@ -43,7 +43,7 @@ export circuit createGame(
 }
 
 export circuit forceEndGame(
-    gameId: Bytes<32>,
+    gameId: Uint<32>,
     masterSecret: Bytes<32>
 ): [] {
     return Werewolf_endGame(gameId, masterSecret);
@@ -51,13 +51,13 @@ export circuit forceEndGame(
 
 // Action using Witness
 export circuit nightAction(
-    gameId: Bytes<32>
+    gameId: Uint<32>
 ): [] {
     return Werewolf_submitNightAction(gameId);
 }
 
 export circuit resolveNightPhase(
-    gameId: Bytes<32>,
+    gameId: Uint<32>,
     newRound: Uint<32>,
     deadPlayerIdx: Uint<32>, 
     hasDeath: Boolean,
@@ -74,13 +74,13 @@ export circuit resolveNightPhase(
 
 // Action using Witness
 export circuit voteDay(
-    gameId: Bytes<32>
+    gameId: Uint<32>
 ): [] {
     return Werewolf_castDayVote(gameId);
 }
 
 export circuit resolveDayPhase(
-    gameId: Bytes<32>,
+    gameId: Uint<32>,
     eliminatedIdx: Uint<32>,
     hasElimination: Boolean
 ): [] {
@@ -88,7 +88,7 @@ export circuit resolveDayPhase(
 }
 
 export circuit revealPlayerRole(
-    gameId: Bytes<32>,
+    gameId: Uint<32>,
     playerIdx: Uint<32>,
     role: Uint<8>,
     salt: Bytes<32>
@@ -97,7 +97,7 @@ export circuit revealPlayerRole(
 }
 
 export circuit verifyFairness(
-    gameId: Bytes<32>,
+    gameId: Uint<32>,
     masterSecret: Bytes<32>,
     playerIdx: Uint<32>,
     assignedRole: Uint<8>
@@ -111,10 +111,10 @@ export circuit verifyFairness(
 }
 
 export circuit getEncryptedVotesForRound(
-    gameId: Bytes<32>,
+    gameId: Uint<32>,
     phase: Phase,
     round: Uint<32>
-): Vector<10, Bytes<3>> {
+): Vector<16, Bytes<3>> {
     return Werewolf_getEncryptedVotesForRound(gameId, phase, round);
 }
 
@@ -122,22 +122,23 @@ export circuit getEncryptedVotesForRound(
 // HELPERS & TEST UTILS
 // ============================================
 
-export circuit getGameState(gameId: Bytes<32>): GameState {
+export circuit getGameState(gameId: Uint<32>): GameState {
     const gid = disclose(gameId);
     assert(Werewolf_games.member(gid), "Game not found");
     return Werewolf_games.lookup(gid);
 }
 
-export circuit isPlayerAlive(gameId: Bytes<32>, playerIdx: Uint<32>): Boolean {
+export circuit isPlayerAlive(gameId: Uint<32>, playerIdx: Uint<32>): Boolean {
     const gid = disclose(gameId);
-    return Werewolf_playerAlive.lookup(gid).lookup(disclose(playerIdx));
+    const aliveVec = Werewolf_playerAlive.lookup(gid);
+    return Werewolf_selectBool(aliveVec, disclose(playerIdx));
 }
 
 export circuit getAdminKey(): ZswapCoinPublicKey {
     return Werewolf_getAdminKey();
 }
 
-export circuit getGameAdminPublicKey(gameId: Bytes<32>): Bytes<33> {
+export circuit getGameAdminPublicKey(gameId: Uint<32>): Bytes<33> {
     return Werewolf_getGameAdminPublicKey(gameId);
 }
 

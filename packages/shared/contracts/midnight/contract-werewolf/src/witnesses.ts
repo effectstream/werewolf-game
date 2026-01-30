@@ -1,5 +1,4 @@
 import { type WitnessContext } from "@midnight-ntwrk/compact-runtime";
-import { Buffer } from "node:buffer";
 import nacl from "tweetnacl";
 
 // --- ENCRYPTION LOGIC (Ported from index.ts) ---
@@ -92,7 +91,7 @@ export type MerkleTreePath = {
 };
 
 export type SetupData = {
-  roleCommitments: Uint8Array[]; // Vector<10, Bytes<32>>
+  roleCommitments: Uint8Array[]; // Vector<16, Bytes<32>>
   // NEW: Pre-calculated encrypted roles for the players (Bytes<3>)
   // Admin calculates these off-chain: encrypt(Role, 0, Salt, AdminPriv, PlayerPub)
   encryptedRoles: Uint8Array[];
@@ -116,7 +115,7 @@ export type ContractActionData = {
 };
 
 export type PrivateState = {
-  // Map of GameID (hex string) -> SetupData
+  // Map of GameID (string representation of Uint<32>) -> SetupData
   setupData: Map<string, SetupData>;
   // Keypair for encryption (X25519) - Required for Client Witnesses
   encryptionKeypair?: { secretKey: Uint8Array; publicKey: Uint8Array };
@@ -124,17 +123,14 @@ export type PrivateState = {
   nextAction?: RawActionData;
 };
 
-// Helper to convert Uint8Array to Hex String for Map lookups
-const toHex = (bytes: Uint8Array): string => Buffer.from(bytes).toString("hex");
-
 export const witnesses = {
   // 1. Fetch Commitment (Hash) - Unchanged
   wit_getRoleCommitment: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    gameId: Uint8Array,
+    gameId: number | bigint,
     n: number | bigint,
   ): [PrivateState, Uint8Array] => {
-    const key = toHex(gameId);
+    const key = String(gameId);
     const data = privateState.setupData.get(key);
 
     if (!data) {
@@ -152,10 +148,10 @@ export const witnesses = {
   // 2. NEW: Fetch Encrypted Role (Bytes<3>)
   wit_getEncryptedRole: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    gameId: Uint8Array,
+    gameId: number | bigint,
     n: number | bigint,
   ): [PrivateState, Uint8Array] => {
-    const key = toHex(gameId);
+    const key = String(gameId);
     const data = privateState.setupData.get(key);
 
     if (!data) {
@@ -175,9 +171,9 @@ export const witnesses = {
 
   wit_getAdminKey: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    gameId: Uint8Array,
+    gameId: number | bigint,
   ): [PrivateState, CoinPublicKey] => {
-    const key = toHex(gameId);
+    const key = String(gameId);
     const data = privateState.setupData.get(key);
 
     if (!data) {
@@ -194,9 +190,9 @@ export const witnesses = {
 
   wit_getInitialRoot: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    gameId: Uint8Array,
+    gameId: number | bigint,
   ): [PrivateState, MerkleTreeDigest] => {
-    const key = toHex(gameId);
+    const key = String(gameId);
     const data = privateState.setupData.get(key);
 
     if (!data) {
@@ -213,10 +209,10 @@ export const witnesses = {
 
   wit_getActionData: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    gameId: Uint8Array,
+    gameId: number | bigint,
     round: number | bigint,
   ): [PrivateState, ContractActionData] => {
-    const key = toHex(gameId);
+    const key = String(gameId);
     const setup = privateState.setupData.get(key);
     const action = privateState.nextAction;
     const myKeys = privateState.encryptionKeypair;

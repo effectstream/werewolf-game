@@ -7,11 +7,13 @@
   },
   "tasks": {
     "compact": "compact compile +0.27.0 src/game.compact src/managed",
+    "compact:fast": "compact compile +0.27.0 --skip-zk src/game.compact src/managed",
     "contract:compile": "deno task compact",
     "test": "deno -A test/ww.test.ts"
   },
   "imports": {
     "eciesjs": "npm:eciesjs@^0.4.16",
+    "tweetnacl": "npm:tweetnacl@^1.0.3",
     "vitest": "npm:vitest@^3.2.4",
     "@example-midnight/my-midnight-contract": "@example-midnight/my-midnight-contract"
   }

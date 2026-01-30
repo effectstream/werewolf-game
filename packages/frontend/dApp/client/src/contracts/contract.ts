@@ -222,7 +222,7 @@ export const WEREWOLF_METHODS = [
     name: "createGame",
     caller: "trustedNode",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
       { name: "adminKey", type: "coinPublicKey" },
       { name: "adminVotePublicKey", type: "bytes33" },
       { name: "masterSecretCommitment", type: "bytes32" },
@@ -235,7 +235,7 @@ export const WEREWOLF_METHODS = [
     name: "forceEndGame",
     caller: "trustedNode",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
       { name: "masterSecret", type: "bytes32" },
     ],
   },
@@ -243,14 +243,14 @@ export const WEREWOLF_METHODS = [
     name: "nightAction",
     caller: "player",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
     ],
   },
   {
     name: "resolveNightPhase",
     caller: "trustedNode",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
       { name: "newRound", type: "uint32" },
       { name: "deadPlayerIdx", type: "uint32" },
       { name: "hasDeath", type: "boolean" },
@@ -261,14 +261,14 @@ export const WEREWOLF_METHODS = [
     name: "voteDay",
     caller: "player",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
     ],
   },
   {
     name: "resolveDayPhase",
     caller: "trustedNode",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
       { name: "eliminatedIdx", type: "uint32" },
       { name: "hasElimination", type: "boolean" },
     ],
@@ -277,7 +277,7 @@ export const WEREWOLF_METHODS = [
     name: "revealPlayerRole",
     caller: "player",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
       { name: "playerIdx", type: "uint32" },
       { name: "role", type: "uint8" },
       { name: "salt", type: "bytes32" },
@@ -287,7 +287,7 @@ export const WEREWOLF_METHODS = [
     name: "verifyFairness",
     caller: "player",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
       { name: "masterSecret", type: "bytes32" },
       { name: "playerIdx", type: "uint32" },
       { name: "assignedRole", type: "uint8" },
@@ -297,7 +297,7 @@ export const WEREWOLF_METHODS = [
     name: "getEncryptedVotesForRound",
     caller: "any",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
       { name: "phase", type: "uint8" },
       { name: "round", type: "uint32" },
     ],
@@ -305,18 +305,18 @@ export const WEREWOLF_METHODS = [
   {
     name: "getGameAdminPublicKey",
     caller: "any",
-    args: [{ name: "gameId", type: "bytes32" }],
+    args: [{ name: "gameId", type: "uint32" }],
   },
   {
     name: "getGameState",
     caller: "any",
-    args: [{ name: "gameId", type: "bytes32" }],
+    args: [{ name: "gameId", type: "uint32" }],
   },
   {
     name: "isPlayerAlive",
     caller: "any",
     args: [
-      { name: "gameId", type: "bytes32" },
+      { name: "gameId", type: "uint32" },
       { name: "playerIdx", type: "uint32" },
     ],
   },

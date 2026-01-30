@@ -10,7 +10,7 @@ import {
 import { Buffer } from "node:buffer";
 import { decrypt, encrypt, PrivateKey } from "eciesjs";
 
-const MAX_PLAYERS = 10;
+const MAX_PLAYERS = 16;
 
 const Role = {
   Villager: 0,
@@ -48,7 +48,7 @@ type PlayerBundle = {
 };
 
 type PlayerProfile = {
-  gameId: Uint8Array;
+  gameId: bigint;
   playerId: number;
   leafSecret: Uint8Array;
   merklePath: { sibling: { field: bigint }; goes_left: boolean }[];
@@ -81,7 +81,7 @@ type WitnessPrivateState = {
 };
 
 type GameState = {
-  gameId: Uint8Array;
+  gameId: bigint;
   masterSecret: Uint8Array;
   masterSecretCommitment: Uint8Array;
   adminVotePrivateKeyHex: string;
@@ -121,6 +121,22 @@ const randomBytes = (length: number) => {
 };
 
 const randomBytes32 = () => randomBytes(32);
+
+const randomGameId = (): bigint =>
+  BigInt(Math.floor(Math.random() * 0x100000000));
+
+const parseGameId = (value: string, label: string): bigint => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error(`Missing ${label}.`);
+  }
+  const hex = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
+  const parsed = BigInt(trimmed.startsWith("0x") ? `0x${hex}` : trimmed);
+  if (parsed < 0n || parsed > 0xffffffffn) {
+    throw new Error(`${label} must fit in uint32 (0 to 4294967295).`);
+  }
+  return parsed;
+};
 
 const hexToBytes = (hex: string): Uint8Array => {
   const normalized = hex.startsWith("0x") ? hex.slice(2) : hex;
@@ -421,42 +437,42 @@ function App() {
     () => ({
       wit_getRoleCommitment: (
         _: unknown,
-        gameId: Uint8Array,
+        gameId: number | bigint,
         n: number | bigint,
       ) => {
-        const id = bytesToHex(gameId);
+        const id = String(gameId);
         throw new Error(
           `Witness not configured in frontend (role commitment ${n} for ${id}).`,
         );
       },
       wit_getEncryptedRole: (
         _: unknown,
-        gameId: Uint8Array,
+        gameId: number | bigint,
         n: number | bigint,
       ) => {
-        const id = bytesToHex(gameId);
+        const id = String(gameId);
         throw new Error(
           `Witness not configured in frontend (encrypted role ${n} for ${id}).`,
         );
       },
-      wit_getAdminKey: (_: unknown, gameId: Uint8Array) => {
-        const id = bytesToHex(gameId);
+      wit_getAdminKey: (_: unknown, gameId: number | bigint) => {
+        const id = String(gameId);
         throw new Error(
           `Witness not configured in frontend (admin key for ${id}).`,
         );
       },
-      wit_getInitialRoot: (_: unknown, gameId: Uint8Array) => {
-        const id = bytesToHex(gameId);
+      wit_getInitialRoot: (_: unknown, gameId: number | bigint) => {
+        const id = String(gameId);
         throw new Error(
           `Witness not configured in frontend (initial root for ${id}).`,
         );
       },
       wit_getActionData: (
         _: unknown,
-        gameId: Uint8Array,
+        gameId: number | bigint,
         round: number | bigint,
       ) => {
-        const id = bytesToHex(gameId);
+        const id = String(gameId);
         throw new Error(
           `Witness not configured in frontend (action for ${id} round ${round}).`,
         );
@@ -488,7 +504,7 @@ function App() {
     return game.players.map((player) => {
       const proof = game.tree.getProof(player.id, player.leaf);
       return {
-        gameId: bytesToHex(game.gameId),
+        gameId: game.gameId.toString(),
         playerId: player.id,
         leafSecret: bytesToHex(player.sk),
         merklePath: proof.path.map((entry) => ({
@@ -626,7 +642,7 @@ function App() {
       };
     });
     return {
-      gameId: parseBytes32(bundle.gameId, "gameId"),
+      gameId: parseGameId(bundle.gameId, "gameId"),
       playerId: bundle.playerId,
       leafSecret: parseBytes32(bundle.leafSecret, "leafSecret"),
       merklePath,
@@ -706,7 +722,7 @@ function App() {
   };
 
   const stageSetupData = async (
-    gameId: Uint8Array,
+    gameId: bigint,
     adminKeyBytes: Uint8Array,
     commitments: Uint8Array[],
     initialRoot: { field: bigint },
@@ -722,7 +738,7 @@ function App() {
       { length: MAX_PLAYERS },
       () => new Uint8Array(3),
     );
-    const key = toHexString(gameId);
+    const key = String(gameId);
     const state: WitnessPrivateState = {
       setupData: new Map([[
         key,
@@ -742,14 +758,14 @@ function App() {
   };
 
   const stageNextAction = async (
-    gameId: Uint8Array,
+    gameId: bigint,
     action: WitnessActionData,
     encryptionKeypair: { secretKey: Uint8Array; publicKey: Uint8Array },
   ) => {
     if (!midnightProviders?.privateStateProvider?.set) {
       throw new Error("Private state provider not available.");
     }
-    const key = toHexString(gameId);
+    const key = String(gameId);
     const state: WitnessPrivateState = {
       setupData: new Map([[
         key,
@@ -777,7 +793,7 @@ function App() {
 
   const getRoundEncryptedVotes = (
     state: any,
-    gameId: Uint8Array,
+    gameId: bigint,
     phase: number,
     round: number,
   ): Uint8Array[] => {
@@ -788,20 +804,21 @@ function App() {
     const roundPrefix = padBytes32(
       phase === Phase.Day ? "day-round" : "night-round",
     );
+    const gameIdBytes = (runtimeContract as any)._persistentHash_3(gameId);
     const roundHash = runtimeContract._persistentHash_3(BigInt(round));
     const countKey = runtimeContract._hash2_0(
-      (runtimeContract as any)._hash2_0(gameId, roundPrefix),
+      (runtimeContract as any)._hash2_0(gameIdBytes, roundPrefix),
       roundHash,
     );
-    const emptyVote = new Uint8Array(129);
+    const emptyVote = new Uint8Array(3); // Bytes<3>
     if (!votesMap.member(countKey)) {
       return Array.from({ length: MAX_PLAYERS }, () => emptyVote);
     }
-    const roundMap = votesMap.lookup(countKey);
-    return Array.from({ length: MAX_PLAYERS }, (_, idx) => {
-      const key = BigInt(idx);
-      return roundMap.member(key) ? roundMap.lookup(key) : emptyVote;
-    });
+    const roundVec = votesMap.lookup(countKey) as Uint8Array[];
+    return Array.from(
+      { length: MAX_PLAYERS },
+      (_, idx) => roundVec[idx] ?? emptyVote,
+    );
   };
 
   const decryptVoteTargets = (
@@ -1011,7 +1028,7 @@ function App() {
       );
 
       const adminKeyBytes = getAdminKeyBytes();
-      const gameId = randomBytes32();
+      const gameId = randomGameId();
       const adminVoteKey = new PrivateKey();
       const adminVotePublicKeyHex = adminVoteKey.publicKey.toHex();
       const adminVotePublicKeyBytes = hexToBytes(adminVotePublicKeyHex);
@@ -1104,9 +1121,7 @@ function App() {
       setDayEliminationInput("0");
       setRevealPlayerIdx(0);
       setStatus(
-        `Game created.\n\nGameId: 0x${
-          toHexString(gameId)
-        }\nPlayers: ${playerCount}\nWerewolves: ${werewolfCount}`,
+        `Game created.\n\nGameId: ${gameId}\nPlayers: ${playerCount}\nWerewolves: ${werewolfCount}`,
       );
     } catch (e: any) {
       console.error("Create game failed:", e);
@@ -1124,9 +1139,7 @@ function App() {
       const profile = parsePlayerBundle(playerBundleInput.trim());
       setPlayerProfile(profile);
       setStatus(
-        `Loaded player ${profile.playerId} (game ${
-          bytesToHex(profile.gameId)
-        }).`,
+        `Loaded player ${profile.playerId} (game ${profile.gameId}).`,
       );
     } catch (e: any) {
       console.error("Failed to load player bundle:", e);
@@ -1731,9 +1744,7 @@ function App() {
           <div className="info">
             <div className="label">Game info</div>
             <div className="mono">
-              {`GameId: 0x${
-                toHexString(game.gameId)
-              }\nRound: ${game.round}\nPhase: ${
+              {`GameId: 0x${game.gameId.toString()}\nRound: ${game.round}\nPhase: ${
                 phaseName(game.phase)
               }\nPlayers: ${game.playerCount}\nWerewolves: ${game.werewolfCount}`}
             </div>
@@ -1862,91 +1873,93 @@ function App() {
 
           <div className="column">
             <div className="column-title">Player Votes</div>
-            {game ? (
-              <>
-                <div className="form">
-                  <div className="label">Night votes</div>
-                  {game.players.map((player) => (
-                    <div className="field" key={`night-${player.id}`}>
-                      <div className="label">
-                        P{player.id} {player.alive ? "(alive)" : "(dead)"}
+            {game
+              ? (
+                <>
+                  <div className="form">
+                    <div className="label">Night votes</div>
+                    {game.players.map((player) => (
+                      <div className="field" key={`night-${player.id}`}>
+                        <div className="label">
+                          P{player.id} {player.alive ? "(alive)" : "(dead)"}
+                        </div>
+                        <input
+                          className="input"
+                          type="number"
+                          min={0}
+                          max={game.players.length - 1}
+                          value={nightVoteInputs[player.id] ?? "0"}
+                          onChange={(event) =>
+                            setNightVoteInputs((prev) => {
+                              const next = normalizeVoteInputs(
+                                prev,
+                                game.players.length,
+                              );
+                              next[player.id] = event.target.value;
+                              return next;
+                            })}
+                          disabled={loading || !player.alive}
+                        />
                       </div>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={game.players.length - 1}
-                        value={nightVoteInputs[player.id] ?? "0"}
-                        onChange={(event) =>
-                          setNightVoteInputs((prev) => {
-                            const next = normalizeVoteInputs(
-                              prev,
-                              game.players.length,
-                            );
-                            next[player.id] = event.target.value;
-                            return next;
-                          })}
-                        disabled={loading || !player.alive}
-                      />
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={handleSubmitNightActions}
-                    disabled={loading || game.phase !== Phase.Night}
-                  >
-                    Submit night actions
-                  </button>
-                  {nightVotes.length > 0 && (
-                    <div className="mono">
-                      Night votes: {nightVotes.join(", ")}
-                    </div>
-                  )}
-                </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleSubmitNightActions}
+                      disabled={loading || game.phase !== Phase.Night}
+                    >
+                      Submit night actions
+                    </button>
+                    {nightVotes.length > 0 && (
+                      <div className="mono">
+                        Night votes: {nightVotes.join(", ")}
+                      </div>
+                    )}
+                  </div>
 
-                <div className="form">
-                  <div className="label">Day votes</div>
-                  {game.players.map((player) => (
-                    <div className="field" key={`day-${player.id}`}>
-                      <div className="label">
-                        P{player.id} {player.alive ? "(alive)" : "(dead)"}
+                  <div className="form">
+                    <div className="label">Day votes</div>
+                    {game.players.map((player) => (
+                      <div className="field" key={`day-${player.id}`}>
+                        <div className="label">
+                          P{player.id} {player.alive ? "(alive)" : "(dead)"}
+                        </div>
+                        <input
+                          className="input"
+                          type="number"
+                          min={0}
+                          max={game.players.length - 1}
+                          value={dayVoteInputs[player.id] ?? "0"}
+                          onChange={(event) =>
+                            setDayVoteInputs((prev) => {
+                              const next = normalizeVoteInputs(
+                                prev,
+                                game.players.length,
+                              );
+                              next[player.id] = event.target.value;
+                              return next;
+                            })}
+                          disabled={loading || !player.alive}
+                        />
                       </div>
-                      <input
-                        className="input"
-                        type="number"
-                        min={0}
-                        max={game.players.length - 1}
-                        value={dayVoteInputs[player.id] ?? "0"}
-                        onChange={(event) =>
-                          setDayVoteInputs((prev) => {
-                            const next = normalizeVoteInputs(
-                              prev,
-                              game.players.length,
-                            );
-                            next[player.id] = event.target.value;
-                            return next;
-                          })}
-                        disabled={loading || !player.alive}
-                      />
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={handleSubmitDayVotes}
-                    disabled={loading || game.phase !== Phase.Day}
-                  >
-                    Submit day votes
-                  </button>
-                  {dayVotes.length > 0 && (
-                    <div className="mono">Day votes: {dayVotes.join(", ")}</div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <div className="mono">Create a game to enter votes.</div>
-            )}
+                    ))}
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={handleSubmitDayVotes}
+                      disabled={loading || game.phase !== Phase.Day}
+                    >
+                      Submit day votes
+                    </button>
+                    {dayVotes.length > 0 && (
+                      <div className="mono">
+                        Day votes: {dayVotes.join(", ")}
+                      </div>
+                    )}
+                  </div>
+                </>
+              )
+              : <div className="mono">Create a game to enter votes.</div>}
           </div>
         </div>
 

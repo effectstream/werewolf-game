@@ -218,7 +218,7 @@ class TrustedNode implements Actor {
 
   registerPlayers(players: Player[]) {
     this.players = players;
-    const padded = Array(10).fill(new Uint8Array(3));
+    const padded = Array(16).fill(new Uint8Array(3));
     players.forEach((p) => {
       const encRole = encryptPayload(
         p.role,
@@ -234,9 +234,9 @@ class TrustedNode implements Actor {
   }
 
   getSetupData(): SetupData {
-    // Pad to 10
+    // Pad to 16
     const padded = [...this.commitments];
-    while (padded.length < 10) padded.push(new Uint8Array(32));
+    while (padded.length < 16) padded.push(new Uint8Array(32));
     return {
       roleCommitments: padded,
       encryptedRoles: this.encryptedRoles,
@@ -417,7 +417,7 @@ class RuntimeMerkleTree {
 const witnesses = {
   wit_getRoleCommitment: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: Uint8Array,
+    _gameId: number | bigint,
     n: number | bigint,
   ) => {
     if (!privateState.activeActor?.getSetupData) {
@@ -432,7 +432,7 @@ const witnesses = {
   },
   wit_getEncryptedRole: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: Uint8Array,
+    _gameId: number | bigint,
     n: number | bigint,
   ) => {
     if (!privateState.activeActor?.getSetupData) {
@@ -447,7 +447,7 @@ const witnesses = {
   },
   wit_getAdminKey: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: Uint8Array,
+    _gameId: number | bigint,
   ) => {
     if (!privateState.activeActor?.getSetupData) {
       throw new Error("No setup data");
@@ -457,7 +457,7 @@ const witnesses = {
   },
   wit_getInitialRoot: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: Uint8Array,
+    _gameId: number | bigint,
   ) => {
     if (!privateState.activeActor?.getSetupData) {
       throw new Error("No setup data");
@@ -467,7 +467,7 @@ const witnesses = {
   },
   wit_getActionData: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: Uint8Array,
+    _gameId: number | bigint,
     round: bigint,
   ) => {
     if (!privateState.activeActor?.getActionData) {
@@ -480,13 +480,13 @@ const witnesses = {
 class Simulation {
   contract: Contract;
   context: CircuitContext<PrivateState>;
-  gameId: Uint8Array;
+  gameId: bigint;
   admin: TrustedNode;
   players: Player[];
 
   constructor() {
     this.contract = new Contract(witnesses);
-    this.gameId = new Uint8Array(32).fill(9);
+    this.gameId = 9n;
     this.admin = new TrustedNode();
     this.players = Array.from({ length: 5 }, (_, i) => new Player(i));
 

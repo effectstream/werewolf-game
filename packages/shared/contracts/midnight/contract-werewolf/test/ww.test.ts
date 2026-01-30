@@ -161,7 +161,7 @@ class WerewolfSimulator {
   readonly contract: Contract<PrivateState, typeof witnesses>;
   circuitContext: CircuitContext<PrivateState>;
 
-  gameId: Uint8Array;
+  gameId: bigint;
   players: PlayerLocalState[] = [];
 
   // Admin Keys
@@ -202,7 +202,7 @@ class WerewolfSimulator {
       costModel: CostModel.initialCostModel(),
     };
 
-    this.gameId = this.generateId();
+    this.gameId = this.generateGameId();
     this.adminKey = new Uint8Array(32);
 
     // Vote Encryption Keys (ECIES)
@@ -223,6 +223,10 @@ class WerewolfSimulator {
     return new Uint8Array(
       createHash("sha256").update(Math.random().toString()).digest(),
     );
+  }
+
+  generateGameId(): bigint {
+    return BigInt(Math.floor(Math.random() * 0xFFFFFFFF));
   }
 
   // Update the private state for the next call
@@ -260,7 +264,7 @@ async function runTestSuite() {
     const leaf = new Uint8Array(32).fill(1);
     const path: MerkleTreePath = {
       leaf,
-      path: Array(10).fill({ sibling: { field: 0n }, goes_left: false }),
+      path: Array(10).fill({ sibling: { field: 0n }, goes_left: false }), // Merkle path depth, not player count
     };
 
     // Call contract to calculate root
@@ -345,8 +349,8 @@ async function runTestSuite() {
   // 4. CREATE GAME (Merged Setup)
   try {
     // Prepare Private State
-    const roleCommitments = Array(10).fill(new Uint8Array(32));
-    const encryptedRoles = Array(10).fill(new Uint8Array(3));
+    const roleCommitments = Array(16).fill(new Uint8Array(32));
+    const encryptedRoles = Array(16).fill(new Uint8Array(3));
     sim.players.forEach((p) => roleCommitments[p.id] = p.commitment);
     sim.players.forEach((p) => {
       encryptedRoles[p.id] = encryptPayload(
@@ -367,7 +371,7 @@ async function runTestSuite() {
     const root = tree.getRoot(); // 0n placeholder
 
     sim.updatePrivateState((state) => {
-      state.setupData.set(toHex(sim.gameId), {
+      state.setupData.set(String(sim.gameId), {
         roleCommitments,
         encryptedRoles,
         adminKey: { bytes: sim.adminKey },
