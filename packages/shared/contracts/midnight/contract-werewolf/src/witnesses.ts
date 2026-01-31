@@ -1,12 +1,12 @@
 import { type WitnessContext } from "@midnight-ntwrk/compact-runtime";
 import nacl from "tweetnacl";
 
-// --- ENCRYPTION LOGIC (Ported from index.ts) ---
+// --- ENCRYPTION LOGIC ---
 
 const ENCRYPTION_LIMITS = {
-  NUM_MAX: 99, // 7 bits
-  RND_MAX: 99, // 7 bits
-  RAND_MAX: 999, // 10 bits
+  NUM_MAX: 99,
+  RND_MAX: 99,
+  RAND_MAX: 999,
 };
 
 function packData(number: number, round: number, random: number): Uint8Array {
@@ -16,10 +16,7 @@ function packData(number: number, round: number, random: number): Uint8Array {
   ) {
     throw new Error("Overflow in packData");
   }
-  // Layout: [Number (I~7b)] [Round (7b)] [Random (10b)] = 24 bits
   const packed = (number << 17) | (round << 10) | random;
-
-  // Convert integer to 3-byte Uint8Array
   const bytes = new Uint8Array(3);
   bytes[0] = (packed >> 16) & 0xFF;
   bytes[1] = (packed >> 8) & 0xFF;
@@ -28,40 +25,37 @@ function packData(number: number, round: number, random: number): Uint8Array {
 }
 
 function deriveSessionKey(
-  myPrivKey: Uint8Array,
-  theirPubKey: Uint8Array,
-  txNonce: number,
+  privKey: Uint8Array,
+  pubKey: Uint8Array,
+  roundNonce: number,
 ): Uint8Array {
-  // A. ECDH: Calculate Shared Secret Point (Standard X25519)
-  const sharedPoint = nacl.scalarMult(myPrivKey, theirPubKey);
-
-  // B. Context Mixing: Append the Transaction Nonce/Sequence ID
-  const nonceBytes = new Uint8Array(new Int32Array([txNonce]).buffer);
-
-  // C. Hash them together to get the symmetric key
+  const sharedPoint = nacl.scalarMult(privKey, pubKey);
+  const nonceBytes = new Uint8Array(new Int32Array([roundNonce]).buffer);
   const combined = new Uint8Array(sharedPoint.length + nonceBytes.length);
   combined.set(sharedPoint);
   combined.set(nonceBytes, sharedPoint.length);
-
-  return nacl.hash(combined).slice(0, 3); // We only need 3 bytes
+  return nacl.hash(combined).slice(0, 3);
 }
 
+// STANDARD ENCRYPTION (Small Payload, Bytes<3>)
 function encryptPayload(
   number: number,
   round: number,
   random: number,
-  myPrivKey: Uint8Array,
+  myPrivKey: Uint8Array, // STATIC Private Key
   receiverPubKey: Uint8Array,
   txNonce: number,
 ): Uint8Array {
   const payload = packData(number, round, random);
-  const key = deriveSessionKey(myPrivKey, receiverPubKey, txNonce);
 
-  // XOR Encryption
+  // Derive session key using STATIC keys
+  const sessionKey = deriveSessionKey(myPrivKey, receiverPubKey, txNonce);
+
   const ciphertext = new Uint8Array(3);
   for (let i = 0; i < 3; i++) {
-    ciphertext[i] = payload[i] ^ key[i];
+    ciphertext[i] = payload[i] ^ sessionKey[i];
   }
+
   return ciphertext;
 }
 
@@ -69,7 +63,6 @@ function encryptPayload(
 
 export type Ledger = {};
 
-// Represents the MerkleTreeDigest struct in Compact
 export type MerkleTreeDigest = {
   field: bigint;
 };
@@ -78,53 +71,43 @@ export type CoinPublicKey = {
   bytes: Uint8Array;
 };
 
-// Represents the MerkleTreePathEntry struct in Compact
 export type MerkleTreePathEntry = {
   sibling: MerkleTreeDigest;
   goes_left: boolean;
 };
 
-// Represents the MerkleTreePath<10, Bytes<32>> struct in Compact
 export type MerkleTreePath = {
   leaf: Uint8Array;
   path: MerkleTreePathEntry[];
 };
 
 export type SetupData = {
-  roleCommitments: Uint8Array[]; // Vector<16, Bytes<32>>
-  // NEW: Pre-calculated encrypted roles for the players (Bytes<3>)
-  // Admin calculates these off-chain: encrypt(Role, 0, Salt, AdminPriv, PlayerPub)
+  roleCommitments: Uint8Array[];
   encryptedRoles: Uint8Array[];
   adminKey: CoinPublicKey;
   initialRoot: MerkleTreeDigest;
 };
 
-// Raw action data stored in PrivateState before encryption
 export type RawActionData = {
-  targetNumber: number; // The player index being voted for
-  random: number; // Random salt (0-999)
+  targetNumber: number;
+  random: number;
   merklePath: MerkleTreePath;
   leafSecret: Uint8Array;
 };
 
-// The output expected by the circuit (Bytes<3>)
 export type ContractActionData = {
-  encryptedAction: Uint8Array; // Bytes<3>
+  encryptedAction: Uint8Array;
   merklePath: MerkleTreePath;
   leafSecret: Uint8Array;
 };
 
 export type PrivateState = {
-  // Map of GameID (string representation of Uint<32>) -> SetupData
   setupData: Map<string, SetupData>;
-  // Keypair for encryption (X25519) - Required for Client Witnesses
   encryptionKeypair?: { secretKey: Uint8Array; publicKey: Uint8Array };
-  // The raw action planned for the next call
   nextAction?: RawActionData;
 };
 
 export const witnesses = {
-  // 1. Fetch Commitment (Hash) - Unchanged
   wit_getRoleCommitment: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
     gameId: number | bigint,
@@ -139,13 +122,12 @@ export const witnesses = {
 
     const index = Number(n);
     if (index < 0 || index >= data.roleCommitments.length) {
-      return [privateState, new Uint8Array(32)]; // Default empty hash
+      return [privateState, new Uint8Array(32)];
     }
 
     return [privateState, data.roleCommitments[index]];
   },
 
-  // 2. NEW: Fetch Encrypted Role (Bytes<3>)
   wit_getEncryptedRole: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
     gameId: number | bigint,
@@ -159,7 +141,6 @@ export const witnesses = {
     }
 
     const index = Number(n);
-    // Return empty 3-byte array if out of bounds or missing
     if (
       !data.encryptedRoles || index < 0 || index >= data.encryptedRoles.length
     ) {
@@ -176,13 +157,8 @@ export const witnesses = {
     const key = String(gameId);
     const data = privateState.setupData.get(key);
 
-    if (!data) {
-      throw new Error(`Witness Error: No setup data found for gameId ${key}`);
-    }
-    if (!data.adminKey || data.adminKey.bytes.length !== 32) {
-      throw new Error(
-        `Witness Error: Admin key missing or invalid for gameId ${key}`,
-      );
+    if (!data || !data.adminKey) {
+      throw new Error(`Witness Error: Admin key missing for gameId ${key}`);
     }
 
     return [privateState, data.adminKey];
@@ -195,13 +171,8 @@ export const witnesses = {
     const key = String(gameId);
     const data = privateState.setupData.get(key);
 
-    if (!data) {
-      throw new Error(`Witness Error: No setup data found for gameId ${key}`);
-    }
-    if (!data.initialRoot || typeof data.initialRoot.field !== "bigint") {
-      throw new Error(
-        `Witness Error: Initial root missing or invalid for gameId ${key}`,
-      );
+    if (!data || !data.initialRoot) {
+      throw new Error(`Witness Error: Initial root missing for gameId ${key}`);
     }
 
     return [privateState, data.initialRoot];
@@ -215,50 +186,26 @@ export const witnesses = {
     const key = String(gameId);
     const setup = privateState.setupData.get(key);
     const action = privateState.nextAction;
-    const myKeys = privateState.encryptionKeypair;
+    const myKeys = privateState.encryptionKeypair; // This is now the STATIC keypair
 
-    if (!setup) {
-      throw new Error(`Witness Error: Setup data missing for game ${key}`);
-    }
-    if (!action) {
-      throw new Error(
-        `Witness Error: No action data staged in PrivateState for game ${key}`,
-      );
-    }
-    if (!myKeys) {
-      throw new Error(
-        `Witness Error: No encryption keypair found in PrivateState`,
-      );
+    if (!setup || !action || !myKeys) {
+      throw new Error(`Witness Error: Missing data for game ${key}`);
     }
 
     const roundNum = Number(round);
 
-    // Perform Encryption (Client Side)
-    // We use the current round number as the 'nonce' for the session key derivation
+    // Use Standard Encryption
     const encryptedBytes = encryptPayload(
       action.targetNumber,
       roundNum,
       action.random,
-      myKeys.secretKey, // My Private Key
-      setup.adminKey.bytes, // Receiver is Admin (Trusted Node)
+      myKeys.secretKey, // Static Private Key
+      setup.adminKey.bytes,
       roundNum, // Nonce
     );
 
-    // Validate structure basics
-    if (encryptedBytes.length !== 3) {
-      throw new Error(
-        `Witness Error: Encrypted action must be 3 bytes, got ${encryptedBytes.length}`,
-      );
-    }
-    if (action.leafSecret.length !== 32) {
-      throw new Error(
-        `Witness Error: Leaf secret must be 32 bytes, got ${action.leafSecret.length}`,
-      );
-    }
-
-    // Construct return object for Contract
     const contractData: ContractActionData = {
-      encryptedAction: encryptedBytes, // Now 3 bytes
+      encryptedAction: encryptedBytes, // Bytes<3>
       merklePath: action.merklePath,
       leafSecret: action.leafSecret,
     };

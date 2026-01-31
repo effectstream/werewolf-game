@@ -20,7 +20,7 @@ export {
     Werewolf_playerEncryptedRoles, 
     Werewolf_voteNullifiers, 
     Werewolf_gameSecrets,
-    Werewolf_testOutputMap
+    Werewolf_roundEncryptedVotes
 };
 
 constructor() {}
@@ -47,6 +47,14 @@ export circuit forceEndGame(
     masterSecret: Bytes<32>
 ): [] {
     return Werewolf_endGame(gameId, masterSecret);
+}
+
+// New Punish Circuit
+export circuit adminPunishPlayer(
+    gameId: Uint<32>,
+    playerIdx: Uint<32>
+): [] {
+    return Werewolf_punishPlayer(gameId, playerIdx);
 }
 
 // Action using Witness
@@ -142,7 +150,6 @@ export circuit getGameAdminPublicKey(gameId: Uint<32>): Bytes<33> {
     return Werewolf_getGameAdminPublicKey(gameId);
 }
 
-// These are required by ww.test.ts to setup simulation state consistent with the contract logic
 export circuit testComputeCommitment(role: Uint<8>, salt: Bytes<32>): Bytes<32> {
     return Crypto_commitRole(role, salt);
 }
@@ -159,15 +166,11 @@ export circuit testComputeSalt(masterSecret: Bytes<32>, playerIdx: Uint<32>): By
     ]);
 }
 
-// Internal struct for leaf preimage (matches what std_merkleTreePathRoot uses)
 struct LeafPreimage {
     domain_sep: Bytes<6>,
     data: Bytes<32>
 }
 
-// Calculates digest for a Leaf (Bytes32)
-// This MUST match what std_merkleTreePathRoot uses internally: 
-// degradeToTransient(persistentHash({ domain_sep: "mdn:lh", data: leaf }))
 export circuit testLeafDigest(data: Bytes<32>): MerkleTreeDigest {
     const preimage = LeafPreimage {
         domain_sep: pad(6, "mdn:lh"),
@@ -178,16 +181,12 @@ export circuit testLeafDigest(data: Bytes<32>): MerkleTreeDigest {
     };
 }
 
-// Calculates digest for an Internal Node
-// This MUST match what std_merkleTreePathRoot uses internally:
-// transientHash<[Field, Field]>([left.field, right.field])
 export circuit testNodeDigest(left: MerkleTreeDigest, right: MerkleTreeDigest): MerkleTreeDigest {
     return MerkleTreeDigest { 
         field: std_transientHash<[Field, Field]>([left.field, right.field]) 
     };
 }
 
-// Verify proof off-chain logic using on-chain circuit
 export circuit testVerifyMerkleProof(
     root: MerkleTreeDigest, 
     leaf: Bytes<32>, 
@@ -196,7 +195,6 @@ export circuit testVerifyMerkleProof(
     return Crypto_verifyMerkleProof(root, leaf, path);
 }
 
-// DEBUG: Calculate Root from Path (to compare with simulation)
 export circuit testMerkleRoot(path: MerkleTreePath<10, Bytes<32>>): MerkleTreeDigest {
     return std_merkleTreePathRoot<10, Bytes<32>>(path);
 }

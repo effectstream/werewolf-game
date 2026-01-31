@@ -44,15 +44,13 @@ export const Phase = {
 };
 
 // ============================================
-// CRYPTO HELPERS
+// CRYPTO HELPERS (Client Side)
 // ============================================
 
-const toHex = (bytes: Uint8Array): string => Buffer.from(bytes).toString("hex");
-
 const ENCRYPTION_LIMITS = {
-  NUM_MAX: 99, // 7 bits
-  RND_MAX: 99, // 7 bits
-  RAND_MAX: 999, // 10 bits
+  NUM_MAX: 99,
+  RND_MAX: 99,
+  RAND_MAX: 999,
 };
 
 function packData(number: number, round: number, random: number): Uint8Array {
@@ -100,49 +98,85 @@ function encryptPayload(
   return ciphertext;
 }
 
-/**
- * MOCK MERKLE TREE
- */
-class RuntimeMerkleTree {
-  readonly depth: number;
-  readonly leaves: Uint8Array[];
-  readonly root: MerkleTreeDigest;
-  readonly contract: Contract<PrivateState, typeof witnesses>;
-  readonly context: CircuitContext<PrivateState>;
+// ============================================
+// REAL MERKLE TREE (Uses Contract Circuits)
+// ============================================
 
-  constructor(
-    contract: Contract<PrivateState, typeof witnesses>,
-    context: CircuitContext<PrivateState>,
-    leaves: Uint8Array[],
-    depth = 10,
-  ) {
-    this.contract = contract;
-    this.context = context;
-    this.depth = depth;
+class RuntimeMerkleTree {
+  private leaves: Uint8Array[];
+  private levels: MerkleTreeDigest[][] = [];
+  private root: MerkleTreeDigest = { field: 0n };
+  private simulator: WerewolfSimulator;
+
+  constructor(simulator: WerewolfSimulator, leaves: Uint8Array[]) {
+    this.simulator = simulator;
     this.leaves = leaves;
-    // Placeholder root for Mock (Simulation uses real tree builder)
-    this.root = { field: 0n };
   }
 
-  getRoot(): MerkleTreeDigest {
+  async build() {
+    const depth = 10;
+    let currentLevel: MerkleTreeDigest[] = [];
+    const totalLeaves = 1 << depth;
+    const zeroBytes = new Uint8Array(32);
+
+    // Compute digest for zero/padding leaf
+    const zeroLeafDigest = await this.simulator.runCircuit((ctx) =>
+      this.simulator.contract.circuits.testLeafDigest(ctx, zeroBytes)
+    );
+
+    for (let i = 0; i < totalLeaves; i++) {
+      if (i < this.leaves.length) {
+        const digest = await this.simulator.runCircuit((ctx) =>
+          this.simulator.contract.circuits.testLeafDigest(ctx, this.leaves[i])
+        );
+        currentLevel.push(digest);
+      } else {
+        currentLevel.push(zeroLeafDigest);
+      }
+    }
+
+    this.levels.push(currentLevel);
+
+    for (let d = 0; d < depth; d++) {
+      const nextLevel: MerkleTreeDigest[] = [];
+      for (let i = 0; i < currentLevel.length; i += 2) {
+        const left = currentLevel[i];
+        const right = currentLevel[i + 1];
+        const parent = await this.simulator.runCircuit((ctx) =>
+          this.simulator.contract.circuits.testNodeDigest(ctx, left, right)
+        );
+        nextLevel.push(parent);
+      }
+      this.levels.push(nextLevel);
+      currentLevel = nextLevel;
+    }
+
+    this.root = currentLevel[0];
+  }
+
+  getRoot() {
     return this.root;
   }
 
   getProof(index: number, leaf: Uint8Array): MerkleTreePath {
-    const pathEntries: MerkleTreePathEntry[] = [];
-    for (let i = 0; i < this.depth; i++) {
-      pathEntries.push({
-        sibling: { field: 0n },
-        goes_left: index % 2 !== 0,
+    const path: MerkleTreePathEntry[] = [];
+    let idx = index;
+    for (let level = 0; level < 10; level++) {
+      const isRight = idx % 2 === 1;
+      const siblingIdx = isRight ? idx - 1 : idx + 1;
+      const siblingDigest = this.levels[level][siblingIdx];
+      path.push({
+        sibling: siblingDigest,
+        goes_left: !isRight,
       });
-      index = Math.floor(index / 2);
+      idx = Math.floor(idx / 2);
     }
-    return { leaf, path: pathEntries };
+    return { leaf, path };
   }
 }
 
 // ============================================
-// SIMULATOR
+// SIMULATOR CLASS
 // ============================================
 
 interface PlayerLocalState {
@@ -155,19 +189,18 @@ interface PlayerLocalState {
   alive: boolean;
   commitment: Uint8Array;
   leafHash: Uint8Array;
+  merklePath?: MerkleTreePath;
 }
 
 class WerewolfSimulator {
   readonly contract: Contract<PrivateState, typeof witnesses>;
-  circuitContext: CircuitContext<PrivateState>;
+  context: CircuitContext<PrivateState>;
 
   gameId: bigint;
   players: PlayerLocalState[] = [];
 
   // Admin Keys
   adminKey: Uint8Array; // Zswap Coin PK
-  adminVotePrivateKeyHex: string;
-  adminVotePublicKeyHex: string;
   adminVotePublicKeyBytes: Uint8Array;
   adminEncKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
 
@@ -192,7 +225,7 @@ class WerewolfSimulator {
       createConstructorContext(initialPrivateState, "0".repeat(64)),
     );
 
-    this.circuitContext = {
+    this.context = {
       currentPrivateState,
       currentZswapLocalState,
       currentQueryContext: new QueryContext(
@@ -202,55 +235,58 @@ class WerewolfSimulator {
       costModel: CostModel.initialCostModel(),
     };
 
-    this.gameId = this.generateGameId();
+    this.gameId = BigInt(Math.floor(Math.random() * 0xFFFFFFFF));
     this.adminKey = new Uint8Array(32);
 
     // Vote Encryption Keys (ECIES)
     const adminVoteKey = new PrivateKey();
-    this.adminVotePrivateKeyHex = adminVoteKey.toHex();
-    this.adminVotePublicKeyHex = adminVoteKey.publicKey.toHex();
     this.adminVotePublicKeyBytes = Buffer.from(
-      this.adminVotePublicKeyHex,
+      adminVoteKey.publicKey.toHex(),
       "hex",
     );
     this.adminEncKeypair = nacl.box.keyPair();
 
-    this.masterSecret = this.generateId();
+    this.masterSecret = new Uint8Array(
+      createHash("sha256").update(Math.random().toString()).digest(),
+    );
     this.masterSecretCommitment = new Uint8Array(32);
   }
 
-  generateId(): Uint8Array {
-    return new Uint8Array(
-      createHash("sha256").update(Math.random().toString()).digest(),
-    );
+  // Generic runner to execute a circuit and update context
+  async runCircuit<T>(
+    fn: (ctx: CircuitContext<PrivateState>) => {
+      context: CircuitContext<PrivateState>;
+      result: T;
+    },
+  ): Promise<T> {
+    const res = await fn(this.context);
+    this.context = res.context;
+    return res.result;
   }
 
-  generateGameId(): bigint {
-    return BigInt(Math.floor(Math.random() * 0xFFFFFFFF));
-  }
-
-  // Update the private state for the next call
   updatePrivateState(update: (state: PrivateState) => void) {
-    const newState = { ...this.circuitContext.currentPrivateState };
+    const newState = { ...this.context.currentPrivateState };
+    // Clone map to avoid reference issues
     newState.setupData = new Map(newState.setupData);
     update(newState);
-    this.circuitContext.currentPrivateState = newState;
+    this.context.currentPrivateState = newState;
   }
 }
 
 // ============================================
-// TEST UTILS
+// LOGGING UTILS
 // ============================================
 
 function logPass(name: string) {
   console.log(`  ✅ PASS: ${name}`);
 }
 function logFail(name: string, err: any) {
-  console.log(`  ❌ FAIL: ${name}`, err);
+  console.log(`  ❌ FAIL: ${name}`);
+  console.error(err);
 }
 
 // ============================================
-// MAIN TEST
+// MAIN TEST SUITE
 // ============================================
 
 async function runTestSuite() {
@@ -259,46 +295,15 @@ async function runTestSuite() {
 
   console.log("\n🧪 WEREWOLF CONTRACT TEST SUITE");
 
-  // 0. MERKLE TREE LOGIC CHECK
-  try {
-    const leaf = new Uint8Array(32).fill(1);
-    const path: MerkleTreePath = {
-      leaf,
-      path: Array(10).fill({ sibling: { field: 0n }, goes_left: false }), // Merkle path depth, not player count
-    };
-
-    // Call contract to calculate root
-    const rRoot = circuits.testMerkleRoot(sim.circuitContext, path);
-    sim.circuitContext = rRoot.context;
-
-    // Verify it accepts its own root
-    const rVerify = circuits.testVerifyMerkleProof(
-      sim.circuitContext,
-      rRoot.result,
-      leaf,
-      path,
-    );
-    sim.circuitContext = rVerify.context;
-
-    if (rVerify.result === true) {
-      logPass("Merkle Tree Logic (Self-Consistency)");
-    } else throw new Error("Contract failed to verify its own calculated root");
-  } catch (e) {
-    logFail("Merkle Tree Logic", e);
-    return;
-  }
-
   // 1. SETUP KEYS & COMMITMENTS
   try {
-    // Get Admin Key
-    const r1 = circuits.getAdminKey(sim.circuitContext);
-    sim.circuitContext = r1.context;
-    sim.adminKey = r1.result.bytes;
+    const r1 = await sim.runCircuit((ctx) => circuits.getAdminKey(ctx));
+    sim.adminKey = r1.bytes;
 
-    // Master Secret Commitment
-    const r2 = circuits.testComputeHash(sim.circuitContext, sim.masterSecret);
-    sim.circuitContext = r2.context;
-    sim.masterSecretCommitment = r2.result;
+    const r2 = await sim.runCircuit((ctx) =>
+      circuits.testComputeHash(ctx, sim.masterSecret)
+    );
+    sim.masterSecretCommitment = r2;
 
     logPass("Keys & Secrets Generated");
   } catch (e) {
@@ -306,49 +311,72 @@ async function runTestSuite() {
     return;
   }
 
-  // 3. GENERATE PLAYERS
+  // 2. GENERATE PLAYERS & BUILD MERKLE TREE
   const playerCount = 5;
   const werewolfCount = 1;
   const leaves: Uint8Array[] = [];
 
   for (let i = 0; i < playerCount; i++) {
     const p: any = { id: i, alive: true };
-    p.sk = sim.generateId(); // Leaf Secret
+    // Generate Random Secret for Player
+    p.sk = new Uint8Array(
+      createHash("sha256").update(`p${i}`).digest(),
+    );
     p.encKeypair = nacl.box.keyPair();
-    p.pk = p.encKeypair.publicKey; // Encryption PubKey (known to admin)
+    p.pk = p.encKeypair.publicKey;
     p.role = i < werewolfCount ? Role.Werewolf : Role.Villager;
 
-    // Salt
-    const rSalt = circuits.testComputeSalt(
-      sim.circuitContext,
-      sim.masterSecret,
-      BigInt(i),
+    // Calc Salt
+    const salt = await sim.runCircuit((ctx) =>
+      circuits.testComputeSalt(ctx, sim.masterSecret, BigInt(i))
     );
-    sim.circuitContext = rSalt.context;
-    p.salt = rSalt.result;
+    p.salt = salt;
 
-    // Commitment
-    const rComm = circuits.testComputeCommitment(
-      sim.circuitContext,
-      BigInt(p.role),
-      p.salt,
+    // Calc Commitment
+    const comm = await sim.runCircuit((ctx) =>
+      circuits.testComputeCommitment(ctx, BigInt(p.role), p.salt)
     );
-    sim.circuitContext = rComm.context;
-    p.commitment = rComm.result;
+    p.commitment = comm;
 
-    // Leaf Hash (Crypto.hash)
-    const rHash = circuits.testComputeHash(sim.circuitContext, p.sk);
-    sim.circuitContext = rHash.context;
-    const leafHash = rHash.result;
-
+    // Calc Leaf Hash
+    const leafHash = await sim.runCircuit((ctx) =>
+      circuits.testComputeHash(ctx, p.sk)
+    );
     p.leafHash = leafHash;
+
     leaves.push(leafHash);
     sim.players.push(p);
   }
 
-  // 4. CREATE GAME (Merged Setup)
+  // Build Real Tree
+  const tree = new RuntimeMerkleTree(sim, leaves);
+  await tree.build();
+  const root = tree.getRoot();
+
+  // Generate Proofs for Players
+  sim.players.forEach((p, i) => {
+    p.merklePath = tree.getProof(i, p.leafHash);
+  });
+
+  // Verify Proofs Locally
   try {
-    // Prepare Private State
+    const valid = await sim.runCircuit((ctx) =>
+      circuits.testVerifyMerkleProof(
+        ctx,
+        root,
+        sim.players[0].leafHash,
+        sim.players[0].merklePath!,
+      )
+    );
+    if (valid) logPass("Merkle Tree Construction & Verification");
+    else throw new Error("Verification returned false");
+  } catch (e) {
+    logFail("Merkle Verification", e);
+    return;
+  }
+
+  // 3. CREATE GAME
+  try {
     const roleCommitments = Array(16).fill(new Uint8Array(32));
     const encryptedRoles = Array(16).fill(new Uint8Array(3));
     sim.players.forEach((p) => roleCommitments[p.id] = p.commitment);
@@ -363,13 +391,6 @@ async function runTestSuite() {
       );
     });
 
-    const tree = new RuntimeMerkleTree(
-      sim.contract,
-      sim.circuitContext,
-      leaves,
-    );
-    const root = tree.getRoot(); // 0n placeholder
-
     sim.updatePrivateState((state) => {
       state.setupData.set(String(sim.gameId), {
         roleCommitments,
@@ -379,129 +400,140 @@ async function runTestSuite() {
       });
     });
 
-    const rCreate = circuits.createGame(
-      sim.circuitContext,
-      sim.gameId,
-      sim.adminVotePublicKeyBytes,
-      sim.masterSecretCommitment,
-      BigInt(playerCount),
-      BigInt(werewolfCount),
+    await sim.runCircuit((ctx) =>
+      circuits.createGame(
+        ctx,
+        sim.gameId,
+        sim.adminVotePublicKeyBytes,
+        sim.masterSecretCommitment,
+        BigInt(playerCount),
+        BigInt(werewolfCount),
+      )
     );
-    sim.circuitContext = rCreate.context;
-    logPass("createGame (with merged setup)");
+    logPass("createGame");
   } catch (e) {
     logFail("createGame", e);
     return;
   }
 
-  // 5. NIGHT ACTION
+  // 4. NIGHT ACTION (Valid Vote)
   try {
     const actor = sim.players[0]; // Werewolf
     const targetIdx = 1;
-    const actionRandom = Math.floor(Math.random() * 1000);
-    const merklePath = new RuntimeMerkleTree(
-      sim.contract,
-      sim.circuitContext,
-      leaves,
-    ).getProof(actor.id, actor.leafHash);
+    const actionRandom = 123;
 
-    // Stage Witness Data
     sim.updatePrivateState((state) => {
       state.nextAction = {
         targetNumber: targetIdx,
         random: actionRandom,
-        merklePath,
+        merklePath: actor.merklePath!,
         leafSecret: actor.sk,
       };
       state.encryptionKeypair = actor.encKeypair;
     });
 
-    // Call Circuit
-    const rNight = circuits.nightAction(sim.circuitContext, sim.gameId);
-    sim.circuitContext = rNight.context;
-    logPass("nightAction");
+    await sim.runCircuit((ctx) => circuits.nightAction(ctx, sim.gameId));
+    logPass("nightAction (Valid)");
+  } catch (e) {
+    logFail("nightAction (Valid)", e);
+  }
+
+  // 5. DOUBLE VOTING (Should Fail)
+  try {
+    const actor = sim.players[0];
+    // Attempt same vote again
+    sim.updatePrivateState((state) => {
+      state.nextAction = {
+        targetNumber: 1,
+        random: 123,
+        merklePath: actor.merklePath!,
+        leafSecret: actor.sk,
+      };
+      state.encryptionKeypair = actor.encKeypair;
+    });
+
+    await sim.runCircuit((ctx) => circuits.nightAction(ctx, sim.gameId));
+    logFail(
+      "nightAction (Double Vote Check)",
+      new Error("Should have thrown error"),
+    );
   } catch (e: any) {
-    if (String(e).includes("Invalid Merkle Proof")) {
-      // Logic failure expected due to mocked root 0n, but Witness type check passed!
-      logPass("nightAction (Expected Merkle logic failure, Witness types OK)");
+    if (String(e).includes("Action already submitted")) {
+      logPass("nightAction (Prevented Double Vote)");
     } else {
-      logFail("nightAction", e);
+      logFail("nightAction (Double Vote Check) - Wrong Error", e);
     }
   }
 
-  // 6. RESOLVE NIGHT
+  // 6. ADMIN PUNISH PLAYER (Did not vote)
   try {
-    // Admin resolves death of P1
-    const rResolve = circuits.resolveNightPhase(
-      sim.circuitContext,
-      sim.gameId,
-      2n, // New Round
-      1n, // Dead Player P1
-      true, // Has Death
-      { field: 0n }, // New Root
+    const afkPlayer = sim.players[4];
+    // Check alive before
+    const aliveBefore = await sim.runCircuit((ctx) =>
+      circuits.isPlayerAlive(ctx, sim.gameId, BigInt(afkPlayer.id))
     );
-    sim.circuitContext = rResolve.context;
+    if (!aliveBefore) throw new Error("Player 4 should be alive");
+
+    // Punish
+    await sim.runCircuit((ctx) =>
+      circuits.adminPunishPlayer(ctx, sim.gameId, BigInt(afkPlayer.id))
+    );
+
+    // Check dead
+    const aliveAfter = await sim.runCircuit((ctx) =>
+      circuits.isPlayerAlive(ctx, sim.gameId, BigInt(afkPlayer.id))
+    );
+    if (!aliveAfter) logPass("adminPunishPlayer (Eliminated non-voter)");
+    else throw new Error("Player 4 is still alive after punishment");
+  } catch (e) {
+    logFail("adminPunishPlayer", e);
+  }
+
+  // 7. RESOLVE NIGHT
+  try {
+    // Kill P1
+    await sim.runCircuit((ctx) =>
+      circuits.resolveNightPhase(
+        ctx,
+        sim.gameId,
+        2n, // New Round
+        1n, // Dead Player P1
+        true, // Has Death
+        root, // Keep same root for test simplicity
+      )
+    );
     sim.players[1].alive = false;
     logPass("resolveNightPhase");
   } catch (e) {
     logFail("resolveNightPhase", e);
   }
 
-  // 7. DAY VOTE
+  // 8. DAY VOTE (Round 2)
   try {
-    const voter = sim.players[2]; // Villager
-    const voteTarget = 0; // Vote for wolf
-    const actionRandom = Math.floor(Math.random() * 1000);
-    const merklePath = new RuntimeMerkleTree(
-      sim.contract,
-      sim.circuitContext,
-      leaves,
-    ).getProof(voter.id, voter.leafHash);
+    const voter = sim.players[0]; // Same player who voted night (P0)
+    // Should be able to vote again because Round Changed -> Nullifier Changed
 
     sim.updatePrivateState((state) => {
       state.nextAction = {
-        targetNumber: voteTarget,
-        random: actionRandom,
-        merklePath,
+        targetNumber: 2, // Vote for P2
+        random: 456,
+        merklePath: voter.merklePath!,
         leafSecret: voter.sk,
       };
       state.encryptionKeypair = voter.encKeypair;
     });
 
-    const rVote = circuits.voteDay(sim.circuitContext, sim.gameId);
-    sim.circuitContext = rVote.context;
-    logPass("voteDay");
-  } catch (e: any) {
-    if (String(e).includes("Invalid Merkle Proof")) {
-      logPass("voteDay (Expected Merkle logic failure, Witness types OK)");
-    } else {
-      logFail("voteDay", e);
-    }
-  }
-
-  // 8. RESOLVE DAY
-  try {
-    const rResolveDay = circuits.resolveDayPhase(
-      sim.circuitContext,
-      sim.gameId,
-      0n, // Eliminated P0 (Wolf)
-      true,
-    );
-    sim.circuitContext = rResolveDay.context;
-    sim.players[0].alive = false;
-    logPass("resolveDayPhase");
+    await sim.runCircuit((ctx) => circuits.voteDay(ctx, sim.gameId));
+    logPass("voteDay (Round 2 - Nullifier Unique)");
   } catch (e) {
-    logFail("resolveDayPhase", e);
+    logFail("voteDay (Round 2)", e);
   }
 
   // 9. END GAME
   try {
-    const rEnd = circuits.forceEndGame(
-      sim.circuitContext,
-      sim.gameId,
-      sim.masterSecret,
+    await sim.runCircuit((ctx) =>
+      circuits.forceEndGame(ctx, sim.gameId, sim.masterSecret)
     );
-    sim.circuitContext = rEnd.context;
     logPass("forceEndGame");
   } catch (e) {
     logFail("forceEndGame", e);

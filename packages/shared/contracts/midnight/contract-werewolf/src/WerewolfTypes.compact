@@ -1,40 +1,39 @@
 module WerewolfTypes {
-import CompactStandardLibrary;
+    import CompactStandardLibrary;
 
-export enum Role {
-    Villager,
-    Werewolf,
-    Seer,
-    Doctor
-}
+    export enum Role {
+        Villager,
+        Werewolf,
+        Seer,
+        Doctor
+    }
 
-export enum Phase {
-    Lobby,
-    Night,
-    Day,
-    Finished
-}
+    export enum Phase {
+        Lobby,
+        Night,
+        Day,
+        Finished
+    }
 
-// Data provided by Witness during Actions/Voting
-export struct ActionData {
-    // Encrypted payload (Target + Round + Random) packed into 24 bits
-    encryptedAction: Bytes<3>,
-    merklePath: MerkleTreePath<10, Bytes<32>>,
-    leafSecret: Bytes<32>
-}
+    // Data provided by Witness during Actions/Voting
+    export struct ActionData {
+        // Compact Payload: [Target(7b) | Round(7b) | Random(10b)] = 24 bits
+        encryptedAction: Bytes<3>,
+        merklePath: MerkleTreePath<10, Bytes<32>>,
+        leafSecret: Bytes<32>
+    }
 
-export struct GameState {
-    adminKey: ZswapCoinPublicKey,
-    adminVotePublicKey: Bytes<33>,
-    phase: Phase,
-    round: Uint<32>,
-    playerCount: Uint<32>,
-    aliveCount: Uint<32>,
-    werewolfCount: Uint<32>,
-    villagerCount: Uint<32>,
-    aliveTreeRoot: MerkleTreeDigest,
-    masterSecretCommitment: Bytes<32>,
-    transcriptHash: Bytes<32>
-}
-
+    export struct GameState {
+        adminKey: ZswapCoinPublicKey,
+        adminVotePublicKey: Bytes<33>,
+        phase: Phase,
+        round: Uint<32>,
+        playerCount: Uint<32>,
+        aliveCount: Uint<32>,
+        werewolfCount: Uint<32>,
+        villagerCount: Uint<32>,
+        aliveTreeRoot: MerkleTreeDigest,
+        masterSecretCommitment: Bytes<32>,
+        transcriptHash: Bytes<32>
+    }
 }

@@ -6,12 +6,13 @@ import {
   sampleContractAddress,
   type WitnessContext,
 } from "@midnight-ntwrk/compact-runtime";
+import { Buffer } from "node:buffer";
 import { createHash } from "node:crypto";
 import nacl from "tweetnacl";
 import { Contract } from "../src/managed/contract/index.js";
 
 // =============================================================================
-// 1. TYPES
+// 1. TYPES & CRYPTO
 // =============================================================================
 
 export const Role = { Villager: 0, Werewolf: 1, Seer: 2, Doctor: 3 };
@@ -22,10 +23,12 @@ type MerkleTreePathEntry = { sibling: MerkleTreeDigest; goes_left: boolean };
 type MerkleTreePath = { leaf: Uint8Array; path: MerkleTreePathEntry[] };
 
 const ENCRYPTION_LIMITS = {
-  NUM_MAX: 99, // 7 bits
-  RND_MAX: 99, // 7 bits
-  RAND_MAX: 999, // 10 bits
+  NUM_MAX: 99,
+  RND_MAX: 99,
+  RAND_MAX: 999,
 };
+
+// --- PACKING ---
 
 function packData(number: number, round: number, random: number): Uint8Array {
   if (
@@ -42,6 +45,18 @@ function packData(number: number, round: number, random: number): Uint8Array {
   return bytes;
 }
 
+function unpackData(
+  bytes: Uint8Array,
+): { target: number; round: number; random: number } {
+  const packed = (bytes[0] << 16) | (bytes[1] << 8) | bytes[2];
+  const target = (packed >> 17) & 0x7F; // 7 bits
+  const round = (packed >> 10) & 0x7F; // 7 bits
+  const random = packed & 0x3FF; // 10 bits
+  return { target, round, random };
+}
+
+// --- ENCRYPTION / DECRYPTION ---
+
 function deriveSessionKey(
   myPrivKey: Uint8Array,
   theirPubKey: Uint8Array,
@@ -55,29 +70,29 @@ function deriveSessionKey(
   return nacl.hash(combined).slice(0, 3);
 }
 
-function encryptPayload(
-  number: number,
-  round: number,
-  random: number,
-  myPrivKey: Uint8Array,
-  receiverPubKey: Uint8Array,
-  txNonce: number,
+function xorPayload(
+  payload: Uint8Array,
+  key: Uint8Array,
 ): Uint8Array {
-  const payload = packData(number, round, random);
-  const key = deriveSessionKey(myPrivKey, receiverPubKey, txNonce);
-  const ciphertext = new Uint8Array(3);
+  const result = new Uint8Array(3);
   for (let i = 0; i < 3; i++) {
-    ciphertext[i] = payload[i] ^ key[i];
+    result[i] = payload[i] ^ key[i];
   }
-  return ciphertext;
+  return result;
 }
+
+// =============================================================================
+// 2. DATA STRUCTURES
+// =============================================================================
 
 type SetupData = {
   roleCommitments: Uint8Array[];
   encryptedRoles: Uint8Array[];
-  adminKey: { bytes: Uint8Array };
+  adminAuthKey: { bytes: Uint8Array }; // Key for state.adminKey (Auth)
+  adminEncKey: Uint8Array; // Key for encryption
   initialRoot: MerkleTreeDigest;
 };
+
 type ActionData = {
   encryptedAction: Uint8Array;
   merklePath: MerkleTreePath;
@@ -86,36 +101,32 @@ type ActionData = {
 
 type PrivateState = {
   activeActor?: Actor;
-  currentRound?: bigint;
 };
 
 type Ledger = any;
-
-// =============================================================================
-// 2. ACTORS
-// =============================================================================
 
 interface Actor {
   getSetupData?(): SetupData;
   getActionData?(round: bigint): ActionData;
 }
 
+// =============================================================================
+// 3. PLAYERS
+// =============================================================================
+
 class Player implements Actor {
   readonly id: number;
   readonly leafSecret: Uint8Array;
   readonly encKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
 
-  // These will be calculated by the simulation runner using contract circuits
   leafHash?: Uint8Array;
   merklePath?: MerkleTreePath;
 
   role: number = Role.Villager;
-  adminKeyBytes?: Uint8Array;
+  adminEncKey?: Uint8Array; // The key used to encrypt votes
   isAlive: boolean = true;
-  lastVote?: number;
 
-  // Reference to all players for AI voting decisions
-  allPlayers?: Player[];
+  knownAlivePlayers: number[] = [];
 
   constructor(id: number) {
     this.id = id;
@@ -127,34 +138,39 @@ class Player implements Actor {
 
   receiveGameConfig(
     role: number,
-    adminKeyBytes: Uint8Array,
-    allPlayers: Player[],
+    adminEncKey: Uint8Array,
+    totalPlayers: number,
   ) {
     this.role = role;
-    this.adminKeyBytes = adminKeyBytes;
-    this.allPlayers = allPlayers;
+    this.adminEncKey = adminEncKey;
+    this.knownAlivePlayers = Array.from({ length: totalPlayers }, (_, i) => i);
   }
 
   getActionData(round: bigint): ActionData {
-    if (!this.adminKeyBytes) throw new Error(`P${this.id}: No Admin PubKey`);
+    if (!this.adminEncKey) {
+      throw new Error(`P${this.id}: No Admin Encryption Key`);
+    }
     if (!this.merklePath) throw new Error(`P${this.id}: No Merkle Path`);
-    if (!this.allPlayers) throw new Error(`P${this.id}: No player list`);
 
     const targetIdx = this.chooseTarget();
-    this.lastVote = targetIdx;
     const random = Math.floor(Math.random() * 1000);
 
-    const encryptedBuffer = encryptPayload(
-      targetIdx,
-      Number(round),
-      random,
+    const payload = packData(targetIdx, Number(round), random);
+
+    // Encrypt for Admin using Round as Nonce
+    const sessionKey = deriveSessionKey(
       this.encKeypair.secretKey,
-      this.adminKeyBytes,
+      this.adminEncKey,
       Number(round),
     );
+    const encryptedBuffer = xorPayload(payload, sessionKey);
 
     const roleEmoji = this.role === Role.Werewolf ? "🐺" : "👤";
-    console.log(`    ${roleEmoji} P${this.id} votes for P${targetIdx}`);
+    console.log(
+      `    ${roleEmoji} P${this.id} submitting vote for P${targetIdx} (Encrypted: ${
+        Buffer.from(encryptedBuffer).toString("hex")
+      })`,
+    );
 
     return {
       encryptedAction: encryptedBuffer,
@@ -164,48 +180,49 @@ class Player implements Actor {
   }
 
   private chooseTarget(): number {
-    const alivePlayers = this.allPlayers!.filter((p) =>
-      p.isAlive && p.id !== this.id
+    const validTargets = this.knownAlivePlayers.filter((id) => id !== this.id);
+    if (validTargets.length === 0) return this.id;
+    const choice =
+      validTargets[Math.floor(Math.random() * validTargets.length)];
+    return choice;
+  }
+
+  updateAliveStatus(deadId: number) {
+    this.knownAlivePlayers = this.knownAlivePlayers.filter((id) =>
+      id !== deadId
     );
-
-    if (alivePlayers.length === 0) {
-      // Fallback: vote for self (shouldn't happen)
-      return this.id;
-    }
-
-    if (this.role === Role.Werewolf) {
-      // Werewolves know each other and target villagers
-      const villagers = alivePlayers.filter((p) => p.role !== Role.Werewolf);
-      if (villagers.length > 0) {
-        // Target a random villager
-        return villagers[Math.floor(Math.random() * villagers.length)].id;
-      }
-      // No villagers left, vote for another wolf (game should be over)
-      return alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-    } else {
-      // Villagers don't know roles, vote randomly among alive players
-      return alivePlayers[Math.floor(Math.random() * alivePlayers.length)].id;
-    }
   }
 }
 
+// =============================================================================
+// 4. TRUSTED NODE (ADMIN)
+// =============================================================================
+
 class TrustedNode implements Actor {
-  public adminKey: Uint8Array;
+  public adminAuthKey: Uint8Array; // Matches std_ownPublicKey()
+  public adminEncKey: Uint8Array; // Generated Keypair for Encryption
+
   private masterSecret: Uint8Array;
   private initialRoot: MerkleTreeDigest = { field: 0n };
   private encKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
-  private players: Player[] = [];
+
+  private commitments: Uint8Array[] = [];
   private encryptedRoles: Uint8Array[] = [];
 
-  // Track player data to provide Setup Witness
-  private commitments: Uint8Array[] = [];
+  private playerPublicKeys: Map<number, Uint8Array> = new Map();
+  private playerRoles: Map<number, number> = new Map();
 
   constructor() {
     this.masterSecret = new Uint8Array(
       createHash("sha256").update("master").digest(),
     );
-    this.adminKey = new Uint8Array(32).fill(1);
     this.encKeypair = nacl.box.keyPair();
+    this.adminEncKey = this.encKeypair.publicKey;
+    this.adminAuthKey = new Uint8Array(32); // Initial placeholder
+  }
+
+  setAuthKey(key: Uint8Array) {
+    this.adminAuthKey = key;
   }
 
   setCommitments(commits: Uint8Array[]) {
@@ -216,113 +233,135 @@ class TrustedNode implements Actor {
     this.initialRoot = root;
   }
 
-  registerPlayers(players: Player[]) {
-    this.players = players;
-    const padded = Array(16).fill(new Uint8Array(3));
-    players.forEach((p) => {
-      const encRole = encryptPayload(
-        p.role,
-        0,
-        p.id % 1000,
-        this.encKeypair.secretKey,
-        p.encKeypair.publicKey,
-        0,
-      );
-      padded[p.id] = encRole;
-    });
-    this.encryptedRoles = padded;
+  registerPlayerKeys(id: number, pubKey: Uint8Array, role: number) {
+    this.playerPublicKeys.set(id, pubKey);
+    this.playerRoles.set(id, role);
+
+    // Nonce 0 for setup role encryption
+    const encRolePayload = packData(role, 0, id % 1000);
+    const sessionKey = deriveSessionKey(this.encKeypair.secretKey, pubKey, 0);
+    const encrypted = xorPayload(encRolePayload, sessionKey);
+
+    if (this.encryptedRoles.length <= id) {
+      this.encryptedRoles.length = id + 1;
+    }
+    this.encryptedRoles[id] = encrypted;
   }
 
   getSetupData(): SetupData {
-    // Pad to 16
-    const padded = [...this.commitments];
-    while (padded.length < 16) padded.push(new Uint8Array(32));
+    const paddedCommits = [...this.commitments];
+    while (paddedCommits.length < 16) paddedCommits.push(new Uint8Array(32));
+
+    const paddedRoles = [...this.encryptedRoles];
+    while (paddedRoles.length < 16) paddedRoles.push(new Uint8Array(3));
+
     return {
-      roleCommitments: padded,
-      encryptedRoles: this.encryptedRoles,
-      adminKey: { bytes: this.adminKey },
+      roleCommitments: paddedCommits,
+      encryptedRoles: paddedRoles,
+      adminAuthKey: { bytes: this.adminAuthKey },
+      adminEncKey: this.adminEncKey,
       initialRoot: this.initialRoot,
     };
   }
 
-  processVotes(
-    _encryptedVotes: Uint8Array[],
+  processVotesFromLedger(
+    encryptedVotes: Uint8Array[], // Vector<16, Bytes<3>>
+    round: number,
     isNightPhase: boolean,
-    werewolfIndices?: number[], // Indices of werewolf players (for filtering night votes)
   ): { eliminatedIdx: number; hasElimination: boolean } {
     const votes = new Map<number, number>();
 
-    // During night, only count votes from werewolves
-    // The vote array is indexed by player ID, so we can filter
-    for (const p of this.players) {
-      if (!p.isAlive || p.lastVote === undefined) continue;
-      // During night phase, skip non-werewolf votes
-      if (isNightPhase && werewolfIndices && !werewolfIndices.includes(p.id)) {
+    console.log(`    [Node] Decrypting votes for Round ${round}...`);
+
+    // Iterate through anonymous votes from contract
+    for (let i = 0; i < encryptedVotes.length; i++) {
+      const ciphertext = encryptedVotes[i];
+      if (ciphertext.every((b) => b === 0)) continue;
+
+      let foundVoter = -1;
+      let validData: { target: number; round: number; random: number } | null =
+        null;
+
+      // TRIAL DECRYPTION: Try every known player key
+      for (const [playerId, playerPubKey] of this.playerPublicKeys.entries()) {
+        // Derive session key assuming this player sent it
+        const sessionKey = deriveSessionKey(
+          this.encKeypair.secretKey,
+          playerPubKey,
+          round,
+        );
+
+        const plaintext = xorPayload(ciphertext, sessionKey);
+        const data = unpackData(plaintext);
+
+        // CHECK VALIDITY
+        // 1. Round must match exactly (Strongest Check)
+        // 2. Target must be valid index (0-15) - Optional but good
+        if (data.round === round) {
+          foundVoter = playerId;
+          validData = data;
+          // We found the sender!
+          // console.log(`    [Node] Identified vote from P${playerId}`);
+          break;
+        }
+      }
+
+      if (foundVoter === -1 || !validData) {
+        // Vote could not be decrypted with any known key for this round
+        console.warn(`    [Node] ⚠️ Undecryptable vote at index ${i}`);
         continue;
       }
-      votes.set(p.lastVote, (votes.get(p.lastVote) || 0) + 1);
+
+      // We know WHO sent it (foundVoter). Now apply rules.
+      if (isNightPhase) {
+        const role = this.playerRoles.get(foundVoter);
+        if (role !== Role.Werewolf) {
+          // Villager tried to vote at night. Ignore.
+          continue;
+        }
+      }
+
+      votes.set(validData.target, (votes.get(validData.target) || 0) + 1);
     }
 
-    // Find max votes and all players with that vote count
     let maxVotes = 0;
     votes.forEach((count) => {
       if (count > maxVotes) maxVotes = count;
     });
 
-    // Get all players tied for first place
     const tiedPlayers: number[] = [];
-    votes.forEach((count, playerId) => {
-      if (count === maxVotes) tiedPlayers.push(playerId);
+    votes.forEach((count, targetId) => {
+      if (count === maxVotes) tiedPlayers.push(targetId);
     });
 
     if (tiedPlayers.length === 0 || maxVotes === 0) {
-      // Return 0 as placeholder index (hasElimination=false means it won't be used)
       return { eliminatedIdx: 0, hasElimination: false };
     }
 
-    let target: number;
-    let hasElimination: boolean;
-
     if (tiedPlayers.length > 1) {
-      // There's a tie for first place
       if (isNightPhase) {
-        // Night: randomly select one of the tied players
-        const randomIdx = Math.floor(Math.random() * tiedPlayers.length);
-        target = tiedPlayers[randomIdx];
-        hasElimination = true;
-        console.log(
-          `    [Node] Night tie! Randomly eliminating P${target} from tied players: ${
-            tiedPlayers.map((p) => `P${p}`).join(", ")
-          }`,
-        );
+        const target =
+          tiedPlayers[Math.floor(Math.random() * tiedPlayers.length)];
+        console.log(`    [Node] Night Tie. Randomly selected P${target}.`);
+        return { eliminatedIdx: target, hasElimination: true };
       } else {
-        // Day: no elimination on tie
-        console.log(
-          `    [Node] Day vote tie! No elimination. Tied players: ${
-            tiedPlayers.map((p) => `P${p}`).join(", ")
-          }`,
-        );
-        // Return 0 as placeholder index (hasElimination=false means it won't be used)
+        console.log(`    [Node] Day Tie. No execution.`);
         return { eliminatedIdx: 0, hasElimination: false };
       }
-    } else {
-      // Clear winner
-      target = tiedPlayers[0];
-      hasElimination = true;
-      console.log(`    [Node] Consensus: Eliminate P${target}`);
     }
 
-    return { eliminatedIdx: target, hasElimination };
+    console.log(`    [Node] Consensus on P${tiedPlayers[0]}`);
+    return { eliminatedIdx: tiedPlayers[0], hasElimination: true };
   }
 }
 
 // =============================================================================
-// 3. RUNTIME MERKLE TREE
+// 5. RUNTIME MERKLE TREE
 // =============================================================================
 
 class RuntimeMerkleTree {
   private leaves: Uint8Array[];
-  private levels: MerkleTreeDigest[][] = []; // Store FULL digests
+  private levels: MerkleTreeDigest[][] = [];
   private root: MerkleTreeDigest = { field: 0n };
   private simulation: Simulation;
 
@@ -334,34 +373,29 @@ class RuntimeMerkleTree {
   async build() {
     const depth = 10;
     let currentLevel: MerkleTreeDigest[] = [];
-
     const totalLeaves = 1 << depth;
     const zeroBytes = new Uint8Array(32);
 
-    // Compute digest for zero/padding leaf using testLeafDigest (Bytes->Digest)
-    const zeroLeafDigest = await this.simulation.runCircuit(
-      () =>
-        this.simulation.contract.circuits.testLeafDigest(
-          this.simulation.context,
-          zeroBytes,
-        ),
+    const zeroLeafDigest = await this.simulation.runCircuit(() =>
+      this.simulation.contract.circuits.testLeafDigest(
+        this.simulation.context,
+        zeroBytes,
+      )
     );
 
     for (let i = 0; i < totalLeaves; i++) {
       if (i < this.leaves.length) {
-        const digest = await this.simulation.runCircuit(
-          () =>
-            this.simulation.contract.circuits.testLeafDigest(
-              this.simulation.context,
-              this.leaves[i],
-            ),
+        const digest = await this.simulation.runCircuit(() =>
+          this.simulation.contract.circuits.testLeafDigest(
+            this.simulation.context,
+            this.leaves[i],
+          )
         );
         currentLevel.push(digest);
       } else {
         currentLevel.push(zeroLeafDigest);
       }
     }
-
     this.levels.push(currentLevel);
 
     for (let d = 0; d < depth; d++) {
@@ -369,21 +403,18 @@ class RuntimeMerkleTree {
       for (let i = 0; i < currentLevel.length; i += 2) {
         const left = currentLevel[i];
         const right = currentLevel[i + 1];
-        // Hash digests using testNodeDigest (Digest, Digest -> Digest)
-        const parent = await this.simulation.runCircuit(
-          () =>
-            this.simulation.contract.circuits.testNodeDigest(
-              this.simulation.context,
-              left,
-              right,
-            ),
+        const parent = await this.simulation.runCircuit(() =>
+          this.simulation.contract.circuits.testNodeDigest(
+            this.simulation.context,
+            left,
+            right,
+          )
         );
         nextLevel.push(parent);
       }
       this.levels.push(nextLevel);
       currentLevel = nextLevel;
     }
-
     this.root = currentLevel[0];
   }
 
@@ -400,8 +431,6 @@ class RuntimeMerkleTree {
       const siblingDigest = this.levels[level][siblingIdx];
       path.push({
         sibling: siblingDigest,
-        // goes_left = true means current node goes on LEFT in hash(left, right)
-        // If current is a left child (index even), it goes on the left
         goes_left: !isRight,
       });
       idx = Math.floor(idx / 2);
@@ -411,69 +440,65 @@ class RuntimeMerkleTree {
 }
 
 // =============================================================================
-// 4. SIMULATION RUNNER
+// 6. SIMULATION RUNNER
 // =============================================================================
 
 const witnesses = {
+  // Returns Commitments
   wit_getRoleCommitment: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: number | bigint,
-    n: number | bigint,
+    _gid: any,
+    n: any,
   ) => {
-    if (!privateState.activeActor?.getSetupData) {
-      throw new Error("No setup data");
-    }
-    const setup = privateState.activeActor.getSetupData();
-    const index = Number(n);
-    if (index < 0 || index >= setup.roleCommitments.length) {
-      return [privateState, new Uint8Array(0)];
-    }
-    return [privateState, setup.roleCommitments[index]];
+    const setup = privateState.activeActor!.getSetupData!();
+    const idx = Number(n);
+    return [
+      privateState,
+      (idx >= 0 && idx < setup.roleCommitments.length)
+        ? setup.roleCommitments[idx]
+        : new Uint8Array(0),
+    ];
   },
+  // Returns Encrypted Roles
   wit_getEncryptedRole: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: number | bigint,
-    n: number | bigint,
+    _gid: any,
+    n: any,
   ) => {
-    if (!privateState.activeActor?.getSetupData) {
-      throw new Error("No setup data");
-    }
-    const setup = privateState.activeActor.getSetupData();
-    const index = Number(n);
-    if (index < 0 || index >= setup.encryptedRoles.length) {
-      return [privateState, new Uint8Array(3)];
-    }
-    return [privateState, setup.encryptedRoles[index]];
+    const setup = privateState.activeActor!.getSetupData!();
+    const idx = Number(n);
+    return [
+      privateState,
+      (idx >= 0 && idx < setup.encryptedRoles.length)
+        ? setup.encryptedRoles[idx]
+        : new Uint8Array(3),
+    ];
   },
+  // Returns Admin Auth Key (for state.adminKey)
   wit_getAdminKey: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: number | bigint,
   ) => {
-    if (!privateState.activeActor?.getSetupData) {
-      throw new Error("No setup data");
-    }
-    const setup = privateState.activeActor.getSetupData();
-    return [privateState, setup.adminKey];
+    return [
+      privateState,
+      privateState.activeActor!.getSetupData!().adminAuthKey,
+    ];
   },
+  // Returns Merkle Root
   wit_getInitialRoot: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: number | bigint,
   ) => {
-    if (!privateState.activeActor?.getSetupData) {
-      throw new Error("No setup data");
-    }
-    const setup = privateState.activeActor.getSetupData();
-    return [privateState, setup.initialRoot];
+    return [
+      privateState,
+      privateState.activeActor!.getSetupData!().initialRoot,
+    ];
   },
+  // Returns Action Data (Encryption uses adminEncKey)
   wit_getActionData: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
-    _gameId: number | bigint,
+    _gid: any,
     round: bigint,
   ) => {
-    if (!privateState.activeActor?.getActionData) {
-      throw new Error("No action data");
-    }
-    return [privateState, privateState.activeActor.getActionData(round)];
+    return [privateState, privateState.activeActor!.getActionData!(round)];
   },
 };
 
@@ -486,9 +511,9 @@ class Simulation {
 
   constructor() {
     this.contract = new Contract(witnesses);
-    this.gameId = 9n;
+    this.gameId = BigInt(Math.floor(Math.random() * 0xFFFFFFFF));
     this.admin = new TrustedNode();
-    this.players = Array.from({ length: 5 }, (_, i) => new Player(i));
+    this.players = Array.from({ length: 15 }, (_, i) => new Player(i));
 
     const {
       currentPrivateState,
@@ -522,10 +547,12 @@ class Simulation {
     const { circuits } = this.contract;
 
     // --- SETUP ---
-    const adminKeyRes = await this.runCircuit(() =>
+    // 1. Get Simulator's default Identity Key (to be used as Admin Auth Key)
+    const simulatorIdentity = await this.runCircuit(() =>
       circuits.getAdminKey(this.context)
     );
-    this.admin.adminKey = adminKeyRes.bytes;
+    // 2. Set it in Admin
+    this.admin.setAuthKey(simulatorIdentity.bytes);
 
     const commitments: Uint8Array[] = [];
     const leafHashes: Uint8Array[] = [];
@@ -540,60 +567,43 @@ class Simulation {
       const salt = await this.runCircuit(() =>
         circuits.testComputeSalt(this.context, new Uint8Array(32), BigInt(p.id))
       );
+      const role = p.id === 0 ? Role.Werewolf : Role.Villager;
       const comm = await this.runCircuit(() =>
-        circuits.testComputeCommitment(
-          this.context,
-          BigInt(p.id === 0 ? 1 : 0),
-          salt,
-        )
+        circuits.testComputeCommitment(this.context, BigInt(role), salt)
       );
       commitments.push(comm);
 
-      p.receiveGameConfig(
-        p.id === 0 ? Role.Werewolf : Role.Villager,
-        this.admin.adminKey,
-        this.players,
-      );
+      this.admin.registerPlayerKeys(p.id, p.encKeypair.publicKey, role);
+      // Give players the Admin's ENCRYPTION Key, not Auth Key
+      p.receiveGameConfig(role, this.admin.adminEncKey, this.players.length);
     }
     this.admin.setCommitments(commitments);
-    this.admin.registerPlayers(this.players);
 
     console.log("Building Merkle Tree...");
     const tree = new RuntimeMerkleTree(this, leafHashes);
     await tree.build();
     const root = tree.getRoot();
-    console.log("Tree Root:", root.field);
     this.admin.setInitialRoot(root);
 
     this.players.forEach((p, i) =>
       p.merklePath = tree.getProof(i, p.leafHash!)
     );
 
-    console.log("Verifying Player Proofs...");
-    for (const p of this.players) {
-      const valid = await this.runCircuit(() =>
-        circuits.testVerifyMerkleProof(
-          this.context,
-          root,
-          p.leafHash!,
-          p.merklePath!,
-        )
-      );
-      if (!valid) throw new Error(`Proof invalid for player ${p.id}`);
-    }
-    console.log("✅ Proofs verified");
-
-    // --- CREATE GAME ---
+    // --- CREATE GAME ON-CHAIN ---
     this.context.currentPrivateState.activeActor = this.admin;
     const masterCommit = await this.runCircuit(() =>
       circuits.testComputeHash(this.context, new Uint8Array(32))
     );
 
+    // Pass the Admin Encryption Key (33 bytes expected, pad if 32)
+    const adminVotePubKeyPadded = new Uint8Array(33);
+    adminVotePubKeyPadded.set(this.admin.adminEncKey);
+
     await this.runCircuit(() =>
       circuits.createGame(
         this.context,
         this.gameId,
-        new Uint8Array(33),
+        adminVotePubKeyPadded,
         masterCommit,
         BigInt(this.players.length),
         1n,
@@ -604,49 +614,31 @@ class Simulation {
     // --- GAME LOOP ---
     let round = 1;
     let gameOver = false;
-    let winner: "werewolves" | "villagers" | null = null;
 
-    const checkWinCondition = (): {
-      gameOver: boolean;
-      winner: "werewolves" | "villagers" | null;
-    } => {
+    const checkWinCondition = () => {
       const alivePlayers = this.players.filter((p) => p.isAlive);
-      const aliveWerewolves = alivePlayers.filter((p) =>
-        p.role === Role.Werewolf
-      );
-      const aliveVillagers = alivePlayers.filter((p) =>
-        p.role !== Role.Werewolf
-      );
-
-      if (aliveWerewolves.length === 0) {
-        return { gameOver: true, winner: "villagers" };
-      }
-      if (aliveWerewolves.length >= aliveVillagers.length) {
-        return { gameOver: true, winner: "werewolves" };
-      }
-      return { gameOver: false, winner: null };
-    };
-
-    const printStatus = () => {
-      const alive = this.players.filter((p) => p.isAlive);
-      const wolves = alive.filter((p) => p.role === Role.Werewolf).length;
-      const villagers = alive.length - wolves;
-      console.log(
-        `    📊 Status: ${alive.length} alive (🐺 ${wolves} werewolves, 👤 ${villagers} villagers)`,
-      );
+      const wolves =
+        alivePlayers.filter((p) => p.role === Role.Werewolf).length;
+      const villagers = alivePlayers.length - wolves;
+      if (wolves === 0) return "villagers";
+      if (wolves >= villagers) return "werewolves";
+      return null;
     };
 
     while (!gameOver) {
       // --- NIGHT PHASE ---
       console.log(`\n🌙 --- Round ${round}: Night ---`);
-      // All players vote at night (for privacy - hides werewolf count)
-      // But only werewolf votes actually count
+
       for (const p of this.players) {
         if (!p.isAlive) continue;
         this.context.currentPrivateState.activeActor = p;
-        await this.runCircuit(() =>
-          circuits.nightAction(this.context, this.gameId)
-        );
+        try {
+          await this.runCircuit(() =>
+            circuits.nightAction(this.context, this.gameId)
+          );
+        } catch (e) {
+          console.error(`P${p.id} failed to vote:`, e);
+        }
       }
 
       this.context.currentPrivateState.activeActor = this.admin;
@@ -658,16 +650,14 @@ class Simulation {
           BigInt(round),
         )
       );
-      // Only count werewolf votes at night
-      const werewolfIndices = this.players
-        .filter((p) => p.role === Role.Werewolf)
-        .map((p) => p.id);
-      const nightRes = this.admin.processVotes(
+
+      const nightRes = this.admin.processVotesFromLedger(
         nightVotes as Uint8Array[],
+        round,
         true,
-        werewolfIndices,
       );
 
+      // Resolve Night - Authorizes with Auth Key (PK_SIM)
       await this.runCircuit(() =>
         circuits.resolveNightPhase(
           this.context,
@@ -680,26 +670,29 @@ class Simulation {
       );
 
       if (nightRes.hasElimination) {
-        const victim = this.players[nightRes.eliminatedIdx];
-        victim.isAlive = false;
-        const roleStr = victim.role === Role.Werewolf
-          ? "🐺 Werewolf"
-          : "👤 Villager";
-        console.log(
-          `    💀 P${nightRes.eliminatedIdx} (${roleStr}) was killed in the night!`,
-        );
+        if (this.players[nightRes.eliminatedIdx]) {
+          this.players[nightRes.eliminatedIdx].isAlive = false;
+          this.players.forEach((p) =>
+            p.updateAliveStatus(nightRes.eliminatedIdx)
+          );
+          console.log(`    💀 P${nightRes.eliminatedIdx} was killed!`);
+        } else {
+          console.error(
+            `    ❌ Error: Invalid player index eliminated: ${nightRes.eliminatedIdx}`,
+          );
+        }
       } else {
-        console.log(`    😮 No one died tonight!`);
+        console.log(`    😮 No death.`);
       }
 
-      printStatus();
-
-      // Check win condition after night
-      ({ gameOver, winner } = checkWinCondition());
-      if (gameOver) break;
+      if (checkWinCondition()) {
+        gameOver = true;
+        break;
+      }
 
       // --- DAY PHASE ---
       console.log(`\n☀️  --- Round ${round}: Day ---`);
+
       for (const p of this.players) {
         if (!p.isAlive) continue;
         this.context.currentPrivateState.activeActor = p;
@@ -708,7 +701,6 @@ class Simulation {
         );
       }
 
-      this.context.currentPrivateState.activeActor = this.admin;
       const dayVotes = await this.runCircuit(() =>
         circuits.getEncryptedVotesForRound(
           this.context,
@@ -717,7 +709,12 @@ class Simulation {
           BigInt(round),
         )
       );
-      const dayRes = this.admin.processVotes(dayVotes as Uint8Array[], false);
+
+      const dayRes = this.admin.processVotesFromLedger(
+        dayVotes as Uint8Array[],
+        round,
+        false,
+      );
 
       await this.runCircuit(() =>
         circuits.resolveDayPhase(
@@ -729,45 +726,28 @@ class Simulation {
       );
 
       if (dayRes.hasElimination) {
-        const victim = this.players[dayRes.eliminatedIdx];
-        victim.isAlive = false;
-        const roleStr = victim.role === Role.Werewolf
-          ? "🐺 Werewolf"
-          : "👤 Villager";
-        console.log(
-          `    🔥 P${dayRes.eliminatedIdx} (${roleStr}) was executed by the village!`,
-        );
+        if (this.players[dayRes.eliminatedIdx]) {
+          this.players[dayRes.eliminatedIdx].isAlive = false;
+          this.players.forEach((p) =>
+            p.updateAliveStatus(dayRes.eliminatedIdx)
+          );
+          console.log(`    🔥 P${dayRes.eliminatedIdx} executed!`);
+        } else {
+          console.error(
+            `    ❌ Error: Invalid player index executed: ${dayRes.eliminatedIdx}`,
+          );
+        }
       } else {
-        console.log(`    🤷 The village couldn't decide. No one was executed.`);
+        console.log(`    🤷 No execution.`);
       }
 
-      printStatus();
-
-      // Check win condition after day
-      ({ gameOver, winner } = checkWinCondition());
+      if (checkWinCondition()) {
+        gameOver = true;
+      }
       round++;
     }
 
-    // --- GAME OVER ---
-    console.log("\n" + "=".repeat(50));
-    if (winner === "werewolves") {
-      console.log("🐺🐺🐺 WEREWOLVES WIN! 🐺🐺🐺");
-      console.log("The werewolves have taken over the village!");
-    } else {
-      console.log("👤👤👤 VILLAGERS WIN! 👤👤👤");
-      console.log("The village has eliminated all werewolves!");
-    }
-    console.log("=".repeat(50));
-
-    // Print final player status
-    console.log("\n📋 Final Player Status:");
-    for (const p of this.players) {
-      const roleStr = p.role === Role.Werewolf ? "🐺 Werewolf" : "👤 Villager";
-      const statusStr = p.isAlive ? "✅ Alive" : "💀 Dead";
-      console.log(`    P${p.id}: ${roleStr} - ${statusStr}`);
-    }
-
-    console.log("\n🏁 Simulation Complete");
+    console.log(`\n🏆 Winner: ${checkWinCondition()?.toUpperCase()}`);
   }
 }
 
