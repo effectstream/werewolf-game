@@ -85,6 +85,8 @@ export type SetupData = {
   roleCommitments: Uint8Array[];
   encryptedRoles: Uint8Array[];
   adminKey: CoinPublicKey;
+  /** Admin vote (encryption) public key; when set, used for vote encryption instead of adminKey */
+  adminVotePublicKey?: { bytes: Uint8Array };
   initialRoot: MerkleTreeDigest;
 };
 
@@ -194,14 +196,17 @@ export const witnesses = {
 
     const roundNum = Number(round);
 
-    // Use Standard Encryption
+    // Use admin vote public key for encryption when present (game creator's vote key), else adminKey. Nacl expects 32 bytes.
+    const rawEncKey = setup.adminVotePublicKey?.bytes ?? setup.adminKey.bytes;
+    const encReceiverPubKey = rawEncKey.length >= 32 ? rawEncKey.slice(0, 32) : rawEncKey;
+
     const encryptedBytes = encryptPayload(
       action.targetNumber,
       roundNum,
       action.random,
-      myKeys.secretKey, // Static Private Key
-      setup.adminKey.bytes,
-      roundNum, // Nonce
+      myKeys.secretKey,
+      encReceiverPubKey,
+      roundNum,
     );
 
     const contractData: ContractActionData = {

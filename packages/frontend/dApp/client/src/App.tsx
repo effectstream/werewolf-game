@@ -7,10 +7,59 @@ import {
   Contract as WerewolfRuntimeContract,
   pureCircuits,
 } from "../../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
-import { Buffer } from "node:buffer";
-import { decrypt, encrypt, PrivateKey } from "eciesjs";
+import nacl from "tweetnacl";
 
 const MAX_PLAYERS = 16;
+
+// --- 3-byte vote encryption (matches contract/simulation) ---
+const ENCRYPTION_LIMITS = { NUM_MAX: 99, RND_MAX: 99, RAND_MAX: 999 };
+
+function packData(number: number, round: number, random: number): Uint8Array {
+  if (
+    number > ENCRYPTION_LIMITS.NUM_MAX ||
+    round > ENCRYPTION_LIMITS.RND_MAX ||
+    random > ENCRYPTION_LIMITS.RAND_MAX
+  ) {
+    throw new Error("Overflow in packData");
+  }
+  const packed = (number << 17) | (round << 10) | random;
+  const bytes = new Uint8Array(3);
+  bytes[0] = (packed >> 16) & 0xff;
+  bytes[1] = (packed >> 8) & 0xff;
+  bytes[2] = packed & 0xff;
+  return bytes;
+}
+
+function unpackData(
+  bytes: Uint8Array,
+): { target: number; round: number; random: number } {
+  const packed = (bytes[0] << 16) | (bytes[1] << 8) | bytes[2];
+  const target = (packed >> 17) & 0x7f;
+  const round = (packed >> 10) & 0x7f;
+  const random = packed & 0x3ff;
+  return { target, round, random };
+}
+
+function deriveSessionKey(
+  myPrivKey: Uint8Array,
+  theirPubKey: Uint8Array,
+  txNonce: number,
+): Uint8Array {
+  const sharedPoint = nacl.scalarMult(myPrivKey, theirPubKey);
+  const nonceBytes = new Uint8Array(new Int32Array([txNonce]).buffer);
+  const combined = new Uint8Array(sharedPoint.length + nonceBytes.length);
+  combined.set(sharedPoint);
+  combined.set(nonceBytes, sharedPoint.length);
+  return nacl.hash(combined).slice(0, 3);
+}
+
+function xorPayload(payload: Uint8Array, key: Uint8Array): Uint8Array {
+  const result = new Uint8Array(3);
+  for (let i = 0; i < 3; i++) {
+    result[i] = payload[i] ^ key[i];
+  }
+  return result;
+}
 
 const Role = {
   Villager: 0,
@@ -61,6 +110,7 @@ type WitnessSetupData = {
   roleCommitments: Uint8Array[];
   encryptedRoles: Uint8Array[];
   adminKey: { bytes: Uint8Array };
+  adminVotePublicKey?: { bytes: Uint8Array };
   initialRoot: { field: bigint };
 };
 
@@ -84,7 +134,8 @@ type GameState = {
   gameId: bigint;
   masterSecret: Uint8Array;
   masterSecretCommitment: Uint8Array;
-  adminVotePrivateKeyHex: string;
+  /** Nacl box secret key for admin vote decryption */
+  adminVoteSecretKey: Uint8Array;
   adminVotePublicKeyHex: string;
   adminVotePublicKeyBytes: Uint8Array;
   players: PlayerLocalState[];
@@ -205,22 +256,6 @@ const decodeVoteTarget = (payload: Uint8Array): number => {
     payload.byteLength,
   );
   return view.getUint32(0, true);
-};
-
-const encryptPayload = (
-  adminPublicKeyHex: string,
-  payload: Uint8Array,
-): Uint8Array => {
-  const encrypted = encrypt(adminPublicKeyHex, payload);
-  const bytes = encrypted instanceof Uint8Array
-    ? encrypted
-    : new Uint8Array(encrypted);
-  if (bytes.length !== 129) {
-    throw new Error(
-      `Unexpected encrypted length ${bytes.length}, expected 129`,
-    );
-  }
-  return bytes;
 };
 
 const isZeroBytes = (bytes: Uint8Array) => {
@@ -648,10 +683,7 @@ function App() {
       merklePath,
       adminVotePublicKeyHex: bundle.adminVotePublicKeyHex,
       role: bundle.role,
-      encKeypair: {
-        publicKey: randomBytes32(),
-        secretKey: randomBytes32(),
-      },
+      encKeypair: nacl.box.keyPair(),
     };
   };
 
@@ -724,6 +756,7 @@ function App() {
   const stageSetupData = async (
     gameId: bigint,
     adminKeyBytes: Uint8Array,
+    adminVotePublicKeyBytes: Uint8Array,
     commitments: Uint8Array[],
     initialRoot: { field: bigint },
   ) => {
@@ -746,6 +779,7 @@ function App() {
           roleCommitments,
           encryptedRoles,
           adminKey: { bytes: adminKeyBytes },
+          adminVotePublicKey: { bytes: adminVotePublicKeyBytes },
           initialRoot,
         },
       ]]),
@@ -761,6 +795,7 @@ function App() {
     gameId: bigint,
     action: WitnessActionData,
     encryptionKeypair: { secretKey: Uint8Array; publicKey: Uint8Array },
+    adminVotePublicKeyBytes: Uint8Array,
   ) => {
     if (!midnightProviders?.privateStateProvider?.set) {
       throw new Error("Private state provider not available.");
@@ -779,6 +814,7 @@ function App() {
             () => new Uint8Array(3),
           ),
           adminKey: { bytes: new Uint8Array(32) },
+          adminVotePublicKey: { bytes: adminVotePublicKeyBytes },
           initialRoot: { field: 0n },
         },
       ]]),
@@ -823,21 +859,39 @@ function App() {
 
   const decryptVoteTargets = (
     encryptedVotes: Uint8Array[],
-    adminVotePrivateKeyHex: string,
+    adminVoteSecretKey: Uint8Array,
+    playerPublicKeys: Map<number, Uint8Array>,
+    round: number,
     isNight: boolean,
     werewolfIndices: number[],
   ): number[] => {
     const targets: number[] = [];
     for (let i = 0; i < encryptedVotes.length; i++) {
       const enc = encryptedVotes[i];
-      if (!enc || isZeroBytes(enc)) continue;
-      if (isNight && !werewolfIndices.includes(i)) continue;
-      try {
-        const dec = decrypt(adminVotePrivateKeyHex, Buffer.from(enc));
-        const payload = dec instanceof Uint8Array ? dec : new Uint8Array(dec);
-        targets.push(decodeVoteTarget(payload));
-      } catch (e) {
-        console.warn("Failed to decrypt vote payload", e);
+      if (!enc || enc.length < 3 || isZeroBytes(enc)) continue;
+      const ciphertext = enc.slice(0, 3);
+      let found = false;
+      for (const [playerId, playerPubKey] of playerPublicKeys.entries()) {
+        if (isNight && !werewolfIndices.includes(playerId)) continue;
+        try {
+          const sessionKey = deriveSessionKey(
+            adminVoteSecretKey,
+            playerPubKey,
+            round,
+          );
+          const plaintext = xorPayload(ciphertext, sessionKey);
+          const data = unpackData(plaintext);
+          if (data.round === round) {
+            targets.push(data.target);
+            found = true;
+            break;
+          }
+        } catch {
+          // try next key
+        }
+      }
+      if (!found) {
+        console.warn(`Undecryptable vote at index ${i}`);
       }
     }
     return targets;
@@ -1029,9 +1083,10 @@ function App() {
 
       const adminKeyBytes = getAdminKeyBytes();
       const gameId = randomGameId();
-      const adminVoteKey = new PrivateKey();
-      const adminVotePublicKeyHex = adminVoteKey.publicKey.toHex();
-      const adminVotePublicKeyBytes = hexToBytes(adminVotePublicKeyHex);
+      const adminVoteKeypair = nacl.box.keyPair();
+      const adminVotePublicKeyBytes = new Uint8Array(33);
+      adminVotePublicKeyBytes.set(adminVoteKeypair.publicKey);
+      const adminVotePublicKeyHex = bytesToHex(adminVotePublicKeyBytes);
       const masterSecret = randomBytes32();
       const masterSecretCommitment = new Uint8Array(
         pureCircuits.testComputeHash(masterSecret),
@@ -1047,10 +1102,7 @@ function App() {
       const players: PlayerLocalState[] = roles.map((role, id) => {
         const sk = randomBytes32();
         const pk = randomBytes32();
-        const encKeypair = {
-          publicKey: randomBytes32(),
-          secretKey: randomBytes32(),
-        };
+        const encKeypair = nacl.box.keyPair();
         const salt = new Uint8Array(
           (pureCircuits as any).testComputeSalt(masterSecret, BigInt(id)),
         );
@@ -1082,6 +1134,7 @@ function App() {
       await stageSetupData(
         gameId,
         adminKeyBytes,
+        adminVotePublicKeyBytes,
         players.map((p) => p.commitment),
         initialRoot,
       );
@@ -1099,7 +1152,7 @@ function App() {
         gameId,
         masterSecret,
         masterSecretCommitment,
-        adminVotePrivateKeyHex: adminVoteKey.toHex(),
+        adminVoteSecretKey: adminVoteKeypair.secretKey,
         adminVotePublicKeyHex,
         adminVotePublicKeyBytes,
         players,
@@ -1189,12 +1242,17 @@ function App() {
         lastEncryptedHex = "";
         const path = game.tree.getProof(player.id, player.leaf);
 
-        await stageNextAction(game.gameId, {
-          targetNumber: decodeVoteTarget(payloadBytes),
-          random: Math.floor(Math.random() * 1000),
-          merklePath: path,
-          leafSecret: player.sk,
-        }, player.encKeypair);
+        await stageNextAction(
+          game.gameId,
+          {
+            targetNumber: decodeVoteTarget(payloadBytes),
+            random: Math.floor(Math.random() * 1000),
+            merklePath: path,
+            leafSecret: player.sk,
+          },
+          player.encKeypair,
+          game.adminVotePublicKeyBytes,
+        );
         await callWerewolfMethod(
           midnightWallet.contract.werewolf,
           "nightAction",
@@ -1283,9 +1341,14 @@ function App() {
       const werewolfIndices = game.players
         .filter((p) => p.role === Role.Werewolf)
         .map((p) => p.id);
+      const playerPubKeys = new Map(
+        game.players.map((p) => [p.id, p.encKeypair.publicKey]),
+      );
       const voteTargets = decryptVoteTargets(
         encryptedVotes,
-        game.adminVotePrivateKeyHex,
+        game.adminVoteSecretKey,
+        playerPubKeys,
+        game.round,
         true,
         werewolfIndices,
       );
@@ -1373,12 +1436,17 @@ function App() {
         lastEncryptedHex = "";
         const path = game.tree.getProof(player.id, player.leaf);
 
-        await stageNextAction(game.gameId, {
-          targetNumber: decodeVoteTarget(payloadBytes),
-          random: Math.floor(Math.random() * 1000),
-          merklePath: path,
-          leafSecret: player.sk,
-        }, player.encKeypair);
+        await stageNextAction(
+          game.gameId,
+          {
+            targetNumber: decodeVoteTarget(payloadBytes),
+            random: Math.floor(Math.random() * 1000),
+            merklePath: path,
+            leafSecret: player.sk,
+          },
+          player.encKeypair,
+          game.adminVotePublicKeyBytes,
+        );
         await callWerewolfMethod(midnightWallet.contract.werewolf, "voteDay", [
           game.gameId,
         ]);
@@ -1416,12 +1484,17 @@ function App() {
       );
       const path = { leaf, path: playerProfile.merklePath };
 
-      await stageNextAction(playerProfile.gameId, {
-        targetNumber: decodeVoteTarget(payloadBytes),
-        random: Math.floor(Math.random() * 1000),
-        merklePath: path,
-        leafSecret: playerProfile.leafSecret,
-      }, playerProfile.encKeypair);
+      await stageNextAction(
+        playerProfile.gameId,
+        {
+          targetNumber: decodeVoteTarget(payloadBytes),
+          random: Math.floor(Math.random() * 1000),
+          merklePath: path,
+          leafSecret: playerProfile.leafSecret,
+        },
+        playerProfile.encKeypair,
+        hexToBytes(playerProfile.adminVotePublicKeyHex),
+      );
       await callWerewolfMethod(
         midnightWallet.contract.werewolf,
         "nightAction",
@@ -1458,12 +1531,17 @@ function App() {
       );
       const path = { leaf, path: playerProfile.merklePath };
 
-      await stageNextAction(playerProfile.gameId, {
-        targetNumber: decodeVoteTarget(payloadBytes),
-        random: Math.floor(Math.random() * 1000),
-        merklePath: path,
-        leafSecret: playerProfile.leafSecret,
-      }, playerProfile.encKeypair);
+      await stageNextAction(
+        playerProfile.gameId,
+        {
+          targetNumber: decodeVoteTarget(payloadBytes),
+          random: Math.floor(Math.random() * 1000),
+          merklePath: path,
+          leafSecret: playerProfile.leafSecret,
+        },
+        playerProfile.encKeypair,
+        hexToBytes(playerProfile.adminVotePublicKeyHex),
+      );
       await callWerewolfMethod(
         midnightWallet.contract.werewolf,
         "voteDay",
@@ -1537,9 +1615,14 @@ function App() {
         Phase.Day,
         game.round,
       );
+      const playerPubKeys = new Map(
+        game.players.map((p) => [p.id, p.encKeypair.publicKey]),
+      );
       const voteTargets = decryptVoteTargets(
         encryptedVotes,
-        game.adminVotePrivateKeyHex,
+        game.adminVoteSecretKey,
+        playerPubKeys,
+        game.round,
         false,
         [],
       );

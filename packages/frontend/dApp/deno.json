@@ -46,6 +46,7 @@
     "@types/react": "npm:@types/react@^19.1.2",
     "@vitejs/plugin-react": "npm:@vitejs/plugin-react@^4.4.1",
     "eciesjs": "npm:eciesjs@^0.4.16",
+    "tweetnacl": "npm:tweetnacl@^1.0.3",
     "fp-ts": "npm:fp-ts@^2.16.11",
     "react": "npm:react@19.1.0",
     "react-dom": "npm:react-dom@19.1.0",
