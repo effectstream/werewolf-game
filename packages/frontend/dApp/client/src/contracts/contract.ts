@@ -28,6 +28,7 @@ import {
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-config-provider";
+import { CompiledContract } from "@midnight-ntwrk/compact-js";
 
 import {
   type BalancedProvingRecipe,
@@ -167,10 +168,18 @@ const joinContract = async (
   providers: WerewolfProviders,
   contractAddress: string,
 ): Promise<DeployedWerewolfContract> => {
+  const compiledContract = CompiledContract.withCompiledFileAssets(
+    CompiledContract.withWitnesses(
+      CompiledContract.make("werewolf", Werewolf.Contract),
+      werewolfWitnesses
+    ),
+    "../../../../shared/contracts/midnight/contract-werewolf/src/managed"
+  );
+
   const werewolfContract = await findDeployedContract(providers, {
     contractAddress,
     privateStateId: "werewolfPrivateState",
-    contract: Werewolf.Contract,
+    compiledContract,
     initialPrivateState: {},
   });
   console.log(
