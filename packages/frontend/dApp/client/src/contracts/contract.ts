@@ -4,7 +4,7 @@ import {
 } from "../../../../../shared/contracts/midnight/contract-werewolf/src/_index.ts";
 
 // import { balanceOf as balanceOfQuery } from "./balanceOf.ts";
-import * as ledger from "@midnight-ntwrk/ledger-v6";
+import * as ledger from "@midnight-ntwrk/ledger-v7";
 
 import { type ContractAddress } from "@midnight-ntwrk/compact-runtime";
 
@@ -19,7 +19,7 @@ import type {
   // FinalizedTransaction,
   ShieldedCoinInfo,
   // UnprovenTransaction,
-} from "@midnight-ntwrk/ledger-v6";
+} from "@midnight-ntwrk/ledger-v7";
 import {
   type DeployedContract,
   findDeployedContract,
@@ -169,8 +169,8 @@ const joinContract = async (
 ): Promise<DeployedWerewolfContract> => {
   const werewolfContract = await findDeployedContract(providers, {
     contractAddress,
-    contract: werewolfContractInstance,
     privateStateId: "werewolfPrivateState",
+    contract: Werewolf.Contract,
     initialPrivateState: {},
   });
   console.log(
@@ -320,7 +320,11 @@ export const WEREWOLF_METHODS = [
       { name: "playerIdx", type: "uint32" },
     ],
   },
-  { name: "getAdminKey", caller: "any", args: [] },
+  {
+    name: "getAdminKey",
+    caller: "any",
+    args: [{ name: "gameId", type: "uint32" }],
+  },
   {
     name: "testComputeCommitment",
     caller: "any",

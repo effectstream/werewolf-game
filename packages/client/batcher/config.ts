@@ -6,6 +6,7 @@ import {
 import { readMidnightContract } from "@paimaexample/midnight-contracts/read-contract";
 import { Contract, witnesses } from "@example-midnight/my-midnight-contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+import { WerewolfBalancingAdapter } from "./adapters/werewolf-balancing-adapter.ts";
 
 const isEnvTrue = (key: string) =>
   ["true", "1", "yes", "y"].includes((Deno.env.get(key) || "").toLowerCase());
@@ -45,17 +46,42 @@ const midnightAdapter = midnightContractData
   )
   : undefined;
 
+const midnightBalancingAdapter = midnightContractData
+  ? new WerewolfBalancingAdapter(
+    midnightNetworkConfig.walletSeed!,
+    {
+      indexer: midnightNetworkConfig.indexer,
+      indexerWS: midnightNetworkConfig.indexerWS,
+      node: midnightNetworkConfig.node,
+      proofServer: midnightNetworkConfig.proofServer,
+      zkConfigPath: midnightContractData.zkConfigPath,
+      walletNetworkId: midnightNetworkConfig.id,
+    },
+  )
+  : undefined;
+
 export const config: BatcherConfig = {
   pollingIntervalMs: batchIntervalMs,
   adapters: {
     // paimaL2,
     ...(midnightAdapter ? { midnight: midnightAdapter } : {}),
+    ...(midnightBalancingAdapter
+      ? { midnight_balancing: midnightBalancingAdapter }
+      : {}),
   },
   defaultTarget: "midnight",
   namespace: "",
   batchingCriteria: {
     ...(midnightAdapter
       ? { midnight: { criteriaType: "time", timeWindowMs: batchIntervalMs } }
+      : {}),
+    ...(midnightBalancingAdapter
+      ? {
+        midnight_balancing: {
+          criteriaType: "time",
+          timeWindowMs: batchIntervalMs,
+        },
+      }
       : {}),
   },
   // TODO: rename to wait-effectstream-processed

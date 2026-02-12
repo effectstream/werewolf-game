@@ -2,7 +2,7 @@ import { getPublicStates } from "@midnight-ntwrk/midnight-js-contracts";
 import type { PublicContractStates } from "@midnight-ntwrk/midnight-js-contracts";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { MidnightBech32m } from "@midnight-ntwrk/wallet-sdk-address-format";
-import type { ContractState } from "@midnight-ntwrk/ledger-v6";
+import type { ContractState } from "@midnight-ntwrk/ledger-v7";
 
 interface Config {
   readonly indexer: string;

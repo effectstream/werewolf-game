@@ -142,8 +142,10 @@ export circuit isPlayerAlive(gameId: Uint<32>, playerIdx: Uint<32>): Boolean {
     return Werewolf_selectBool(aliveVec, disclose(playerIdx));
 }
 
-export circuit getAdminKey(): ZswapCoinPublicKey {
-    return Werewolf_getAdminKey();
+export circuit getAdminKey(gameId: Uint<32>): ZswapCoinPublicKey {
+    const gid = disclose(gameId);
+    assert(Werewolf_games.member(gid), "Game not found");
+    return std_ownPublicKey();
 }
 
 export circuit getGameAdminPublicKey(gameId: Uint<32>): Bytes<33> {
