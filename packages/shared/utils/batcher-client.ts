@@ -5,13 +5,12 @@ import {
 import { fromHex, toHex } from "@midnight-ntwrk/midnight-js-utils";
 import type {
   MidnightProvider,
-  MidnightProviders,
   UnboundTransaction,
   WalletProvider,
 } from "@midnight-ntwrk/midnight-js-types";
-import { AddressType } from "@paimaexample/utils";
 
-const BATCHER_URL = Deno.env.get("BATCHER_URL") ?? "http://localhost:3334";
+// Default batcher URL. In browser environments, this should be overridden via the constructor if different.
+const DEFAULT_BATCHER_URL = "http://localhost:3334";
 
 export class DelegatedBalancingSentError extends Error {
   constructor() {
@@ -25,11 +24,14 @@ export class DelegatedBalancingSentError extends Error {
  */
 export class BatcherClient {
   private lastSerializedTx: string | null = null;
+  private readonly batcherUrl: string;
 
   constructor(
     private readonly contract: any, // The joined Werewolf contract instance
-    private readonly batcherUrl: string = BATCHER_URL,
-  ) {}
+    batcherUrl?: string,
+  ) {
+    this.batcherUrl = batcherUrl ?? DEFAULT_BATCHER_URL;
+  }
 
   /**
    * Helper to intercept and send to batcher.
@@ -66,7 +68,7 @@ export class BatcherClient {
       data: {
         target: "midnight_balancing",
         address: "moderator_trusted_node",
-        addressType: AddressType.MIDNIGHT,
+        addressType: "midnight", // Simplified for shared use
         input: JSON.stringify({
           tx: serializedTx,
           txStage: "finalized",
@@ -74,7 +76,7 @@ export class BatcherClient {
         }),
         timestamp: Date.now(),
       },
-      confirmationLevel: "wait-receipt", //"wait-effectstream-processed",
+      confirmationLevel: "wait-receipt",
     };
 
     const response = await fetch(`${this.batcherUrl}/send-input`, {
@@ -100,15 +102,16 @@ export class BatcherClient {
    * Creates an intercepting provider that captures the transaction and throws DelegatedBalancingSentError.
    */
   public createInterceptingProvider(
-    walletResult: any,
+    coinPublicKey: any,
+    encryptionPublicKey: any,
   ): WalletProvider & MidnightProvider {
     const self = this;
     return {
       getCoinPublicKey() {
-        return walletResult.zswapSecretKeys.coinPublicKey;
+        return coinPublicKey;
       },
       getEncryptionPublicKey() {
-        return walletResult.zswapSecretKeys.encryptionPublicKey;
+        return encryptionPublicKey;
       },
       balanceTx(
         tx: UnboundTransaction,
@@ -117,7 +120,7 @@ export class BatcherClient {
         const bound = tx.bind();
         self.lastSerializedTx = toHex(bound.serialize());
 
-        // Validate round-trip, if not correct, this will throw an error
+        // Validate round-trip
         LedgerTransaction.deserialize(
           "signature" as const,
           "proof" as const,
@@ -130,42 +133,46 @@ export class BatcherClient {
       submitTx(_tx: FinalizedTransaction): Promise<any> {
         throw new DelegatedBalancingSentError();
       },
-    };
+    } as any;
   }
 
   // --- Administrative Actions ---
 
-  async createGame(
-    gameId: number,
+  async createAndSetupGame(
+    gameId: number | bigint,
+    adminKey: any,
     adminVotePublicKey: Uint8Array,
     masterSecretCommitment: Uint8Array,
-    actualCount: number,
-    werewolfCount: number,
+    actualCount: number | bigint,
+    werewolfCount: number | bigint,
+    initialRoot: any,
   ): Promise<void> {
     await this.callDelegated(
-      "createAndSetupGame",
+      "createGame",
       () =>
-        this.contract.callTx.createAndSetupGame(
+        this.contract.callTx.createGame(
           gameId,
+          adminKey,
           adminVotePublicKey,
           masterSecretCommitment,
           actualCount,
           werewolfCount,
+          initialRoot,
         ),
     );
   }
 
-  async resolveNightPhase(
-    gameId: number,
-    newRound: number,
-    deadPlayerIdx: number,
+  async resolveNight(
+    gameId: number | bigint,
+    newRound: number | bigint,
+    deadPlayerIdx: number | bigint,
     hasDeath: boolean,
-    newMerkleRoot: any, // MerkleTreeDigest
+    newMerkleRoot: any,
   ): Promise<void> {
     await this.callDelegated(
-      "resolveNight",
+      "resolveNightPhase",
       () =>
-        this.contract.callTx.resolveNight(
+        this.contract.callTx.resolveNightPhase(
           gameId,
           newRound,
           deadPlayerIdx,
@@ -175,15 +182,15 @@ export class BatcherClient {
     );
   }
 
-  async resolveDayPhase(
-    gameId: number,
-    eliminatedIdx: number,
+  async resolveDay(
+    gameId: number | bigint,
+    eliminatedIdx: number | bigint,
     hasElimination: boolean,
   ): Promise<void> {
     await this.callDelegated(
-      "resolveDay",
+      "resolveDayPhase",
       () =>
-        this.contract.callTx.resolveDay(
+        this.contract.callTx.resolveDayPhase(
           gameId,
           eliminatedIdx,
           hasElimination,
@@ -192,22 +199,12 @@ export class BatcherClient {
   }
 
   async forceEndGame(
-    gameId: number,
+    gameId: number | bigint,
     masterSecret: Uint8Array,
   ): Promise<void> {
     await this.callDelegated(
-      "endGame",
-      () => this.contract.callTx.endGame(gameId, masterSecret),
-    );
-  }
-
-  async adminPunishPlayer(
-    gameId: number,
-    playerIdx: number,
-  ): Promise<void> {
-    await this.callDelegated(
-      "punishPlayer",
-      () => this.contract.callTx.punishPlayer(gameId, playerIdx),
+      "forceEndGame",
+      () => this.contract.callTx.forceEndGame(gameId, masterSecret),
     );
   }
 }
