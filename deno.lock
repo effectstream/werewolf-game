@@ -64,7 +64,7 @@
     "npm:@metamask/json-rpc-engine@^10.0.3": "10.2.2",
     "npm:@midnight-ntwrk/compact-js@2.4.0": "2.4.0_effect@3.19.16",
     "npm:@midnight-ntwrk/compact-runtime@0.14.0": "0.14.0",
-    "npm:@midnight-ntwrk/dapp-connector-api@4.0.0-beta.2": "4.0.0-beta.2",
+    "npm:@midnight-ntwrk/dapp-connector-api@4.0.0": "4.0.0",
     "npm:@midnight-ntwrk/ledger-v7@7.0.0": "7.0.0",
     "npm:@midnight-ntwrk/midnight-js-contracts@3.0.0": "3.0.0",
     "npm:@midnight-ntwrk/midnight-js-fetch-zk-config-provider@3.0.0": "3.0.0",
@@ -76,6 +76,7 @@
     "npm:@midnight-ntwrk/midnight-js-types@3.0.0": "3.0.0",
     "npm:@midnight-ntwrk/midnight-js-utils@3.0.0": "3.0.0",
     "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.0": "2.0.0",
+    "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.1": "2.0.1",
     "npm:@midnight-ntwrk/wallet-api@5": "5.0.0_rxjs@7.8.2",
     "npm:@midnight-ntwrk/wallet-api@5.0.0": "5.0.0_rxjs@7.8.2",
     "npm:@midnight-ntwrk/wallet-sdk-abstractions@1.0.0": "1.0.0",
@@ -289,7 +290,7 @@
         "jsr:@paimaexample/config@0.7",
         "jsr:@paimaexample/utils",
         "npm:@dcspark/cip34-js",
-        "npm:@midnight-ntwrk/onchain-runtime-v2",
+        "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.0",
         "npm:@sinclair/typebox",
         "npm:@utxorpc/spec",
         "npm:abitype",
@@ -473,7 +474,7 @@
         "npm:@cardano-sdk/core",
         "npm:@cardano-sdk/util",
         "npm:@midnight-ntwrk/midnight-js-indexer-public-data-provider",
-        "npm:@midnight-ntwrk/onchain-runtime-v2",
+        "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.0",
         "npm:@sinclair/typebox",
         "npm:@utxorpc/sdk",
         "npm:@utxorpc/spec",
@@ -2040,16 +2041,13 @@
     "@midnight-ntwrk/compact-runtime@0.14.0": {
       "integrity": "sha512-VfZmfPDedRUPAYIhKAgS5y+KtxOkSSOCS24PAsGMjhMpzJaaWVSd5SajF6HtNZsciL54sqru4EpWvmCAqsbmYQ==",
       "dependencies": [
-        "@midnight-ntwrk/onchain-runtime-v2",
+        "@midnight-ntwrk/onchain-runtime-v2@2.0.0",
         "@types/object-inspect",
         "object-inspect"
       ]
     },
     "@midnight-ntwrk/dapp-connector-api@4.0.0": {
       "integrity": "sha512-XiAesY32uPPDYOk6MXquO1lDsUhe7J/CMbMOIfEgjwDgXfkLvvKFMfNz672O1aSJYkqm1I65o2XjPXNnwloQtA=="
-    },
-    "@midnight-ntwrk/dapp-connector-api@4.0.0-beta.2": {
-      "integrity": "sha512-GLEt1tOZzJR2egK3CCdr+8MQdrg+oMP7EsurAxIL+L3ZahjB3+PObzKFAuXNsk5uO+kfhguWbZl93GVo+oM1tA=="
     },
     "@midnight-ntwrk/ledger-v7@7.0.0": {
       "integrity": "sha512-9rch1jU0T9pwt64nR79PhrnrT/mwrS1EKGh4J3q0UT0sBqmylw0c2eREdd26Mq9Kf4FOfAdKxJUaV+IlNh5yUA=="
@@ -2155,6 +2153,9 @@
     },
     "@midnight-ntwrk/onchain-runtime-v2@2.0.0": {
       "integrity": "sha512-9LfU3xJDI4aWcElE4ZxsGLKKAjj/7+O6nepvqMngojc+YLmlpR29ju4C+/isDbBk/4m/9m9fq89d8qIvX8Y4/Q=="
+    },
+    "@midnight-ntwrk/onchain-runtime-v2@2.0.1": {
+      "integrity": "sha512-nVtDyPaWD14thZuSz/MVUNNkv4HO2nYf3E3QbaRCE4UR+jKnUrd0s/BN0fLpnrYFlcMNHS7/sZqAeosV80tsOQ=="
     },
     "@midnight-ntwrk/platform-js@2.2.0_effect@3.19.16": {
       "integrity": "sha512-HWwS7bWnkRvufHowxutk4QA+nlLK0UVjxFCIfCkxVKLEO5UzgrfIUx2mY+P6BFnzGJZ0R6tZDTyJ2jh1Go258w==",
@@ -3465,7 +3466,7 @@
         "@coderspirit/nominal",
         "@foxglove/crc@1.0.1",
         "@metamask/providers",
-        "@midnight-ntwrk/dapp-connector-api@4.0.0",
+        "@midnight-ntwrk/dapp-connector-api",
         "@perawallet/connect",
         "@polkadot/extension-dapp",
         "@polkadot/extension-inject@0.58.10_@polkadot+api@15.10.2__@polkadot+util@13.5.9__@polkadot+util-crypto@13.5.9___@polkadot+util@13.5.9___@polkadot+x-randomvalues@13.5.9____@polkadot+util@13.5.9____@polkadot+wasm-util@7.5.4_____@polkadot+util@13.5.9___@polkadot+wasm-util@7.5.4____@polkadot+util@13.5.9_@polkadot+util@13.5.9",
@@ -14131,7 +14132,7 @@
           "npm:@deno/vite-plugin@^1.0.4",
           "npm:@midnight-ntwrk/compact-js@2.4.0",
           "npm:@midnight-ntwrk/compact-runtime@0.14.0",
-          "npm:@midnight-ntwrk/dapp-connector-api@4.0.0-beta.2",
+          "npm:@midnight-ntwrk/dapp-connector-api@4.0.0",
           "npm:@midnight-ntwrk/ledger-v7@7.0.0",
           "npm:@midnight-ntwrk/midnight-js-contracts@3.0.0",
           "npm:@midnight-ntwrk/midnight-js-fetch-zk-config-provider@3.0.0",
@@ -14142,7 +14143,7 @@
           "npm:@midnight-ntwrk/midnight-js-node-zk-config-provider@3.0.0",
           "npm:@midnight-ntwrk/midnight-js-types@3.0.0",
           "npm:@midnight-ntwrk/midnight-js-utils@3.0.0",
-          "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.0",
+          "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.1",
           "npm:@midnight-ntwrk/wallet-api@5",
           "npm:@midnight-ntwrk/wallet-sdk-abstractions@1.0.0",
           "npm:@midnight-ntwrk/wallet-sdk-address-format@3.0.0",

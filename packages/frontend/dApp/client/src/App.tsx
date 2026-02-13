@@ -1061,7 +1061,6 @@ function App() {
       setLoading(false);
     }
   };
-  const batcherClient = new BatcherClient(midnightWallet.contract.werewolf);
   const handleCreateGame = async () => {
     setError("");
     setStatus("");
@@ -1143,6 +1142,7 @@ function App() {
       setStatus("Creating game (via batcher)…");
       
       const originalProviders = midnightWallet.contract.werewolf.providers;
+      const batcherClient = new BatcherClient(midnightWallet.contract.werewolf);
       midnightWallet.contract.werewolf.providers = batcherClient.createInterceptingProvider(
         midnightWallet.providers.walletProvider.getCoinPublicKey(),
         midnightWallet.providers.walletProvider.getEncryptionPublicKey()
@@ -1151,12 +1151,10 @@ function App() {
       try {
         await batcherClient.createAndSetupGame(
           gameId,
-          { bytes: adminKeyBytes },
           adminVotePublicKeyBytes,
           masterSecretCommitment,
           BigInt(playerCount),
           BigInt(werewolfCount),
-          initialRoot,
         );
       } finally {
         midnightWallet.contract.werewolf.providers = originalProviders;
@@ -1376,6 +1374,7 @@ function App() {
       const targetIdx = result.targetIdx;
 
       const originalProviders = midnightWallet.contract.werewolf.providers;
+      const batcherClient = new BatcherClient(midnightWallet.contract.werewolf);
       midnightWallet.contract.werewolf.providers = batcherClient.createInterceptingProvider(
         midnightWallet.providers.walletProvider.getCoinPublicKey(),
         midnightWallet.providers.walletProvider.getEncryptionPublicKey()
@@ -1656,6 +1655,7 @@ function App() {
         aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
       const originalProviders = midnightWallet.contract.werewolf.providers;
+      const batcherClient = new BatcherClient(midnightWallet.contract.werewolf);
       midnightWallet.contract.werewolf.providers = batcherClient.createInterceptingProvider(
         midnightWallet.providers.walletProvider.getCoinPublicKey(),
         midnightWallet.providers.walletProvider.getEncryptionPublicKey()

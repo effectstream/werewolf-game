@@ -140,24 +140,20 @@ export class BatcherClient {
 
   async createAndSetupGame(
     gameId: number | bigint,
-    adminKey: any,
     adminVotePublicKey: Uint8Array,
     masterSecretCommitment: Uint8Array,
     actualCount: number | bigint,
     werewolfCount: number | bigint,
-    initialRoot: any,
   ): Promise<void> {
     await this.callDelegated(
       "createGame",
       () =>
         this.contract.callTx.createGame(
           gameId,
-          adminKey,
           adminVotePublicKey,
           masterSecretCommitment,
           actualCount,
           werewolfCount,
-          initialRoot,
         ),
     );
   }
