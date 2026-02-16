@@ -4,7 +4,7 @@ import {
 } from "../../../../../shared/contracts/midnight/contract-werewolf/src/_index.ts";
 
 // import { balanceOf as balanceOfQuery } from "./balanceOf.ts";
-import * as ledger from "@midnight-ntwrk/ledger-v6";
+import * as ledger from "@midnight-ntwrk/ledger-v7";
 
 import { type ContractAddress } from "@midnight-ntwrk/compact-runtime";
 
@@ -19,7 +19,7 @@ import type {
   // FinalizedTransaction,
   ShieldedCoinInfo,
   // UnprovenTransaction,
-} from "@midnight-ntwrk/ledger-v6";
+} from "@midnight-ntwrk/ledger-v7";
 import {
   type DeployedContract,
   findDeployedContract,
@@ -28,6 +28,7 @@ import {
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-config-provider";
+import { CompiledContract } from "@midnight-ntwrk/compact-js";
 
 import {
   type BalancedProvingRecipe,
@@ -139,6 +140,8 @@ type DeployedWerewolfContract =
 //   }
 // }
 
+import { DELEGATED_SENTINEL } from "../../../../../shared/utils/batcher-client.ts";
+
 const werewolfContractInstance = new Werewolf.Contract(werewolfWitnesses);
 
 const getWerewolfLedgerState = async (
@@ -167,10 +170,18 @@ const joinContract = async (
   providers: WerewolfProviders,
   contractAddress: string,
 ): Promise<DeployedWerewolfContract> => {
+  const compiledContract = CompiledContract.withCompiledFileAssets(
+    CompiledContract.withWitnesses(
+      CompiledContract.make("werewolf", Werewolf.Contract),
+      werewolfWitnesses,
+    ),
+    "../../../../shared/contracts/midnight/contract-werewolf/src/managed",
+  );
+
   const werewolfContract = await findDeployedContract(providers, {
     contractAddress,
-    contract: werewolfContractInstance,
     privateStateId: "werewolfPrivateState",
+    compiledContract,
     initialPrivateState: {},
   });
   console.log(
@@ -221,14 +232,13 @@ export const WEREWOLF_METHODS = [
   {
     name: "createGame",
     caller: "trustedNode",
+    // Note: adminKey and initialRoot are provided by witnesses, not as explicit args.
     args: [
       { name: "gameId", type: "uint32" },
-      { name: "adminKey", type: "coinPublicKey" },
       { name: "adminVotePublicKey", type: "bytes33" },
       { name: "masterSecretCommitment", type: "bytes32" },
       { name: "actualCount", type: "uint32" },
       { name: "werewolfCount", type: "uint32" },
-      { name: "initialRoot", type: "merkleDigest" },
     ],
   },
   {
@@ -320,7 +330,11 @@ export const WEREWOLF_METHODS = [
       { name: "playerIdx", type: "uint32" },
     ],
   },
-  { name: "getAdminKey", caller: "any", args: [] },
+  {
+    name: "getAdminKey",
+    caller: "any",
+    args: [{ name: "gameId", type: "uint32" }],
+  },
   {
     name: "testComputeCommitment",
     caller: "any",
@@ -425,7 +439,7 @@ const createWalletAndMidnightProvider = (
   coinPublicKey: CoinPublicKey,
   encryptionPublicKey: EncPublicKey,
 ): WalletProvider & MidnightProvider => {
-  return {
+  const provider: any = {
     getCoinPublicKey(): CoinPublicKey {
       return coinPublicKey;
     },
@@ -453,12 +467,16 @@ const createWalletAndMidnightProvider = (
       newCoins?: ShieldedCoinInfo[],
       ttl?: Date,
     ): Promise<BalancedProvingRecipe> {
+      if (typeof provider.__delegatedBalanceHook === "function") {
+        await provider.__delegatedBalanceHook(tx, newCoins, ttl);
+        throw new Error(DELEGATED_SENTINEL);
+      }
       try {
+        const serializedTx = toHex(tx.serialize());
         console.log(
           { tx, newCoins, ttl },
           "Balancing transaction via wallet",
         );
-        const serializedTx = toHex(tx.serialize());
         const received = await connectedAPI.balanceUnsealedTransaction(
           serializedTx,
         );
@@ -511,6 +529,7 @@ const createWalletAndMidnightProvider = (
     //   >;
     // },
   };
+  return provider;
 };
 
 const initializeProviders = async (
@@ -529,16 +548,20 @@ const initializeProviders = async (
   );
 
   const zkConfigPath = window.location.origin;
+  const zkConfigProvider = new FetchZkConfigProvider(
+    zkConfigPath,
+    fetch.bind(window),
+  );
 
   return {
     privateStateProvider: levelPrivateStateProvider({
       privateStoragePasswordProvider: async () => "PAIMA_STORAGE_PASSWORD",
     } as any),
-    zkConfigProvider: new FetchZkConfigProvider(
-      zkConfigPath,
-      fetch.bind(window),
+    zkConfigProvider,
+    proofProvider: httpClientProofProvider(
+      BASE_URL_PROOF_SERVER,
+      zkConfigProvider,
     ),
-    proofProvider: httpClientProofProvider(BASE_URL_PROOF_SERVER),
     publicDataProvider: indexerPublicDataProvider(
       BASE_URL_MIDNIGHT_INDEXER_API,
       BASE_URL_MIDNIGHT_INDEXER_WS,

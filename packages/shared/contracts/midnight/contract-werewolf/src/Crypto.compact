@@ -1,7 +1,10 @@
 module Crypto {
+    struct CurvePoint {
+        x: Field;
+        y: Field;
+    }
     import CompactStandardLibrary;
     import CompactStandardLibrary prefix std_;
-
     // Wrapper for persistent hashing
     export circuit hash(data: Bytes<32>): Bytes<32> {
         return std_persistentHash<Bytes<32>>(data);

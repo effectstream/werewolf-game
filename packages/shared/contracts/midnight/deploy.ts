@@ -1,27 +1,17 @@
-// import { type DeployConfig, deployMidnightContract } from "./deploy-ledger6.ts";
 import {
   type DeployConfig,
   deployMidnightContract,
-} from "@paimaexample/midnight-contracts/deploy-ledger6";
-
+} from "@paimaexample/midnight-contracts/deploy";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
 import {
   Contract,
   type PrivateState,
   witnesses,
-} from "./contract-werewolf/src/index.original.ts";
-
-// import {
-//   Contract,
-//   type ContractPrivateState as PrivateState,
-//   witnesses,
-// } from "./contract-round-value/src/index.original.ts";
+} from "./contract-werewolf/src/_index.ts";
 
 const config: DeployConfig = {
   contractName: "contract-werewolf",
-  contractFileName: "contract-werewolf.undeployed.json",
-  // contractName: "contract-round-value",
-  // contractFileName: "contract-round-value.json",
+  contractFileName: "contract-werewolf.json",
   contractClass: Contract.Contract,
   witnesses,
   privateStateId: "privateState",
@@ -29,12 +19,14 @@ const config: DeployConfig = {
   privateStateStoreName: "private-state",
 };
 
+console.log("Deploying contract with network config:", midnightNetworkConfig);
+
 deployMidnightContract(config, midnightNetworkConfig)
-  .then(() => {
-    console.log("Deployment successful");
+  .then((address) => {
+    console.log(`Deployment successful! Contract address: ${address}`);
     Deno.exit(0);
   })
   .catch((e: unknown) => {
-    console.error("Unhandled error:", e);
+    console.error("Deployment failed:", e);
     Deno.exit(1);
   });

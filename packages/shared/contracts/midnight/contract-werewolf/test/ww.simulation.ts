@@ -549,7 +549,7 @@ class Simulation {
     // --- SETUP ---
     // 1. Get Simulator's default Identity Key (to be used as Admin Auth Key)
     const simulatorIdentity = await this.runCircuit(() =>
-      circuits.getAdminKey(this.context)
+      circuits.getAdminKey(this.context, this.gameId)
     );
     // 2. Set it in Admin
     this.admin.setAuthKey(simulatorIdentity.bytes);

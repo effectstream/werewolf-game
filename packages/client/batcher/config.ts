@@ -6,6 +6,8 @@ import {
 import { readMidnightContract } from "@paimaexample/midnight-contracts/read-contract";
 import { Contract, witnesses } from "@example-midnight/my-midnight-contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+import { WerewolfBalancingAdapter } from "./adapters/werewolf-balancing-adapter.ts";
+import * as path from "@std/path";
 
 const isEnvTrue = (key: string) =>
   ["true", "1", "yes", "y"].includes((Deno.env.get(key) || "").toLowerCase());
@@ -14,13 +16,40 @@ const midnight_enabled = !isEnvTrue("DISABLE_MIDNIGHT");
 const batchIntervalMs = 1000;
 const port = Number(Deno.env.get("BATCHER_PORT") ?? "3334");
 
-// Midnight adapter configuration
-const midnightContractData = midnight_enabled
-  ? readMidnightContract(
+// Try to load contract data (needed for the standard midnight adapter).
+// May fail if the contract hasn't been deployed yet (no address JSON file).
+let midnightContractData: ReturnType<typeof readMidnightContract> | null = null;
+if (midnight_enabled) {
+  try {
+    midnightContractData = readMidnightContract(
+      "contract-werewolf",
+      { networkId: midnightNetworkConfig.id },
+    );
+  } catch (e) {
+    console.warn(
+      `⚠️  Could not load contract address file: ${(e as Error).message}`,
+    );
+    console.warn(
+      "   The standard midnight adapter will be disabled. " +
+        "The midnight_balancing adapter (for delegated tx) will still work.",
+    );
+  }
+}
+
+// Resolve zkConfigPath for the balancing adapter independently of the address file.
+// The balancing adapter only needs the ZK keys/ZKIR, not the contract address.
+const zkConfigPath = midnightContractData?.zkConfigPath ??
+  path.resolve(
+    import.meta.dirname!,
+    "..",
+    "..",
+    "shared",
+    "contracts",
+    "midnight",
     "contract-werewolf",
-    { networkId: midnightNetworkConfig.id },
-  )
-  : null;
+    "src",
+    "managed",
+  );
 
 const midnightAdapter = midnightContractData
   ? new MidnightAdapter(
@@ -45,20 +74,45 @@ const midnightAdapter = midnightContractData
   )
   : undefined;
 
+// The balancing adapter handles delegated transactions from BatcherClient.
+const midnightBalancingAdapter = midnight_enabled
+  ? new WerewolfBalancingAdapter(
+    midnightNetworkConfig.walletSeed!,
+    {
+      indexer: midnightNetworkConfig.indexer,
+      indexerWS: midnightNetworkConfig.indexerWS,
+      node: midnightNetworkConfig.node,
+      proofServer: midnightNetworkConfig.proofServer,
+      zkConfigPath,
+      walletNetworkId: midnightNetworkConfig.id,
+    },
+  )
+  : undefined;
+
 export const config: BatcherConfig = {
   pollingIntervalMs: batchIntervalMs,
   adapters: {
     // paimaL2,
     ...(midnightAdapter ? { midnight: midnightAdapter } : {}),
+    ...(midnightBalancingAdapter
+      ? { midnight_balancing: midnightBalancingAdapter }
+      : {}),
   },
-  defaultTarget: "midnight",
+  defaultTarget: midnightAdapter ? "midnight" : "midnight_balancing",
   namespace: "",
   batchingCriteria: {
     ...(midnightAdapter
       ? { midnight: { criteriaType: "time", timeWindowMs: batchIntervalMs } }
       : {}),
+    ...(midnightBalancingAdapter
+      ? {
+        midnight_balancing: {
+          criteriaType: "time",
+          timeWindowMs: batchIntervalMs,
+        },
+      }
+      : {}),
   },
-  // TODO: rename to wait-effectstream-processed
   confirmationLevel: "wait-effectstream-processed", // Connector expectation
   enableHttpServer: true,
   enableEventSystem: true,
