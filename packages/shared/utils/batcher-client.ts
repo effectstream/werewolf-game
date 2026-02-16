@@ -1,8 +1,12 @@
+import { fromHex, toHex } from "@midnight-ntwrk/compact-runtime";
+import type { WalletProvider } from "@midnight-ntwrk/midnight-js-types";
+
 // Default batcher URL. In browser environments, this should be overridden via the constructor if different.
 const DEFAULT_BATCHER_URL = "http://localhost:3334";
 
 /** Sentinel message thrown by balanceTx when the delegation hook intercepts the transaction. */
-const DELEGATED_SENTINEL = "Delegated balancing flow handed off to batcher";
+export const DELEGATED_SENTINEL = "Delegated balancing flow handed off to batcher";
+
 type DelegatedTxStage = "unproven" | "unbound" | "finalized";
 
 /**
@@ -14,17 +18,13 @@ type DelegatedTxStage = "unproven" | "unbound" | "finalized";
  * leverages the __delegatedBalanceHook mechanism already built into the
  * createWalletAndMidnightProvider provider from contract.ts.
  *
- * The Lace wallet is used to build the circuit arguments and run the
- * circuit locally (proving the transaction). The balanceTx interception
- * captures the unproven serialized transaction and sends it to the
- * batcher for balancing and submission.
- *
- * Lace's bug with sending contract transactions is bypassed because
- * the hook intercepts BEFORE Lace's balanceUnsealedTransaction is called.
+ * The Midnight Compact Runtime evaluates the circuit and builds the unproven
+ * transaction locally. The balanceTx interception captures this serialized
+ * transaction and sends it to the batcher, completely bypassing the Lace
+ * wallet for administrative actions.
  */
 export class BatcherClient {
   private readonly batcherUrl: string;
-  private capturedSerializedTx: string | null = null;
 
   /**
    * @param contract - The Lace-joined Werewolf contract instance (with callTx methods)
@@ -35,33 +35,10 @@ export class BatcherClient {
    */
   constructor(
     private readonly contract: any,
-    private readonly provider: any,
+    private readonly provider: WalletProvider & { __delegatedBalanceHook?: Function },
     batcherUrl?: string,
   ) {
     this.batcherUrl = batcherUrl ?? DEFAULT_BATCHER_URL;
-  }
-
-  /**
-   * Sets the delegation hook on the provider. When balanceTx is called,
-   * the hook captures the serialized transaction and throws so Lace
-   * is never invoked.
-   */
-  private setDelegationHook(): void {
-    this.capturedSerializedTx = null;
-    this.provider.__delegatedBalanceHook = (serializedTx: string) => {
-      console.log(
-        "🔍 [BatcherClient] Captured serialized transaction via delegation hook",
-      );
-      this.capturedSerializedTx = serializedTx;
-    };
-  }
-
-  /**
-   * Clears the delegation hook so that subsequent non-batcher operations
-   * (player actions, etc.) go through the normal Lace flow.
-   */
-  private clearDelegationHook(): void {
-    delete this.provider.__delegatedBalanceHook;
   }
 
   /**
@@ -79,33 +56,16 @@ export class BatcherClient {
   }
 
   /**
-   * If a serialized tx was captured by the hook, send it to the batcher.
-   * Returns true if it was sent, false otherwise.
-   */
-  private async trySendCaptured(circuitName: string): Promise<boolean> {
-    const captured = this.capturedSerializedTx;
-    if (!captured) return false;
-    const txStage = this.detectTxStage(captured);
-    console.log(`🚀 [BatcherClient] Sending ${circuitName} to Batcher...`);
-    console.log(`🧾 [BatcherClient] Detected tx stage: ${txStage}`);
-    await this.postToBatcher(captured, circuitName, txStage);
-    return true;
-  }
-
-  /**
    * Detect serialized ledger stage to avoid txStage mismatch errors in the batcher.
    */
   private detectTxStage(serializedTx: string): DelegatedTxStage {
     // Transaction headers are ASCII:
     // midnight:transaction[v9](signature[v1],<proof-marker>,<binding-marker>):
     // We parse only the prefix to map to the batcher's expected txStage.
-    const prefixBytes = new Uint8Array(
-      serializedTx
-        .slice(0, 600)
-        .match(/.{1,2}/g)
-        ?.map((pair) => parseInt(pair, 16)) ?? [],
-    );
+    const prefixHex = serializedTx.slice(0, 600).padEnd(600, "0");
+    const prefixBytes = fromHex(prefixHex);
     const header = new TextDecoder().decode(prefixBytes);
+
     const markerMatch = header.match(
       /midnight:transaction\[v\d+\]\(signature\[v\d+\],([^,]+),([^)]+)\):/,
     );
@@ -141,34 +101,35 @@ export class BatcherClient {
       `🔍 [BatcherClient] Preparing delegated call for ${circuitName}...`,
     );
 
-    this.setDelegationHook();
+    // Define the async hook directly
+    this.provider.__delegatedBalanceHook = async (tx: any) => {
+      let serializedTx = toHex(tx.serialize());
+
+      // Attempt to bind the transaction if the method exists
+      if (typeof tx.bind === "function") {
+        try {
+          serializedTx = toHex(tx.bind().serialize());
+        } catch (e) {
+          console.warn(`[BatcherClient] Failed to bind ${circuitName} tx`, e);
+        }
+      }
+
+      const txStage = this.detectTxStage(serializedTx);
+
+      // Post to batcher immediately
+      await this.postToBatcher(serializedTx, circuitName, txStage);
+
+      // Throw sentinel to safely abort the rest of the Midnight SDK pipeline
+      throw new Error(DELEGATED_SENTINEL);
+    };
 
     try {
       await callFn();
-      // The SDK may swallow the balanceTx error. If the hook captured the tx,
-      // send it even though callFn resolved without throwing.
-      if (await this.trySendCaptured(circuitName)) {
-        return;
-      }
-      // Hook was never triggered — something is wrong.
-      throw new Error(
-        `Circuit ${circuitName} completed but delegation hook was never triggered`,
-      );
     } catch (error) {
-      // If the hook captured the tx (regardless of error type), send it.
-      if (await this.trySendCaptured(circuitName)) {
-        return;
-      }
+      // If we see our sentinel, the hook succeeded. Ignore it.
+      if (this.isDelegationError(error)) return;
 
-      // The hook didn't capture anything. Only tolerate our sentinel error
-      // (which means the hook ran but somehow the tx wasn't stored — shouldn't happen).
-      if (this.isDelegationError(error)) {
-        throw new Error(
-          `[BatcherClient] Delegation hook fired for ${circuitName} but no transaction was captured`,
-        );
-      }
-
-      // Genuine unexpected error — re-throw as-is.
+      // If we see a genuine error (e.g., batcher network failure, circuit eval failed), re-throw it.
       console.error(
         `❌ [BatcherClient] ${circuitName} unexpected error:`,
         error,
@@ -176,7 +137,7 @@ export class BatcherClient {
       throw error;
     } finally {
       // Always clear the hook so normal Lace operations still work
-      this.clearDelegationHook();
+      delete this.provider.__delegatedBalanceHook;
     }
   }
 
@@ -240,11 +201,11 @@ export class BatcherClient {
   // The default witnesses from witnesses.ts handle reading from it.
 
   async createGame(
-    gameId: number | bigint,
+    gameId: bigint,
     adminVotePublicKey: Uint8Array,
     masterSecretCommitment: Uint8Array,
-    actualCount: number | bigint,
-    werewolfCount: number | bigint,
+    actualCount: bigint,
+    werewolfCount: bigint,
   ): Promise<void> {
     await this.callDelegated(
       "createGame",
@@ -260,11 +221,11 @@ export class BatcherClient {
   }
 
   async resolveNight(
-    gameId: number | bigint,
-    newRound: number | bigint,
-    deadPlayerIdx: number | bigint,
+    gameId: bigint,
+    newRound: bigint,
+    deadPlayerIdx: bigint,
     hasDeath: boolean,
-    newMerkleRoot: any,
+    newMerkleRoot: { field: bigint },
   ): Promise<void> {
     await this.callDelegated(
       "resolveNightPhase",
@@ -280,8 +241,8 @@ export class BatcherClient {
   }
 
   async resolveDay(
-    gameId: number | bigint,
-    eliminatedIdx: number | bigint,
+    gameId: bigint,
+    eliminatedIdx: bigint,
     hasElimination: boolean,
   ): Promise<void> {
     await this.callDelegated(
@@ -296,7 +257,7 @@ export class BatcherClient {
   }
 
   async forceEndGame(
-    gameId: number | bigint,
+    gameId: bigint,
     masterSecret: Uint8Array,
   ): Promise<void> {
     await this.callDelegated(

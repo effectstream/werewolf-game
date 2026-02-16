@@ -140,6 +140,8 @@ type DeployedWerewolfContract =
 //   }
 // }
 
+import { DELEGATED_SENTINEL } from "../../../../../shared/utils/batcher-client.ts";
+
 const werewolfContractInstance = new Werewolf.Contract(werewolfWitnesses);
 
 const getWerewolfLedgerState = async (
@@ -465,34 +467,12 @@ const createWalletAndMidnightProvider = (
       newCoins?: ShieldedCoinInfo[],
       ttl?: Date,
     ): Promise<BalancedProvingRecipe> {
+      if (typeof provider.__delegatedBalanceHook === "function") {
+        await provider.__delegatedBalanceHook(tx, newCoins, ttl);
+        throw new Error(DELEGATED_SENTINEL);
+      }
       try {
         const serializedTx = toHex(tx.serialize());
-        const delegatedBalanceHook = provider.__delegatedBalanceHook;
-        if (typeof delegatedBalanceHook === "function") {
-          let delegatedSerializedTx = serializedTx;
-          try {
-            const maybeBind = (tx as unknown as { bind?: () => ledger.FinalizedTransaction })
-              .bind;
-            if (typeof maybeBind === "function") {
-              const boundTx = maybeBind.call(tx);
-              delegatedSerializedTx = toHex(boundTx.serialize());
-              console.log(
-                "Delegating finalized transaction to batcher hook",
-              );
-            } else {
-              console.log(
-                "Delegating transaction to batcher hook (no bind() available)",
-              );
-            }
-          } catch (bindError) {
-            console.warn(
-              "Failed to bind transaction before delegation, sending raw serialized tx",
-              bindError,
-            );
-          }
-          delegatedBalanceHook(delegatedSerializedTx, newCoins, ttl);
-          throw new Error("Delegated balancing flow handed off to batcher");
-        }
         console.log(
           { tx, newCoins, ttl },
           "Balancing transaction via wallet",
