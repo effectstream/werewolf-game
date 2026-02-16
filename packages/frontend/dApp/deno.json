@@ -25,6 +25,7 @@
     "@midnight-ntwrk/midnight-js-types": "npm:@midnight-ntwrk/midnight-js-types@3.0.0",
     "@midnight-ntwrk/midnight-js-utils": "npm:@midnight-ntwrk/midnight-js-utils@3.0.0",
     "@midnight-ntwrk/onchain-runtime": "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.1",
+    "@midnight-ntwrk/onchain-runtime-v2": "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.1",
     "@midnight-ntwrk/wallet": "npm:@midnight-ntwrk/wallet@^5.0.0",
     "@midnight-ntwrk/wallet-api": "npm:@midnight-ntwrk/wallet-api@^5.0.0",
     "@midnight-ntwrk/wallet-sdk-abstractions": "npm:@midnight-ntwrk/wallet-sdk-abstractions@1.0.0",
@@ -63,6 +64,7 @@
     "vite-plugin-top-level-await": "npm:vite-plugin-top-level-await@^1.6.0",
     "vite-plugin-wasm": "npm:vite-plugin-wasm@^3.5.0",
     "ws": "npm:ws@^8.18.3",
+    "@sinclair/typebox": "npm:@sinclair/typebox@0.34.41",
     "@thirdweb-dev/chains": "npm:@thirdweb-dev/chains@0.1.63",
     "@thirdweb-dev/wallets": "npm:@thirdweb-dev/wallets@2.4.1",
     "ethers": "npm:ethers@5.7.2"

@@ -10,6 +10,17 @@ import {
 import { BatcherClient } from "../../../../shared/utils/batcher-client.ts";
 import nacl from "tweetnacl";
 
+// Suppress Effect version mismatch warnings
+const originalWarn = console.warn;
+console.warn = (...args: any[]) => {
+  const message = args.join(' ');
+  if (message.includes('Executing an Effect versioned')) {
+    return; // Suppress this specific warning
+  }
+  originalWarn.apply(console, args);
+};
+
+
 const MAX_PLAYERS = 16;
 
 // --- 3-byte vote encryption (matches contract/simulation) ---
@@ -130,6 +141,7 @@ type WitnessPrivateState = {
   nextAction?: WitnessActionData;
   encryptionKeypair?: { secretKey: Uint8Array; publicKey: Uint8Array };
 };
+
 
 type GameState = {
   gameId: bigint;
@@ -1061,6 +1073,8 @@ function App() {
       setLoading(false);
     }
   };
+
+
   const handleCreateGame = async () => {
     setError("");
     setStatus("");
@@ -1140,25 +1154,18 @@ function App() {
       );
 
       setStatus("Creating game (via batcher)…");
-      
-      const originalProviders = midnightWallet.contract.werewolf.providers;
-      const batcherClient = new BatcherClient(midnightWallet.contract.werewolf);
-      midnightWallet.contract.werewolf.providers = batcherClient.createInterceptingProvider(
-        midnightWallet.providers.walletProvider.getCoinPublicKey(),
-        midnightWallet.providers.walletProvider.getEncryptionPublicKey()
-      );
 
-      try {
-        await batcherClient.createAndSetupGame(
-          gameId,
-          adminVotePublicKeyBytes,
-          masterSecretCommitment,
-          BigInt(playerCount),
-          BigInt(werewolfCount),
-        );
-      } finally {
-        midnightWallet.contract.werewolf.providers = originalProviders;
-      }
+      const batcherClient = new BatcherClient(
+        midnightWallet.contract.werewolf,
+        midnightProviders.walletProvider,
+      );
+      await batcherClient.createGame(
+        gameId,
+        adminVotePublicKeyBytes,
+        masterSecretCommitment,
+        BigInt(playerCount),
+        BigInt(werewolfCount),
+      );
 
       setGame({
         gameId,
@@ -1304,16 +1311,16 @@ function App() {
         const hasDeath = aliveCount(game.players) > 1 &&
           game.players[targetIdx]?.alive;
 
-        await callWerewolfMethod(
+        const batcherClient = new BatcherClient(
           midnightWallet.contract.werewolf,
-          "resolveNightPhase",
-          [
-            game.gameId,
-            BigInt(game.round + 1),
-            BigInt(targetIdx),
-            hasDeath,
-            game.tree.getRoot(),
-          ],
+          midnightProviders.walletProvider,
+        );
+        await batcherClient.resolveNight(
+          game.gameId,
+          BigInt(game.round + 1),
+          BigInt(targetIdx),
+          hasDeath,
+          game.tree.getRoot(),
         );
 
         const nextPlayers = game.players.map((p) =>
@@ -1373,24 +1380,17 @@ function App() {
       const hasDeath = result.hasElimination && aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
 
-      const originalProviders = midnightWallet.contract.werewolf.providers;
-      const batcherClient = new BatcherClient(midnightWallet.contract.werewolf);
-      midnightWallet.contract.werewolf.providers = batcherClient.createInterceptingProvider(
-        midnightWallet.providers.walletProvider.getCoinPublicKey(),
-        midnightWallet.providers.walletProvider.getEncryptionPublicKey()
+      const batcherClient = new BatcherClient(
+        midnightWallet.contract.werewolf,
+        midnightProviders.walletProvider,
       );
-
-      try {
-        await batcherClient.resolveNight(
-          game.gameId,
-          BigInt(game.round + 1),
-          BigInt(targetIdx),
-          hasDeath,
-          game.tree.getRoot(),
-        );
-      } finally {
-        midnightWallet.contract.werewolf.providers = originalProviders;
-      }
+      await batcherClient.resolveNight(
+        game.gameId,
+        BigInt(game.round + 1),
+        BigInt(targetIdx),
+        hasDeath,
+        game.tree.getRoot(),
+      );
 
       const nextPlayers = game.players.map((p) =>
         hasDeath && p.id === targetIdx ? { ...p, alive: false } : p
@@ -1595,10 +1595,14 @@ function App() {
         const hasElimination = aliveCount(game.players) > 1 &&
           game.players[targetIdx]?.alive;
 
-        await callWerewolfMethod(
+        const batcherClient = new BatcherClient(
           midnightWallet.contract.werewolf,
-          "resolveDayPhase",
-          [game.gameId, BigInt(targetIdx), hasElimination],
+          midnightProviders.walletProvider,
+        );
+        await batcherClient.resolveDay(
+          game.gameId,
+          BigInt(targetIdx),
+          hasElimination,
         );
 
         const nextPlayers = game.players.map((p) =>
@@ -1654,18 +1658,15 @@ function App() {
       const hasElimination = result.hasElimination &&
         aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
-      const originalProviders = midnightWallet.contract.werewolf.providers;
-      const batcherClient = new BatcherClient(midnightWallet.contract.werewolf);
-      midnightWallet.contract.werewolf.providers = batcherClient.createInterceptingProvider(
-        midnightWallet.providers.walletProvider.getCoinPublicKey(),
-        midnightWallet.providers.walletProvider.getEncryptionPublicKey()
+      const batcherClient = new BatcherClient(
+        midnightWallet.contract.werewolf,
+        midnightProviders.walletProvider,
       );
-
-      try {
-        await batcherClient.resolveDay(game.gameId, BigInt(targetIdx), hasElimination);
-      } finally {
-        midnightWallet.contract.werewolf.providers = originalProviders;
-      }
+      await batcherClient.resolveDay(
+        game.gameId,
+        BigInt(targetIdx),
+        hasElimination,
+      );
 
       const nextPlayers = game.players.map((p) =>
         hasElimination && p.id === targetIdx ? { ...p, alive: false } : p
@@ -1777,16 +1778,13 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
-      await callWerewolfMethod(
+      const batcherClient = new BatcherClient(
         midnightWallet.contract.werewolf,
-        "forceEndGame",
-        [
-          game.gameId,
-          game.masterSecret,
-        ],
+        midnightProviders.walletProvider,
       );
+      await batcherClient.forceEndGame(game.gameId, game.masterSecret);
       setGame({ ...game, phase: Phase.Finished });
-      setStatus("Force ended the game.");
+      setStatus("Force ended the game (via batcher).");
     } catch (e: any) {
       console.error("Force end game failed:", e);
       setError(e?.message ?? "Force end game failed.");

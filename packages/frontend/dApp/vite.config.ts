@@ -8,11 +8,29 @@ import "react-dom";
 import { viteStaticCopy } from "vite-plugin-static-copy";
 import { normalizePath } from "vite";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const configDir = path.dirname(fileURLToPath(import.meta.url));
+const midnightContractsDir = path.resolve(
+  configDir,
+  "..",
+  "..",
+  "shared",
+  "contracts",
+  "midnight",
+);
 
 export default defineConfig({
   root: "./client",
 
   resolve: {
+    dedupe: [
+      "@midnight-ntwrk/onchain-runtime-v2",
+      "@midnight-ntwrk/onchain-runtime",
+      "@midnight-ntwrk/compact-runtime",
+      "@midnight-ntwrk/midnight-js-contracts",
+      "@midnight-ntwrk/ledger-v7",
+    ],
     alias: {
       // Fix for: Module "npm:@scope/package@version" has been externalized for browser compatibility.
       //          Cannot access "npm:@scope/package@version.__esModule" in client code
@@ -40,6 +58,17 @@ export default defineConfig({
       "npm:@dcspark/cip34-js@3.0.1": "@dcspark/cip34-js",
       "npm:@dcspark/carp-client@^3.3.0": "@dcspark/carp-client",
       "npm:@subsquid/ss58-codec@^1.2.3": "@subsquid/ss58-codec",
+      "npm:@scure/bip39@^2.0.1": "@scure/bip39",
+      // Keep Midnight runtime/types as singletons across npm: and bare imports.
+      "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.1":
+        "@midnight-ntwrk/onchain-runtime-v2",
+      "@midnight-ntwrk/onchain-runtime":
+        "@midnight-ntwrk/onchain-runtime-v2",
+      "npm:@midnight-ntwrk/compact-runtime@0.14.0":
+        "@midnight-ntwrk/compact-runtime",
+      "npm:@midnight-ntwrk/midnight-js-contracts@3.0.0":
+        "@midnight-ntwrk/midnight-js-contracts",
+      "npm:@midnight-ntwrk/ledger-v7@7.0.0": "@midnight-ntwrk/ledger-v7",
     },
   },
 
@@ -70,6 +99,8 @@ export default defineConfig({
         // Since `fs` is not supported in browsers, we can use the `memfs` package to polyfill it.
         fs: "memfs",
         "node:fs": "memfs",
+        "fs/promises": "memfs",
+        "node:fs/promises": "memfs",
       },
     }),
     // topLevelAwait(),
@@ -79,11 +110,7 @@ export default defineConfig({
         {
           src: normalizePath(
             path.resolve(
-              "..",
-              "..",
-              "shared",
-              "contracts",
-              "midnight",
+              midnightContractsDir,
               "contract-werewolf",
               "src",
               "managed",
@@ -97,11 +124,7 @@ export default defineConfig({
         {
           src: normalizePath(
             path.resolve(
-              "..",
-              "..",
-              "shared",
-              "contracts",
-              "midnight",
+              midnightContractsDir,
               "contract-werewolf",
               "src",
               "managed",
@@ -115,11 +138,7 @@ export default defineConfig({
         {
           src: normalizePath(
             path.resolve(
-              "..",
-              "..",
-              "shared",
-              "contracts",
-              "midnight",
+              midnightContractsDir,
               "contract-werewolf.undeployed.json",
             ),
           ),
@@ -129,11 +148,7 @@ export default defineConfig({
         {
           src: normalizePath(
             path.resolve(
-              "..",
-              "..",
-              "shared",
-              "contracts",
-              "midnight",
+              midnightContractsDir,
               "contract-werewolf",
               "src",
               "managed",
@@ -147,11 +162,7 @@ export default defineConfig({
         {
           src: normalizePath(
             path.resolve(
-              "..",
-              "..",
-              "shared",
-              "contracts",
-              "midnight",
+              midnightContractsDir,
               "contract-werewolf",
               "src",
               "managed",
@@ -165,11 +176,7 @@ export default defineConfig({
         {
           src: normalizePath(
             path.resolve(
-              "..",
-              "..",
-              "shared",
-              "contracts",
-              "midnight",
+              midnightContractsDir,
               "contract-werewolf.undeployed.json",
             ),
           ),
@@ -180,11 +187,17 @@ export default defineConfig({
   ],
 
   optimizeDeps: {
-    exclude: ["@midnight-ntwrk/onchain-runtime"],
+    exclude: [
+      "@midnight-ntwrk/onchain-runtime-v2",
+      "@midnight-ntwrk/onchain-runtime",
+      "@midnight-ntwrk/midnight-js-node-zk-config-provider",
+    ],
     include: [
       // "@midnight-ntwrk/midnight-js-network-id",
       "react/jsx-runtime",
-      "npm:@midnight-ntwrk/compact-runtime",
+      "@midnight-ntwrk/compact-runtime",
+      "@midnight-ntwrk/midnight-js-contracts",
+      "@scure/bip39",
     ],
     esbuildOptions: {
       target: "esnext",

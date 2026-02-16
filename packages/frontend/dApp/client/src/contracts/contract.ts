@@ -171,9 +171,9 @@ const joinContract = async (
   const compiledContract = CompiledContract.withCompiledFileAssets(
     CompiledContract.withWitnesses(
       CompiledContract.make("werewolf", Werewolf.Contract),
-      werewolfWitnesses
+      werewolfWitnesses,
     ),
-    "../../../../shared/contracts/midnight/contract-werewolf/src/managed"
+    "../../../../shared/contracts/midnight/contract-werewolf/src/managed",
   );
 
   const werewolfContract = await findDeployedContract(providers, {
@@ -230,14 +230,13 @@ export const WEREWOLF_METHODS = [
   {
     name: "createGame",
     caller: "trustedNode",
+    // Note: adminKey and initialRoot are provided by witnesses, not as explicit args.
     args: [
       { name: "gameId", type: "uint32" },
-      { name: "adminKey", type: "coinPublicKey" },
       { name: "adminVotePublicKey", type: "bytes33" },
       { name: "masterSecretCommitment", type: "bytes32" },
       { name: "actualCount", type: "uint32" },
       { name: "werewolfCount", type: "uint32" },
-      { name: "initialRoot", type: "merkleDigest" },
     ],
   },
   {
@@ -438,7 +437,7 @@ const createWalletAndMidnightProvider = (
   coinPublicKey: CoinPublicKey,
   encryptionPublicKey: EncPublicKey,
 ): WalletProvider & MidnightProvider => {
-  return {
+  const provider: any = {
     getCoinPublicKey(): CoinPublicKey {
       return coinPublicKey;
     },
@@ -467,11 +466,37 @@ const createWalletAndMidnightProvider = (
       ttl?: Date,
     ): Promise<BalancedProvingRecipe> {
       try {
+        const serializedTx = toHex(tx.serialize());
+        const delegatedBalanceHook = provider.__delegatedBalanceHook;
+        if (typeof delegatedBalanceHook === "function") {
+          let delegatedSerializedTx = serializedTx;
+          try {
+            const maybeBind = (tx as unknown as { bind?: () => ledger.FinalizedTransaction })
+              .bind;
+            if (typeof maybeBind === "function") {
+              const boundTx = maybeBind.call(tx);
+              delegatedSerializedTx = toHex(boundTx.serialize());
+              console.log(
+                "Delegating finalized transaction to batcher hook",
+              );
+            } else {
+              console.log(
+                "Delegating transaction to batcher hook (no bind() available)",
+              );
+            }
+          } catch (bindError) {
+            console.warn(
+              "Failed to bind transaction before delegation, sending raw serialized tx",
+              bindError,
+            );
+          }
+          delegatedBalanceHook(delegatedSerializedTx, newCoins, ttl);
+          throw new Error("Delegated balancing flow handed off to batcher");
+        }
         console.log(
           { tx, newCoins, ttl },
           "Balancing transaction via wallet",
         );
-        const serializedTx = toHex(tx.serialize());
         const received = await connectedAPI.balanceUnsealedTransaction(
           serializedTx,
         );
@@ -524,6 +549,7 @@ const createWalletAndMidnightProvider = (
     //   >;
     // },
   };
+  return provider;
 };
 
 const initializeProviders = async (
@@ -542,16 +568,20 @@ const initializeProviders = async (
   );
 
   const zkConfigPath = window.location.origin;
+  const zkConfigProvider = new FetchZkConfigProvider(
+    zkConfigPath,
+    fetch.bind(window),
+  );
 
   return {
     privateStateProvider: levelPrivateStateProvider({
       privateStoragePasswordProvider: async () => "PAIMA_STORAGE_PASSWORD",
     } as any),
-    zkConfigProvider: new FetchZkConfigProvider(
-      zkConfigPath,
-      fetch.bind(window),
+    zkConfigProvider,
+    proofProvider: httpClientProofProvider(
+      BASE_URL_PROOF_SERVER,
+      zkConfigProvider,
     ),
-    proofProvider: httpClientProofProvider(BASE_URL_PROOF_SERVER),
     publicDataProvider: indexerPublicDataProvider(
       BASE_URL_MIDNIGHT_INDEXER_API,
       BASE_URL_MIDNIGHT_INDEXER_WS,
