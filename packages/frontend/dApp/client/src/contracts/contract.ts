@@ -467,20 +467,20 @@ const createWalletAndMidnightProvider = (
       newCoins?: ShieldedCoinInfo[],
       ttl?: Date,
     ): Promise<BalancedProvingRecipe> {
-      if (typeof provider.__delegatedBalanceHook === "function") {
-        // Delegated admin flow must bypass wallet fee balancing.
-        // The batcher is responsible for balancing/finalizing/submitting.
-        await provider.__delegatedBalanceHook(tx, newCoins, ttl);
-        throw new Error(DELEGATED_SENTINEL);
-      }
+      const delegatedBalanceHook = typeof provider.__delegatedBalanceHook ===
+          "function"
+        ? provider.__delegatedBalanceHook
+        : undefined;
       try {
         const serializedTx = toHex(tx.serialize());
         console.log(
           { tx, newCoins, ttl },
           "Balancing transaction via wallet",
         );
+        // Never call wallet balancing without payFees=false.
         const received = await connectedAPI.balanceUnsealedTransaction(
           serializedTx,
+          { payFees: false },
         );
         const transaction: ledger.Transaction<
           ledger.SignatureEnabled,
@@ -501,6 +501,14 @@ const createWalletAndMidnightProvider = (
           transaction: transaction,
         };
       } catch (e) {
+        if (delegatedBalanceHook) {
+          console.warn(
+            { error: e },
+            "Wallet balancing failed, falling back to delegated hook",
+          );
+          await delegatedBalanceHook(tx, newCoins, ttl);
+          throw new Error(DELEGATED_SENTINEL);
+        }
         console.error(
           { error: e },
           "Error balancing transaction via wallet",

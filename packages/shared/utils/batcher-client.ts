@@ -19,11 +19,10 @@ type DelegatedTxStage = "unproven" | "unbound" | "finalized";
  * createWalletAndMidnightProvider provider from contract.ts.
  *
  * The Midnight Compact Runtime evaluates the circuit and builds the unproven
- * transaction locally. In the current delegated branch
- * (`createWalletAndMidnightProvider.balanceTx` when `__delegatedBalanceHook`
- * is present), we intercept this transaction and send it directly to the
- * batcher. That means administrative delegated actions bypass Lace wallet
- * balancing/submission and rely on the batcher to finish the flow.
+ * transaction locally. The provider now attempts wallet balancing first with
+ * `payFees: false`, and only falls back to `__delegatedBalanceHook` if wallet
+ * balancing fails. In delegated fallback mode, we intercept the transaction and
+ * send it to the batcher, which then completes balancing/finalizing/submitting.
  */
 export class BatcherClient {
   private readonly batcherUrl: string;
