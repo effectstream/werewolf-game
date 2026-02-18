@@ -989,6 +989,16 @@ function App() {
     const args = Array.isArray(parsed) ? parsed : [parsed];
     return args.map((value, idx) => normalizeLedgerArg(value, `arg${idx + 1}`));
   };
+  
+  const getBatcherClient = () => {
+    if (!midnightWallet?.contract?.werewolf || !midnightProviders?.walletProvider) {
+      throw new Error("Midnight wallet or providers not ready.");
+    }
+    return new BatcherClient(
+      midnightWallet.contract.werewolf,
+      midnightProviders.walletProvider,
+    );
+  };
 
   const handleLedgerMapCall = (
     method: "isEmpty" | "size" | "member" | "lookup" | "iterator",
@@ -1155,10 +1165,7 @@ function App() {
 
       setStatus("Creating game (via batcher)…");
 
-      const batcherClient = new BatcherClient(
-        midnightWallet.contract.werewolf,
-        midnightProviders.walletProvider,
-      );
+      const batcherClient = getBatcherClient();
       await batcherClient.createGame(
         gameId,
         adminVotePublicKeyBytes,
@@ -1272,11 +1279,8 @@ function App() {
           player.encKeypair,
           game.adminVotePublicKeyBytes,
         );
-        await callWerewolfMethod(
-          midnightWallet.contract.werewolf,
-          "nightAction",
-          [game.gameId],
-        );
+        const batcherClient = getBatcherClient();
+        await batcherClient.nightAction(game.gameId);
         targets.push(decodeVoteTarget(payloadBytes));
       }
 
@@ -1311,10 +1315,7 @@ function App() {
         const hasDeath = aliveCount(game.players) > 1 &&
           game.players[targetIdx]?.alive;
 
-        const batcherClient = new BatcherClient(
-          midnightWallet.contract.werewolf,
-          midnightProviders.walletProvider,
-        );
+        const batcherClient = getBatcherClient();
         await batcherClient.resolveNight(
           game.gameId,
           BigInt(game.round + 1),
@@ -1380,10 +1381,7 @@ function App() {
       const hasDeath = result.hasElimination && aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
 
-      const batcherClient = new BatcherClient(
-        midnightWallet.contract.werewolf,
-        midnightProviders.walletProvider,
-      );
+      const batcherClient = getBatcherClient();
       await batcherClient.resolveNight(
         game.gameId,
         BigInt(game.round + 1),
@@ -1466,9 +1464,8 @@ function App() {
           player.encKeypair,
           game.adminVotePublicKeyBytes,
         );
-        await callWerewolfMethod(midnightWallet.contract.werewolf, "voteDay", [
-          game.gameId,
-        ]);
+        const batcherClient = getBatcherClient();
+        await batcherClient.voteDay(game.gameId);
         targets.push(decodeVoteTarget(payloadBytes));
       }
 
@@ -1514,11 +1511,8 @@ function App() {
         playerProfile.encKeypair,
         hexToBytes(playerProfile.adminVotePublicKeyHex),
       );
-      await callWerewolfMethod(
-        midnightWallet.contract.werewolf,
-        "nightAction",
-        [playerProfile.gameId],
-      );
+      const batcherClient = getBatcherClient();
+      await batcherClient.nightAction(playerProfile.gameId);
 
       setPlayerLastEncryptedHex("");
       setStatus("Night action submitted.");
@@ -1561,11 +1555,8 @@ function App() {
         playerProfile.encKeypair,
         hexToBytes(playerProfile.adminVotePublicKeyHex),
       );
-      await callWerewolfMethod(
-        midnightWallet.contract.werewolf,
-        "voteDay",
-        [playerProfile.gameId],
-      );
+      const batcherClient = getBatcherClient();
+      await batcherClient.voteDay(playerProfile.gameId);
 
       setPlayerLastEncryptedHex("");
       setStatus("Day vote submitted.");
@@ -1595,10 +1586,7 @@ function App() {
         const hasElimination = aliveCount(game.players) > 1 &&
           game.players[targetIdx]?.alive;
 
-        const batcherClient = new BatcherClient(
-          midnightWallet.contract.werewolf,
-          midnightProviders.walletProvider,
-        );
+        const batcherClient = getBatcherClient();
         await batcherClient.resolveDay(
           game.gameId,
           BigInt(targetIdx),
@@ -1658,10 +1646,7 @@ function App() {
       const hasElimination = result.hasElimination &&
         aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
-      const batcherClient = new BatcherClient(
-        midnightWallet.contract.werewolf,
-        midnightProviders.walletProvider,
-      );
+      const batcherClient = getBatcherClient();
       await batcherClient.resolveDay(
         game.gameId,
         BigInt(targetIdx),
@@ -1711,15 +1696,12 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
-      await callWerewolfMethod(
-        midnightWallet.contract.werewolf,
-        "revealPlayerRole",
-        [
-          game.gameId,
-          BigInt(player.id),
-          BigInt(player.role),
-          player.salt,
-        ],
+      const batcherClient = getBatcherClient();
+      await batcherClient.revealPlayerRole(
+        game.gameId,
+        BigInt(player.id),
+        BigInt(player.role),
+        player.salt,
       );
       setStatus(`Revealed player ${player.id} role: ${roleName(player.role)}.`);
     } catch (e: any) {
@@ -1747,6 +1729,8 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
+      // Use direct local call for verification to get the return value immediately.
+      // TODO: Batcher delegation swallows the return value.
       const result = await callWerewolfMethod(
         midnightWallet.contract.werewolf,
         "verifyFairness",
@@ -1778,10 +1762,7 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
-      const batcherClient = new BatcherClient(
-        midnightWallet.contract.werewolf,
-        midnightProviders.walletProvider,
-      );
+      const batcherClient = getBatcherClient();
       await batcherClient.forceEndGame(game.gameId, game.masterSecret);
       setGame({ ...game, phase: Phase.Finished });
       setStatus("Force ended the game (via batcher).");

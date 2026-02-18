@@ -270,4 +270,46 @@ export class BatcherClient {
       () => this.contract.callTx.forceEndGame(gameId, masterSecret),
     );
   }
+
+  // --- Player Actions ---
+
+  async nightAction(gameId: bigint): Promise<void> {
+    await this.callDelegated("nightAction", () =>
+      this.contract.callTx.nightAction(gameId)
+    );
+  }
+
+  async voteDay(gameId: bigint): Promise<void> {
+    await this.callDelegated("voteDay", () =>
+      this.contract.callTx.voteDay(gameId)
+    );
+  }
+
+  async revealPlayerRole(
+    gameId: bigint,
+    playerIdx: bigint,
+    role: bigint,
+    salt: Uint8Array,
+  ): Promise<void> {
+    await this.callDelegated("revealPlayerRole", () =>
+      this.contract.callTx.revealPlayerRole(gameId, playerIdx, role, salt)
+    );
+  }
+  // TODO: Implement in the batcher a way of returning the value
+  // resulted from the transaction (aka circuit output)
+  async verifyFairness(
+    gameId: bigint,
+    masterSecret: Uint8Array,
+    playerIdx: bigint,
+    assignedRole: bigint,
+  ): Promise<void> {
+    await this.callDelegated("verifyFairness", () =>
+      this.contract.callTx.verifyFairness(
+        gameId,
+        masterSecret,
+        playerIdx,
+        assignedRole,
+      )
+    );
+  }
 }
