@@ -19,9 +19,11 @@ type DelegatedTxStage = "unproven" | "unbound" | "finalized";
  * createWalletAndMidnightProvider provider from contract.ts.
  *
  * The Midnight Compact Runtime evaluates the circuit and builds the unproven
- * transaction locally. The balanceTx interception captures this serialized
- * transaction and sends it to the batcher, completely bypassing the Lace
- * wallet for administrative actions.
+ * transaction locally. In the current delegated branch
+ * (`createWalletAndMidnightProvider.balanceTx` when `__delegatedBalanceHook`
+ * is present), we intercept this transaction and send it directly to the
+ * batcher. That means administrative delegated actions bypass Lace wallet
+ * balancing/submission and rely on the batcher to finish the flow.
  */
 export class BatcherClient {
   private readonly batcherUrl: string;
@@ -102,7 +104,11 @@ export class BatcherClient {
     );
 
     // Define the async hook directly
-    this.provider.__delegatedBalanceHook = async (tx: any) => {
+    this.provider.__delegatedBalanceHook = async (
+      tx: any,
+      _newCoins?: any,
+      _ttl?: Date,
+    ) => {
       let serializedTx = toHex(tx.serialize());
 
       // Attempt to bind the transaction if the method exists

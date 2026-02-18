@@ -38,7 +38,7 @@ import {
   type MidnightProviders,
   type WalletProvider,
 } from "@midnight-ntwrk/midnight-js-types";
-import { type Resource, WalletBuilder } from "@midnight-ntwrk/wallet";
+import { type Resource } from "@midnight-ntwrk/wallet";
 import type { Wallet } from "@midnight-ntwrk/wallet-api";
 // import { Transaction as ZswapTransaction } from "@midnight-ntwrk/zswap";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
@@ -468,6 +468,8 @@ const createWalletAndMidnightProvider = (
       ttl?: Date,
     ): Promise<BalancedProvingRecipe> {
       if (typeof provider.__delegatedBalanceHook === "function") {
+        // Delegated admin flow must bypass wallet fee balancing.
+        // The batcher is responsible for balancing/finalizing/submitting.
         await provider.__delegatedBalanceHook(tx, newCoins, ttl);
         throw new Error(DELEGATED_SENTINEL);
       }
