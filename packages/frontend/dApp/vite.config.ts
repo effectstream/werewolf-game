@@ -60,10 +60,9 @@ export default defineConfig({
       "npm:@subsquid/ss58-codec@^1.2.3": "@subsquid/ss58-codec",
       "npm:@scure/bip39@^2.0.1": "@scure/bip39",
       // Keep Midnight runtime/types as singletons across npm: and bare imports.
-      "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.1":
+      "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.0":
         "@midnight-ntwrk/onchain-runtime-v2",
-      "@midnight-ntwrk/onchain-runtime":
-        "@midnight-ntwrk/onchain-runtime-v2",
+      "@midnight-ntwrk/onchain-runtime": "@midnight-ntwrk/onchain-runtime-v2",
       "npm:@midnight-ntwrk/compact-runtime@0.14.0":
         "@midnight-ntwrk/compact-runtime",
       "npm:@midnight-ntwrk/midnight-js-contracts@3.0.0":
