@@ -1155,6 +1155,25 @@ function App() {
       );
       const initialRoot = tree.getRoot();
 
+      // --- Pretty Logging for Game Setup ---
+      console.group("🎲 Game Setup Details");
+      console.log("Game ID:", gameId.toString());
+      console.log("Master Secret Commitment:", bytesToHex(masterSecretCommitment));
+      console.log("Merkle Tree Root:", bytesToHex(new Uint8Array(pureCircuits.testComputeHash(fromHex(initialRoot.field.toString(16).padStart(64, "0")))))); // Actually the root field itself is more useful
+      console.log("Merkle Tree Root Field:", initialRoot.field.toString());
+      
+      const playerLogs = players.map(p => ({
+        ID: p.id,
+        Role: roleName(p.role),
+        "Public Key": bytesToHex(p.pk).slice(0, 10) + "...",
+        "Secret Key": bytesToHex(p.sk).slice(0, 10) + "...",
+        "Enc PubKey": bytesToHex(p.encKeypair.publicKey).slice(0, 10) + "...",
+        Commitment: bytesToHex(p.commitment).slice(0, 10) + "...",
+        Leaf: bytesToHex(p.leaf).slice(0, 10) + "..."
+      }));
+      console.table(playerLogs);
+      console.groupEnd();
+
       await stageSetupData(
         gameId,
         adminKeyBytes,
