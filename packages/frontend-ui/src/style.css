@@ -1,0 +1,282 @@
+:root {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #f1f4ff;
+  background-color: #060a14;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #18203a 0%, #060a14 50%);
+  color: #f1f4ff;
+}
+
+#app {
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  position: relative;
+}
+
+.hud-top {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  pointer-events: none;
+}
+
+.phase-block,
+.role-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.phase-block {
+  padding: 8px 12px;
+  border: 1px solid rgba(173, 188, 255, 0.22);
+  background: rgba(7, 14, 33, 0.75);
+  border-radius: 10px;
+}
+
+#roundLabel {
+  font-weight: 700;
+}
+
+#phaseLabel {
+  font-size: 0.85rem;
+  letter-spacing: 0.06em;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #d0dcff;
+  background: rgba(98, 120, 182, 0.45);
+}
+
+#phaseLabel.day {
+  color: #10213a;
+  background: rgba(205, 224, 255, 0.95);
+}
+
+.layout {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 290px 1fr;
+}
+
+.main-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+}
+
+.sidebar {
+  height: 100%;
+  padding: 80px 14px 14px;
+  background: rgba(7, 13, 27, 0.9);
+  border-right: 1px solid rgba(138, 154, 216, 0.22);
+  overflow-y: auto;
+}
+
+.sidebar h2 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+.players-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.player-row {
+  border: 1px solid rgba(152, 169, 234, 0.22);
+  background: rgba(11, 22, 49, 0.65);
+  border-radius: 10px;
+  padding: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.player-row:hover {
+  border-color: rgba(200, 214, 255, 0.7);
+  background: rgba(20, 35, 76, 0.85);
+}
+
+.player-row.highlighted {
+  border-color: rgba(220, 232, 255, 0.95);
+  background: rgba(40, 60, 120, 0.95);
+  box-shadow: 0 0 0 1px rgba(210, 225, 255, 0.4), 0 0 18px rgba(83, 127, 255, 0.55);
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ui-btn {
+  border-radius: 10px;
+  border: 1px solid rgba(154, 169, 235, 0.45);
+  background: rgba(44, 60, 114, 0.7);
+  color: #f4f7ff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 8px 11px;
+  cursor: pointer;
+  transition: background 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+.ui-btn:hover {
+  background: rgba(63, 83, 147, 0.86);
+  border-color: rgba(196, 208, 255, 0.72);
+  transform: translateY(-1px);
+}
+
+.ui-btn:active {
+  transform: translateY(0);
+}
+
+.ui-btn.small {
+  font-size: 0.75rem;
+  padding: 6px 8px;
+}
+
+.ui-btn.danger {
+  background: rgba(130, 35, 50, 0.75);
+  border-color: rgba(236, 118, 138, 0.42);
+}
+
+.ui-btn.danger:hover {
+  background: rgba(161, 46, 66, 0.82);
+  border-color: rgba(252, 171, 184, 0.58);
+}
+
+.ui-btn.full {
+  width: 100%;
+}
+
+.scene-root {
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+
+.scene-root canvas {
+  display: block;
+}
+
+.chat-panel {
+  border-top: 1px solid rgba(138, 154, 216, 0.24);
+  background: rgba(8, 15, 31, 0.92);
+  padding: 10px 12px;
+  display: grid;
+  gap: 10px;
+}
+
+.messages-box {
+  height: 130px;
+  overflow-y: auto;
+  border: 1px solid rgba(152, 169, 234, 0.26);
+  border-radius: 10px;
+  background: rgba(7, 13, 29, 0.72);
+  padding: 10px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.message-line {
+  font-size: 0.88rem;
+  color: #dbe4ff;
+}
+
+.chat-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.chat-input {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid rgba(154, 169, 235, 0.4);
+  background: rgba(12, 24, 49, 0.9);
+  color: #f4f7ff;
+  padding: 8px 10px;
+  font-size: 0.9rem;
+}
+
+.chat-input:focus {
+  outline: 2px solid rgba(161, 183, 255, 0.45);
+  outline-offset: 1px;
+}
+
+.role-picker-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 9, 20, 0.68);
+  padding: 16px;
+}
+
+.role-picker-backdrop.hidden {
+  display: none;
+}
+
+.role-picker-modal {
+  width: min(320px, 100%);
+  border: 1px solid rgba(161, 180, 241, 0.42);
+  border-radius: 14px;
+  background: rgba(9, 18, 38, 0.96);
+  box-shadow: 0 18px 35px rgba(0, 0, 0, 0.35);
+  padding: 14px;
+}
+
+.role-picker-modal h3 {
+  margin: 0 0 12px;
+  font-size: 1rem;
+}
+
+.role-picker-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.role-option-btn.active {
+  background: rgba(92, 122, 201, 0.95);
+  border-color: rgba(211, 224, 255, 0.95);
+}
+
+@media (max-width: 980px) {
+  .layout {
+    grid-template-columns: 230px 1fr;
+  }
+
+  .ui-btn {
+    padding: 7px 10px;
+  }
+
+  .messages-box {
+    height: 110px;
+  }
+}
