@@ -9,6 +9,7 @@ import { getConnection } from "@paimaexample/db";
 import { PrimitiveTypeMidnightGeneric } from "@paimaexample/sm/builtin";
 import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+import { convertMidnightLedger } from "../../utils/paima-utils.ts";
 
 /**
  * Let check if the db.
@@ -97,7 +98,12 @@ export const config = new ConfigBuilder()
             { networkId: midnightNetworkConfig.id },
           ).contractAddress,
           stateMachinePrefix: "midnightContractState",
-          contract: { ledger: ContractContract.ledger },
+          contract: {
+            ledger: (data: any) => {
+              const result = ContractContract.ledger(data);
+              return convertMidnightLedger(result);
+            },
+          },
           networkId: midnightNetworkConfig.id,
         }),
       )

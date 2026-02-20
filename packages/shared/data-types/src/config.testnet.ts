@@ -1,5 +1,6 @@
 import { contractAddressesEvmMain } from "@example-midnight/evm-contracts";
 import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
+import { convertMidnightLedger } from "../../utils/paima-utils.ts";
 import { getConnection } from "@paimaexample/db";
 import {
   ConfigBuilder,
@@ -246,7 +247,12 @@ export const config = new ConfigBuilder()
             startBlockHeight: 1,
             contractAddress: midnightContractAddress!,
             stateMachinePrefix: "midnightContractState",
-            contract: { ledger: ContractContract.ledger },
+            contract: {
+              ledger: (data: any) => {
+                const result = ContractContract.ledger(data);
+                return convertMidnightLedger(result);
+              },
+            },
             networkId: midnightNetworkConfig.id,
           }),
         );
