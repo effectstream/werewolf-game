@@ -1,0 +1,1004 @@
+import * as log from "@std/log";
+import {
+  getNetworkId,
+  setNetworkId,
+} from "@midnight-ntwrk/midnight-js-network-id";
+import { Buffer } from "node:buffer";
+import type {
+  MidnightProvider,
+  WalletProvider,
+} from "@midnight-ntwrk/midnight-js-types";
+import {
+  submitInsertVerifierKeyTx,
+} from "@midnight-ntwrk/midnight-js-contracts";
+import {
+  CompiledContract,
+  ContractExecutable,
+} from "@midnight-ntwrk/compact-js";
+import {
+  exitResultOrError,
+  makeContractExecutableRuntime,
+} from "@midnight-ntwrk/midnight-js-types";
+import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
+import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
+import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
+import * as path from "@std/path";
+import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
+import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+import { sampleSigningKey } from "@midnight-ntwrk/compact-runtime";
+import { SucceedEntirely } from "@midnight-ntwrk/midnight-js-types";
+
+import {
+  buildWalletFacade,
+  getInitialShieldedState,
+  registerNightForDust,
+  resolveWalletSyncTimeoutMs,
+  syncAndWaitForFunds,
+  waitForDustFunds,
+  type WalletResult,
+} from "./faucet.ts";
+
+// Declare Deno global for type-checking when not executed under Deno tooling.
+declare const Deno: typeof globalThis.Deno;
+
+// Modular wallet SDK imports
+import type { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+import {
+  ContractDeploy,
+  ContractState as LedgerContractState,
+  Intent,
+  shieldedToken,
+  Transaction,
+} from "@midnight-ntwrk/ledger-v7";
+import type {
+  CoinPublicKey,
+  DustSecretKey,
+  EncPublicKey,
+  FinalizedTransaction,
+  TransactionId,
+  ZswapSecretKeys,
+} from "@midnight-ntwrk/ledger-v7";
+import type { NetworkId } from "@midnight-ntwrk/wallet-sdk-abstractions";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/** Transaction TTL duration in milliseconds (1 hour) */
+const TTL_DURATION_MS = 60 * 60 * 1000;
+
+// ============================================================================
+// Types
+// ============================================================================
+
+/**
+ * Configuration for deploying a Midnight contract
+ */
+export interface DeployConfig {
+  /** Name of the contract directory (e.g., "contract-counter", "contract-eip-20") */
+  contractName: string;
+  /** Base filename for contract address (e.g., "contract-counter.json"); a network suffix is appended */
+  contractFileName: string;
+  /** The Contract class to deploy */
+  // deno-lint-ignore no-explicit-any
+  contractClass: any;
+  /** Witness definitions */
+  // deno-lint-ignore no-explicit-any
+  witnesses: any;
+  /** On-chain private state ID */
+  privateStateId: string;
+  /** Initial private state object */
+  // deno-lint-ignore no-explicit-any
+  initialPrivateState: any;
+  /** Optional deployment arguments array */
+  // deno-lint-ignore no-explicit-any
+  deployArgs?: any[];
+  /** Optional private state store name (defaults to contractName-based value) */
+  privateStateStoreName?: string;
+  /** Optional base directory override for finding contracts */
+  baseDir?: string;
+  /** Optional flag to extract wallet address info (for contracts that need initialOwner) */
+  extractWalletAddress?: boolean;
+}
+
+/**
+ * Network endpoint URLs for connecting to Midnight infrastructure
+ */
+export interface NetworkUrls {
+  /** Optional network ID override */
+  id?: string;
+  /** GraphQL indexer HTTP endpoint (default: http://127.0.0.1:8088/api/v3/graphql)*/
+  indexer?: string;
+  /** GraphQL indexer WebSocket endpoint (default: ws://127.0.0.1:8088/api/v3/graphql/ws)*/
+  indexerWS?: string;
+  /** Midnight node RPC endpoint (default: http://127.0.0.1:9944)*/
+  node?: string;
+  /** Proof server HTTP endpoint (default: http://127.0.0.1:6300)*/
+  proofServer?: string;
+}
+
+/** Initial owner structure for contracts that need wallet address */
+interface InitialOwner {
+  is_left: boolean;
+  left: { bytes: Uint8Array };
+  right: { bytes: Uint8Array };
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Create a TTL date for transactions
+ */
+function createTtl(): Date {
+  return new Date(Date.now() + TTL_DURATION_MS);
+}
+
+function checkEnvVariables(): void {
+  if (!Deno.env.get("MIDNIGHT_STORAGE_PASSWORD")) {
+    // Set a default password for local development
+    Deno.env.set("MIDNIGHT_STORAGE_PASSWORD", "devpassword12345");
+    log.info("MIDNIGHT_STORAGE_PASSWORD not set, using default for local dev");
+  }
+}
+
+function ensureDustFeeConfig(): void {
+  const margin = Deno.env.get("MIDNIGHT_DUST_FEE_BLOCKS_MARGIN");
+  if (margin !== undefined) {
+    const parsed = Number(margin);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      log.warn(
+        `Invalid MIDNIGHT_DUST_FEE_BLOCKS_MARGIN="${margin}". Using default dust fee margin.`,
+      );
+    } else {
+      log.info(
+        `Using MIDNIGHT_DUST_FEE_BLOCKS_MARGIN=${Math.floor(parsed)}`,
+      );
+    }
+  }
+
+  const overhead = Deno.env.get("MIDNIGHT_DUST_FEE_OVERHEAD");
+  if (overhead !== undefined) {
+    try {
+      const parsed = BigInt(overhead);
+      if (parsed < 0n) throw new Error("negative");
+      log.info(`Using MIDNIGHT_DUST_FEE_OVERHEAD=${parsed}`);
+    } catch (_error) {
+      log.warn(
+        `Invalid MIDNIGHT_DUST_FEE_OVERHEAD="${overhead}". Using default dust fee overhead.`,
+      );
+    }
+  }
+}
+
+function safeStringifyProgress(value: unknown): string {
+  try {
+    return JSON.stringify(
+      value,
+      (_key, val) => (typeof val === "bigint" ? val.toString() : val),
+      2,
+    );
+  } catch (_error) {
+    return String(value);
+  }
+}
+
+const resolveSkipInsertRemainingVks = (): boolean =>
+  Deno.env.get("MIDNIGHT_DEPLOY_SKIP_INSERT_REMAINING_VKS")?.toLowerCase() ===
+    "true";
+
+const messageFromError = (value: unknown): string | undefined => {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) return value.message;
+  if (typeof value === "object" && value !== null) {
+    const maybeMessage = (value as { message?: unknown }).message;
+    if (typeof maybeMessage === "string") return maybeMessage;
+  }
+  return undefined;
+};
+
+const collectErrorMessages = (error: unknown, maxDepth = 6): string[] => {
+  const messages: string[] = [];
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < maxDepth; depth += 1) {
+    if (seen.has(current)) break;
+    seen.add(current);
+    const message = messageFromError(current);
+    if (message) messages.push(message);
+    if (typeof current !== "object" || current === null) break;
+    current = (current as { cause?: unknown }).cause;
+  }
+  if (messages.length === 0) {
+    messages.push(String(error));
+  }
+  return messages;
+};
+
+// ============================================================================
+// Wallet Facade
+// ============================================================================
+
+/**
+ * Build wallet and wait for funds
+ */
+async function buildWalletAndWaitForFunds(
+  networkUrls: Required<Omit<NetworkUrls, "id">>,
+  seed: string,
+  networkId: NetworkId.NetworkId,
+): Promise<WalletResult> {
+  log.info("Building wallet using modular SDK");
+  const result = await buildWalletFacade(networkUrls, seed, networkId);
+
+  const initialState = await getInitialShieldedState(result.wallet.shielded);
+  const address = initialState.address.coinPublicKeyString();
+  log.info(`Wallet seed: ${seed}`);
+  log.info(`Wallet address: ${address}`);
+  log.info(`Dust address: ${result.dustAddress}`);
+
+  let balance = initialState.balances[shieldedToken().tag] ?? 0n;
+  log.info("initialState " + safeStringifyProgress(initialState));
+  const syncTimeoutMs = resolveWalletSyncTimeoutMs();
+  if (balance === 0n) {
+    const skipWait =
+      Deno.env.get("MIDNIGHT_SKIP_WAIT_FOR_FUNDS")?.toLowerCase() === "true";
+    log.info("Wallet shielded balance: 0");
+    log.info(
+      `Waiting to receive tokens... (timeout ${syncTimeoutMs}ms${
+        skipWait ? ", skip on timeout enabled" : ""
+      })`,
+    );
+    try {
+      const { shieldedBalance, unshieldedBalance } = await syncAndWaitForFunds(
+        result.wallet,
+      );
+      balance = shieldedBalance;
+      if (unshieldedBalance > 0n) {
+        log.info(`Unshielded balance available: ${unshieldedBalance}`);
+      }
+    } catch (e) {
+      if (skipWait) {
+        log.warn(
+          `Skipping wait for shielded funds after timeout: ${
+            (e as Error).message
+          }`,
+        );
+      } else {
+        throw e;
+      }
+    }
+  }
+  log.info(`Wallet balance: ${balance}`);
+
+  return result;
+}
+
+async function ensureDustBalance(walletResult: WalletResult): Promise<void> {
+  const { unshieldedBalance, dustBalance } = await syncAndWaitForFunds(
+    walletResult.wallet,
+    { waitNonZero: false, logLabel: "deploy" },
+  );
+
+  if (dustBalance > 0n) return;
+
+  if (unshieldedBalance === 0n) {
+    log.warn(
+      "Dust balance is 0 and unshielded balance is 0; dust generation is not possible yet.",
+    );
+    return;
+  }
+
+  const registered = await registerNightForDust(walletResult);
+  if (!registered) return;
+
+  try {
+    await waitForDustFunds(walletResult.wallet, {
+      timeoutMs: resolveWalletSyncTimeoutMs(),
+      waitNonZero: true,
+    });
+  } catch (error) {
+    log.warn(
+      `Dust still not available after registration: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+// ============================================================================
+// Provider Configuration
+// ============================================================================
+
+/**
+ * Create wallet and midnight provider adapter for WalletFacade
+ *
+ * Implements the WalletProvider and MidnightProvider interfaces
+ * as defined in @midnight-ntwrk/midnight-js-types v3.x
+ */
+function createWalletAndMidnightProvider(
+  wallet: WalletFacade,
+  zswapSecretKeys: ZswapSecretKeys,
+  walletZswapSecretKeys: ZswapSecretKeys,
+  dustSecretKey: DustSecretKey,
+  walletDustSecretKey: DustSecretKey,
+  unshieldedKeystore: WalletResult["unshieldedKeystore"],
+): WalletProvider & MidnightProvider {
+  const secretKeys = {
+    shieldedSecretKeys: walletZswapSecretKeys,
+    dustSecretKey: walletDustSecretKey,
+  };
+  return {
+    getCoinPublicKey(): CoinPublicKey {
+      return zswapSecretKeys.coinPublicKey;
+    },
+    getEncryptionPublicKey(): EncPublicKey {
+      return zswapSecretKeys.encryptionPublicKey;
+    },
+    // v3 WalletProvider: balanceTx takes UnboundTransaction (proven), returns FinalizedTransaction
+    // deno-lint-ignore no-explicit-any
+    async balanceTx(tx: any, ttl?: Date): Promise<FinalizedTransaction> {
+      const txTtl = ttl ?? createTtl();
+      // Balance the proven (unbound) transaction
+      const recipe = await wallet.balanceUnboundTransaction(tx, secretKeys, {
+        ttl: txTtl,
+      });
+
+      // Sign only the balancing transaction (if any), NOT the base transaction.
+      // The base transaction from proveTx has Proof markers in its intent,
+      // and the wallet SDK's addSignature tries to clone the intent with
+      // pre-proof markers, which causes a deserialization error.
+      // Maintenance/deploy txs don't need unshielded offer signatures on the base tx.
+      if (recipe.balancingTransaction) {
+        const signedBalancingTx = await wallet.signUnprovenTransaction(
+          recipe.balancingTransaction,
+          (payload) => unshieldedKeystore.signData(payload),
+        );
+        return wallet.finalizeRecipe({
+          ...recipe,
+          balancingTransaction: signedBalancingTx,
+        });
+      }
+
+      // No balancing transaction — finalize directly
+      return wallet.finalizeRecipe(recipe);
+    },
+    submitTx(tx: FinalizedTransaction): Promise<TransactionId> {
+      return wallet.submitTransaction(tx).catch((error) => {
+        const messages = collectErrorMessages(error);
+        log.error(`submitTx failed: ${messages.join(" | ")}`);
+        throw error;
+      });
+    },
+  };
+}
+
+/**
+ * Configure all providers needed for contract deployment
+ */
+function configureProviders(
+  wallet: WalletFacade,
+  zswapSecretKeys: ZswapSecretKeys,
+  walletZswapSecretKeys: ZswapSecretKeys,
+  dustSecretKey: DustSecretKey,
+  walletDustSecretKey: DustSecretKey,
+  unshieldedKeystore: WalletResult["unshieldedKeystore"],
+  networkUrls: Required<Omit<NetworkUrls, "id">>,
+  privateStateStoreName: string,
+  zkConfigPath: string,
+) {
+  const signingKeyStoreName = `${privateStateStoreName}-signing-keys`;
+  const walletAndMidnightProvider = createWalletAndMidnightProvider(
+    wallet,
+    zswapSecretKeys,
+    walletZswapSecretKeys,
+    dustSecretKey,
+    walletDustSecretKey,
+    unshieldedKeystore,
+  );
+  return {
+    // For deployment, we use full private state config because we may need to verify
+    // the deployed contract state. For batcher/transaction submission use cases,
+    // a minimal config with just walletProvider is sufficient and much faster:
+    //   levelPrivateStateProvider({ walletProvider })
+    // Omitting privateStateStoreName/midnightDbName avoids historical private state sync.
+    privateStateProvider: levelPrivateStateProvider({
+      midnightDbName: "midnight-level-db-deploy", // Use separate DB for deployment to avoid lock conflicts
+      privateStateStoreName,
+      signingKeyStoreName,
+      walletProvider: walletAndMidnightProvider, // Use wallet's encryption key for private state
+    } as any), // Type assertion: runtime supports walletProvider even though types don't reflect it yet
+    publicDataProvider: indexerPublicDataProvider(
+      networkUrls.indexer,
+      networkUrls.indexerWS,
+    ),
+    zkConfigProvider: new NodeZkConfigProvider(zkConfigPath),
+    proofProvider: httpClientProofProvider(networkUrls.proofServer),
+    walletProvider: walletAndMidnightProvider,
+    midnightProvider: walletAndMidnightProvider,
+  };
+}
+
+/**
+ * Create a CompiledContract object from a contract class and witnesses.
+ * In compact-js v2.4+, the SDK expects a CompiledContract (with internal Symbol metadata)
+ * rather than a raw contract class instance.
+ */
+function createCompiledContract(
+  contractClass: DeployConfig["contractClass"],
+  witnesses: DeployConfig["witnesses"],
+  contractName: string,
+  compiledAssetsPath: string,
+  // deno-lint-ignore no-explicit-any
+): any {
+  // deno-lint-ignore no-explicit-any
+  let compiled: any = CompiledContract.make(contractName, contractClass);
+  compiled = (CompiledContract as any).withWitnesses(compiled, witnesses);
+  compiled = (CompiledContract as any).withCompiledFileAssets(
+    compiled,
+    compiledAssetsPath,
+  );
+  return compiled;
+}
+
+async function deployWithLimitedVerifierKeys(
+  providers: ReturnType<typeof configureProviders>,
+  // deno-lint-ignore no-explicit-any
+  compiledContract: any,
+  config: DeployConfig,
+  deployArgs: unknown[] | undefined,
+  walletResult: WalletResult,
+): Promise<string> {
+  const stateFilePath = path.join(Deno.cwd(), "deployment-state.json");
+  let deploymentState: { contractAddress: string; deployedCircuits: string[] } =
+    {
+      contractAddress: "",
+      deployedCircuits: [],
+    };
+
+  try {
+    const content = await Deno.readTextFile(stateFilePath);
+    deploymentState = JSON.parse(content);
+    log.info(
+      `Found existing deployment state. Resuming deployment for contract: ${deploymentState.contractAddress}`,
+    );
+  } catch (_error) {
+    // No existing state, start fresh
+  }
+
+  let contractAddress = deploymentState.contractAddress;
+  let privateState: any;
+  let derivedSigningKey: any;
+
+  if (!contractAddress) {
+    const signingKey = sampleSigningKey();
+
+    const coinPublicKey = providers.walletProvider.getCoinPublicKey()
+      .toString();
+
+    // Step 1: Initialize the contract with the real provider to get valid state
+    const contractExec = ContractExecutable.make(compiledContract);
+    const contractRuntime = makeContractExecutableRuntime(
+      providers.zkConfigProvider,
+      {
+        coinPublicKey,
+        signingKey,
+      },
+    );
+
+    const initialPs = config.initialPrivateState ?? undefined;
+    const args = deployArgs ?? [];
+
+    log.info("Running contract initialization with full zkConfigProvider...");
+    const exitResult = await contractRuntime.runPromiseExit(
+      contractExec.initialize(initialPs, ...args),
+    );
+
+    let initResult: any;
+    try {
+      initResult = exitResultOrError(exitResult);
+    } catch (error) {
+      const err = error as any;
+      if (
+        err?.["_tag"] === "ContractRuntimeError" &&
+        err?.cause?.name === "CompactError"
+      ) {
+        throw new Error(err.cause.message);
+      }
+      throw error;
+    }
+
+    privateState = initResult.private.privateState;
+    derivedSigningKey = initResult.private.signingKey;
+    const fullContractState = initResult.public.contractState;
+
+    // Step 2: Convert compact-runtime ContractState to ledger ContractState
+    const fullLedgerState = LedgerContractState.deserialize(
+      fullContractState.serialize(),
+    );
+
+    // Step 3: Create a stripped ContractState with NO operations (no VKs)
+    const strippedState = new LedgerContractState();
+    strippedState.data = fullLedgerState.data;
+    strippedState.maintenanceAuthority = fullLedgerState.maintenanceAuthority;
+
+    log.info("Created stripped contract state (no operations/verifier keys)");
+
+    // Step 4: Build the deploy transaction
+    const contractDeploy = new ContractDeploy(strippedState);
+    contractAddress = contractDeploy.address;
+
+    const intent = Intent.new(createTtl()).addDeploy(contractDeploy);
+    const unprovenTx = Transaction.fromParts(
+      getNetworkId(),
+      undefined,
+      undefined,
+      intent,
+    );
+
+    log.info(`Deploy tx built for contract address: ${contractAddress}`);
+
+    const {
+      wallet,
+      walletZswapSecretKeys,
+      walletDustSecretKey,
+      unshieldedKeystore,
+    } = walletResult;
+    const balanceSecretKeys = {
+      shieldedSecretKeys: walletZswapSecretKeys,
+      dustSecretKey: walletDustSecretKey,
+    };
+
+    log.info("Balancing deploy transaction (unproven)...");
+    const recipe = await wallet.balanceUnprovenTransaction(
+      unprovenTx,
+      balanceSecretKeys,
+      { ttl: createTtl() },
+    );
+
+    const signedRecipe = await wallet.signRecipe(
+      recipe,
+      (payload) => unshieldedKeystore.signData(payload),
+    );
+
+    const finalizedTx = await wallet.finalizeRecipe(signedRecipe);
+
+    log.info("Submitting deploy transaction...");
+    const txId = await wallet.submitTransaction(finalizedTx);
+    log.info(`Deploy transaction submitted, txId: ${txId}`);
+
+    const finalizedTxData = await providers.publicDataProvider.watchForTxData(
+      txId,
+    );
+    if (finalizedTxData.status !== SucceedEntirely) {
+      throw new Error(
+        `Deployment failed with status ${finalizedTxData.status}`,
+      );
+    }
+
+    log.info("Deploy transaction finalized on-chain.");
+
+    // Save initial state to file
+    deploymentState.contractAddress = contractAddress;
+    await Deno.writeTextFile(
+      stateFilePath,
+      JSON.stringify(deploymentState, null, 2),
+    );
+
+    // Save private state and signing key
+    if (config.privateStateId) {
+      await providers.privateStateProvider.set(
+        config.privateStateId,
+        privateState,
+      );
+    }
+    await providers.privateStateProvider.setSigningKey(
+      contractAddress,
+      derivedSigningKey,
+    );
+  }
+
+  // Step 6: Insert all verifier keys individually
+  if (!resolveSkipInsertRemainingVks()) {
+    const circuitPriority = [
+      "createGame",
+      "nightAction",
+      "resolveNightPhase",
+      "voteDay",
+      "resolveDayPhase",
+      "adminPunishPlayer",
+      "forceEndGame",
+      "getGameState",
+      "isPlayerAlive",
+      "getAdminKey",
+      "getGameAdminPublicKey",
+      "getEncryptedVotesForRound",
+      "revealPlayerRole",
+      "verifyFairness",
+    ];
+
+    // Collect all verifier keys from the real zkConfigProvider
+    const allVerifierKeysMap = await providers.zkConfigProvider.getVerifierKeys(
+      circuitPriority as any,
+    );
+    const verifierKeys = Array.from(allVerifierKeysMap as any) as [
+      string,
+      unknown,
+    ][];
+
+    // Sort according to priority
+    verifierKeys.sort((a, b) => {
+      const nameA = a[0];
+      const nameB = b[0];
+      const idxA = circuitPriority.indexOf(nameA);
+      const idxB = circuitPriority.indexOf(nameB);
+      if (idxA === -1 && idxB === -1) return 0;
+      if (idxA === -1) return 1;
+      if (idxB === -1) return -1;
+      return idxA - idxB;
+    });
+
+    log.info(
+      `Inserting ${verifierKeys.length} verifier keys individually...`,
+    );
+
+    for (const [circuitId, verifierKey] of verifierKeys) {
+      if (deploymentState.deployedCircuits.includes(circuitId as string)) {
+        log.info(`Skipping already deployed circuit: ${circuitId}`);
+        continue;
+      }
+
+      log.info(`Inserting verifier key for circuit: ${circuitId}`);
+
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          const submitResult = await submitInsertVerifierKeyTx(
+            providers as any,
+            compiledContract,
+            contractAddress,
+            circuitId as any,
+            verifierKey as any,
+          );
+
+          if (submitResult.status !== SucceedEntirely) {
+            throw new Error(
+              `Insert verifier key failed for ${circuitId} with status ${submitResult.status}`,
+            );
+          }
+          break;
+        } catch (error) {
+          retries--;
+          if (retries === 0) throw error;
+          log.warn(
+            `Retry inserting ${circuitId} (${3 - retries}/3) due to: ${
+              (error as Error).message
+            }`,
+          );
+          await new Promise((r) => setTimeout(r, 2000 * (3 - retries)));
+        }
+      }
+
+      log.info(`Verifier key inserted for circuit: ${circuitId}`);
+      deploymentState.deployedCircuits.push(circuitId as string);
+      await Deno.writeTextFile(
+        stateFilePath,
+        JSON.stringify(deploymentState, null, 2),
+      );
+    }
+
+    log.info("All verifier keys inserted successfully.");
+    try {
+      await Deno.remove(stateFilePath);
+    } catch (_e) {
+      // Ignore if file already removed
+    }
+  }
+
+  return contractAddress;
+}
+
+// ============================================================================
+// Contract Deployment Helpers
+// ============================================================================
+
+/**
+ * Extract initial owner from wallet for contracts that need it (e.g., EIP-20)
+ */
+async function extractInitialOwnerFromWallet(
+  wallet: WalletFacade,
+): Promise<InitialOwner> {
+  const initialState = await getInitialShieldedState(wallet.shielded);
+  const coinPubHex = initialState.address.coinPublicKeyString();
+  const encPubHex = initialState.address.encryptionPublicKeyString();
+  log.info(
+    `Extracting initial owner from wallet keys (hex): coin=${coinPubHex}`,
+  );
+  log.info(`Encryption key (hex): ${encPubHex}`);
+
+  const coinBytes = Buffer.from(coinPubHex, "hex");
+  const encBytes = Buffer.from(encPubHex, "hex");
+
+  return {
+    is_left: true,
+    left: { bytes: coinBytes },
+    right: { bytes: encBytes.subarray(0, 32) },
+  };
+}
+
+/**
+ * Find the compiler subdirectory in the managed directory
+ */
+function hasManagedArtifacts(dir: string): boolean {
+  const requiredDirs = ["contract", "compiler"];
+  try {
+    return requiredDirs.every((name) => {
+      const stats = Deno.statSync(path.join(dir, name));
+      return stats.isDirectory;
+    });
+  } catch {
+    return false;
+  }
+}
+
+function findCompilerSubdirectory(managedDir: string): string {
+  try {
+    for (const entry of Deno.readDirSync(managedDir)) {
+      if (!entry.isDirectory) continue;
+      const candidate = path.join(managedDir, entry.name);
+      if (hasManagedArtifacts(candidate)) {
+        return entry.name;
+      }
+    }
+  } catch (_error) {
+    throw new Error(`Managed directory not found: ${managedDir}`);
+  }
+
+  if (hasManagedArtifacts(managedDir)) {
+    return "";
+  }
+
+  throw new Error(
+    `No compiler artifacts found in managed directory: ${managedDir}. ` +
+      `Ensure the directory contains compiler, contract, keys, and zkir assets.`,
+  );
+}
+
+function findContractDirectoryForDeploy(
+  contractName: string,
+  baseDir?: string,
+): string | null {
+  let current = path.resolve(baseDir ?? Deno.cwd());
+  while (true) {
+    if (path.basename(current) === contractName) {
+      return path.dirname(current);
+    }
+
+    const candidate = path.join(current, contractName);
+    try {
+      const stats = Deno.statSync(candidate);
+      if (stats.isDirectory) return current;
+    } catch {
+      // ignore
+    }
+
+    const parent = path.dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+// ============================================================================
+// Main Deployment Function
+// ============================================================================
+
+/**
+ * Deploys a Midnight contract using the provided configuration.
+ *
+ * This function is context-aware and will find the contract directory
+ * and zkConfigPath automatically using a local contract search.
+ *
+ * @param config - Deployment configuration
+ * @param networkUrls - Optional network endpoint URLs (defaults to local undeployed endpoints)
+ * @returns The deployed contract address
+ */
+export async function deployMidnightContract(
+  config: DeployConfig,
+  networkUrls?: NetworkUrls,
+): Promise<string> {
+  checkEnvVariables();
+  ensureDustFeeConfig();
+  await log.setup({
+    handlers: {
+      console: new log.ConsoleHandler("INFO"),
+    },
+    loggers: {
+      default: {
+        level: "INFO",
+        handlers: ["console"],
+      },
+    },
+  });
+
+  // Find the contract directory
+  const contractDir = findContractDirectoryForDeploy(
+    config.contractName,
+    config.baseDir,
+  );
+
+  if (!contractDir) {
+    throw new Error(
+      `Could not find Midnight contract directory for "${config.contractName}". ` +
+        `Searched starting from ${config.baseDir || Deno.cwd()}. ` +
+        `Please ensure you're running from a directory that contains or is a parent of the Midnight contract directory, ` +
+        `or provide an explicit baseDir parameter.`,
+    );
+  }
+
+  // Find the compiler subdirectory to determine zkConfigPath
+  const managedDir = path.join(
+    contractDir,
+    config.contractName,
+    "src/managed",
+  );
+  const compilerSubdir = findCompilerSubdirectory(managedDir);
+
+  const zkConfigPath = path.resolve(
+    path.join(contractDir, config.contractName, "src/managed", compilerSubdir),
+  );
+
+  // Default private state store name if not provided
+  const privateStateStoreName = config.privateStateStoreName ??
+    `${config.contractName.replace("contract-", "")}-private-state`;
+
+  // Merge network URLs with defaults
+  const { id: networkIdOverride, ...endpoints } = networkUrls ?? {};
+  const resolvedNetworkUrls: Required<Omit<NetworkUrls, "id">> = {
+    indexer: endpoints.indexer ?? midnightNetworkConfig.indexer,
+    indexerWS: endpoints.indexerWS ?? midnightNetworkConfig.indexerWS,
+    node: endpoints.node ?? midnightNetworkConfig.node,
+    proofServer: endpoints.proofServer ?? midnightNetworkConfig.proofServer,
+  };
+  const resolvedNetworkId =
+    (networkIdOverride ?? midnightNetworkConfig.id) as NetworkId.NetworkId;
+
+  log.info(
+    `Preflight resolved endpoints -> indexerHttp=${resolvedNetworkUrls.indexer}, indexerWs=${resolvedNetworkUrls.indexerWS}, node=${resolvedNetworkUrls.node}, proofServer=${resolvedNetworkUrls.proofServer}, networkId=${resolvedNetworkId}`,
+  );
+
+  setNetworkId(resolvedNetworkId);
+
+  let walletResult: WalletResult | null = null;
+  let providers: ReturnType<typeof configureProviders> | null = null;
+
+  try {
+    log.info("Building wallet...");
+    walletResult = await buildWalletAndWaitForFunds(
+      resolvedNetworkUrls,
+      midnightNetworkConfig.walletSeed!,
+      resolvedNetworkId,
+    );
+
+    await ensureDustBalance(walletResult);
+
+    const {
+      wallet,
+      zswapSecretKeys,
+      walletZswapSecretKeys,
+      dustSecretKey,
+      walletDustSecretKey,
+      dustAddress,
+      unshieldedKeystore,
+    } = walletResult;
+    const resolvedDustReceiverAddress =
+      Deno.env.get("MIDNIGHT_DUST_RECEIVER_ADDRESS") ?? dustAddress;
+    if (resolvedDustReceiverAddress === dustAddress) {
+      log.info(`Using derived dust address: ${resolvedDustReceiverAddress}`);
+    } else {
+      log.info(
+        `Using dust receiver address from MIDNIGHT_DUST_RECEIVER_ADDRESS: ${resolvedDustReceiverAddress}`,
+      );
+    }
+
+    // Extract wallet address info if needed (for contracts like EIP-20)
+    let deployArgs = config.deployArgs;
+    if (config.extractWalletAddress && deployArgs && deployArgs.length > 0) {
+      const initialOwner = await extractInitialOwnerFromWallet(wallet);
+      deployArgs = [...deployArgs.slice(0, -1), initialOwner];
+    }
+
+    log.info("Wallet built successfully.");
+
+    log.info("Configuring providers...");
+    // Use a separate LevelDB directory for deployment to avoid lock conflicts with batcher
+    const deployPrivateStateStoreName = `${privateStateStoreName}-deploy`;
+
+    providers = configureProviders(
+      wallet,
+      zswapSecretKeys,
+      walletZswapSecretKeys,
+      dustSecretKey,
+      walletDustSecretKey,
+      unshieldedKeystore,
+      resolvedNetworkUrls,
+      deployPrivateStateStoreName,
+      zkConfigPath,
+    );
+    log.info("Providers configured.");
+
+    log.info("Deploying contract...");
+
+    // Create a CompiledContract object (v3 API requires this instead of raw contract class)
+    const compiledContract = createCompiledContract(
+      config.contractClass,
+      config.witnesses,
+      config.contractName,
+      zkConfigPath,
+    );
+
+    const contractAddress = await deployWithLimitedVerifierKeys(
+      providers,
+      compiledContract,
+      config,
+      deployArgs,
+      walletResult,
+    );
+
+    log.info("Contract deployed.");
+    log.info(`Contract address: ${contractAddress}`);
+
+    const baseContractFileName = config.contractFileName ??
+      `${config.contractName}.json`;
+    const {
+      dir: contractFileDir,
+      name: contractFileBaseName,
+      ext: contractFileExt,
+    } = path.parse(baseContractFileName);
+    const normalizedExt = contractFileExt || ".json";
+    const networkSuffix = `.${resolvedNetworkId}`;
+    const fileBaseWithNetwork = contractFileBaseName.endsWith(networkSuffix)
+      ? contractFileBaseName
+      : `${contractFileBaseName}${networkSuffix}`;
+    const outputFileName = `${fileBaseWithNetwork}${normalizedExt}`;
+    const outputPath = path.join(
+      contractDir,
+      contractFileDir,
+      outputFileName,
+    );
+
+    await Deno.writeTextFile(
+      outputPath,
+      JSON.stringify({ contractAddress }, null, 2),
+    );
+    log.info(
+      `Contract address saved to ${outputPath} (network: ${resolvedNetworkId})`,
+    );
+
+    return contractAddress;
+  } catch (e) {
+    if (e instanceof Error) {
+      log.error(`Deployment failed: ${e.message}`);
+      log.debug(e.stack);
+    } else {
+      log.error("An unknown error occurred during deployment.");
+    }
+    throw e;
+  } finally {
+    // Close wallet first
+    if (walletResult) {
+      log.info("Closing wallet...");
+      try {
+        await walletResult.wallet.stop();
+      } catch (_closeError) {
+        // Ignore close errors
+      }
+      log.info("Wallet closed.");
+    }
+
+    // Wait a moment for Level DB to finish any async close operations
+    // The levelPrivateStateProvider opens/closes DB for each operation in withSubLevel
+    // But there might be pending async operations
+    log.info("Waiting for Level DB cleanup...");
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
