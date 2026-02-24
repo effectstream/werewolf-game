@@ -2,6 +2,10 @@
 forge-std
 logs/
 
+# Claude files
+CLAUDE.md
+.claude/
+
 # e2e tests
 /cache
 /out

@@ -1,7 +1,7 @@
 import {
+  type DefaultBatcherInput,
   MidnightBalancingAdapter,
   type MidnightBalancingAdapterConfig,
-  type DefaultBatcherInput,
 } from "@paimaexample/batcher";
 
 export type ValidationResult = {
@@ -15,6 +15,9 @@ export type ValidationResult = {
  */
 export class WerewolfBalancingAdapter extends MidnightBalancingAdapter {
   constructor(walletSeed: string, config: MidnightBalancingAdapterConfig) {
+    if (!config.syncProtocolName) {
+      config.syncProtocolName = "parallelMidnight";
+    }
     super(walletSeed, config);
   }
 
@@ -31,7 +34,7 @@ export class WerewolfBalancingAdapter extends MidnightBalancingAdapter {
 
     // 2. Custom Werewolf logic (can be added here)
     // For now, it just passes through.
-    
+
     return { valid: true };
   }
 }
