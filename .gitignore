@@ -17,7 +17,13 @@ batcher-data/
 
 # System files
 .DS_Store
+.vscode
 
 # Temporary files
 packages/client/node/tmux.conf
 packages/client/node/install.sh
+
+# Midnight contract deployment
+deployment-state.json
+contract-werewolf.undeployed.json
+midnight-level-db/

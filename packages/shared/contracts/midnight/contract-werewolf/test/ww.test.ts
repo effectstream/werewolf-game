@@ -297,7 +297,9 @@ async function runTestSuite() {
 
   // 1. SETUP KEYS & COMMITMENTS
   try {
-    const r1 = await sim.runCircuit((ctx) => circuits.getAdminKey(ctx, sim.gameId));
+    const r1 = await sim.runCircuit((ctx) =>
+      circuits.getAdminKey(ctx, sim.gameId)
+    );
     sim.adminKey = r1.bytes;
 
     const r2 = await sim.runCircuit((ctx) =>

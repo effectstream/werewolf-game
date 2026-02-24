@@ -33,7 +33,7 @@ export circuit createGame(
     actualCount: Uint<32>,
     werewolfCount: Uint<32>
 ): [] {
-    return Werewolf_createAndSetupGame(
+    return Werewolf_createGame(
         disclose(gameId), 
         disclose(adminVotePublicKey),
         disclose(masterSecretCommitment), 
@@ -46,7 +46,7 @@ export circuit forceEndGame(
     gameId: Uint<32>,
     masterSecret: Bytes<32>
 ): [] {
-    return Werewolf_endGame(gameId, masterSecret);
+    return Werewolf_forceEndGame(gameId, masterSecret);
 }
 
 // New Punish Circuit
@@ -54,14 +54,14 @@ export circuit adminPunishPlayer(
     gameId: Uint<32>,
     playerIdx: Uint<32>
 ): [] {
-    return Werewolf_punishPlayer(gameId, playerIdx);
+    return Werewolf_adminPunishPlayer(gameId, playerIdx);
 }
 
 // Action using Witness
 export circuit nightAction(
     gameId: Uint<32>
 ): [] {
-    return Werewolf_submitNightAction(gameId);
+    return Werewolf_nightAction(gameId);
 }
 
 export circuit resolveNightPhase(
@@ -71,7 +71,7 @@ export circuit resolveNightPhase(
     hasDeath: Boolean,
     newMerkleRoot: MerkleTreeDigest
 ): [] {
-    return Werewolf_resolveNight(
+    return Werewolf_resolveNightPhase(
         gameId, 
         newRound, 
         deadPlayerIdx, 
@@ -84,7 +84,7 @@ export circuit resolveNightPhase(
 export circuit voteDay(
     gameId: Uint<32>
 ): [] {
-    return Werewolf_castDayVote(gameId);
+    return Werewolf_voteDay(gameId);
 }
 
 export circuit resolveDayPhase(
@@ -92,7 +92,7 @@ export circuit resolveDayPhase(
     eliminatedIdx: Uint<32>,
     hasElimination: Boolean
 ): [] {
-    return Werewolf_resolveDay(gameId, eliminatedIdx, hasElimination);
+    return Werewolf_resolveDayPhase(gameId, eliminatedIdx, hasElimination);
 }
 
 export circuit revealPlayerRole(
@@ -101,7 +101,7 @@ export circuit revealPlayerRole(
     role: Uint<8>,
     salt: Bytes<32>
 ): [] {
-    return Werewolf_revealRole(gameId, playerIdx, role, salt);
+    return Werewolf_revealPlayerRole(gameId, playerIdx, role, salt);
 }
 
 export circuit verifyFairness(
@@ -110,7 +110,7 @@ export circuit verifyFairness(
     playerIdx: Uint<32>,
     assignedRole: Uint<8>
 ): Boolean {
-    return Werewolf_verifyGameSetup(
+    return Werewolf_verifyFairness(
         gameId, 
         masterSecret, 
         playerIdx, 

@@ -13,13 +13,12 @@ import nacl from "tweetnacl";
 // Suppress Effect version mismatch warnings
 const originalWarn = console.warn;
 console.warn = (...args: any[]) => {
-  const message = args.join(' ');
-  if (message.includes('Executing an Effect versioned')) {
+  const message = args.join(" ");
+  if (message.includes("Executing an Effect versioned")) {
     return; // Suppress this specific warning
   }
   originalWarn.apply(console, args);
 };
-
 
 const MAX_PLAYERS = 16;
 
@@ -141,7 +140,6 @@ type WitnessPrivateState = {
   nextAction?: WitnessActionData;
   encryptionKeypair?: { secretKey: Uint8Array; publicKey: Uint8Array };
 };
-
 
 type GameState = {
   gameId: bigint;
@@ -850,20 +848,18 @@ function App() {
     if (!votesMap || typeof votesMap.member !== "function") {
       throw new Error("Ledger roundEncryptedVotes map not available.");
     }
-    const roundPrefix = padBytes32(
-      phase === Phase.Day ? "day-round" : "night-round",
-    );
     const gameIdBytes = (runtimeContract as any)._persistentHash_3(gameId);
     const roundHash = runtimeContract._persistentHash_3(BigInt(round));
     const countKey = runtimeContract._hash2_0(
-      (runtimeContract as any)._hash2_0(gameIdBytes, roundPrefix),
+      gameIdBytes,
       roundHash,
     );
     const emptyVote = new Uint8Array(3); // Bytes<3>
     if (!votesMap.member(countKey)) {
       return Array.from({ length: MAX_PLAYERS }, () => emptyVote);
     }
-    const roundVec = votesMap.lookup(countKey) as Uint8Array[];
+    const roundVec2 = votesMap.lookup(countKey) as Uint8Array[][];
+    const roundVec = phase === Phase.Night ? roundVec2[0] : roundVec2[1];
     return Array.from(
       { length: MAX_PLAYERS },
       (_, idx) => roundVec[idx] ?? emptyVote,
@@ -989,9 +985,11 @@ function App() {
     const args = Array.isArray(parsed) ? parsed : [parsed];
     return args.map((value, idx) => normalizeLedgerArg(value, `arg${idx + 1}`));
   };
-  
+
   const getBatcherClient = () => {
-    if (!midnightWallet?.contract?.werewolf || !midnightProviders?.walletProvider) {
+    if (
+      !midnightWallet?.contract?.werewolf || !midnightProviders?.walletProvider
+    ) {
       throw new Error("Midnight wallet or providers not ready.");
     }
     return new BatcherClient(
@@ -1084,7 +1082,6 @@ function App() {
     }
   };
 
-
   const handleCreateGame = async () => {
     setError("");
     setStatus("");
@@ -1158,18 +1155,30 @@ function App() {
       // --- Pretty Logging for Game Setup ---
       console.group("🎲 Game Setup Details");
       console.log("Game ID:", gameId.toString());
-      console.log("Master Secret Commitment:", bytesToHex(masterSecretCommitment));
-      console.log("Merkle Tree Root:", bytesToHex(new Uint8Array(pureCircuits.testComputeHash(fromHex(initialRoot.field.toString(16).padStart(64, "0")))))); // Actually the root field itself is more useful
+      console.log(
+        "Master Secret Commitment:",
+        bytesToHex(masterSecretCommitment),
+      );
+      console.log(
+        "Merkle Tree Root:",
+        bytesToHex(
+          new Uint8Array(
+            pureCircuits.testComputeHash(
+              fromHex(initialRoot.field.toString(16).padStart(64, "0")),
+            ),
+          ),
+        ),
+      ); // Actually the root field itself is more useful
       console.log("Merkle Tree Root Field:", initialRoot.field.toString());
-      
-      const playerLogs = players.map(p => ({
+
+      const playerLogs = players.map((p) => ({
         ID: p.id,
         Role: roleName(p.role),
         "Public Key": bytesToHex(p.pk).slice(0, 10) + "...",
         "Secret Key": bytesToHex(p.sk).slice(0, 10) + "...",
         "Enc PubKey": bytesToHex(p.encKeypair.publicKey).slice(0, 10) + "...",
         Commitment: bytesToHex(p.commitment).slice(0, 10) + "...",
-        Leaf: bytesToHex(p.leaf).slice(0, 10) + "..."
+        Leaf: bytesToHex(p.leaf).slice(0, 10) + "...",
       }));
       console.table(playerLogs);
       console.groupEnd();
