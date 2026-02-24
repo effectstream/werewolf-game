@@ -31,6 +31,8 @@ export function convertMidnightLedger(obj: any): any {
           const [key, value] = entry;
           const stringKey = (key instanceof Uint8Array)
             ? toHex(key)
+            : (key !== null && typeof key === "object")
+            ? JSON.stringify(key, (_, v) => typeof v === "bigint" ? v.toString() : v)
             : String(key);
           newObj[stringKey] = convertMidnightLedger(value);
         }
@@ -50,7 +52,11 @@ export function convertMidnightLedger(obj: any): any {
   if (obj instanceof Map) {
     const newObj: any = {};
     for (const [key, value] of obj) {
-      const stringKey = (key instanceof Uint8Array) ? toHex(key) : String(key);
+      const stringKey = (key instanceof Uint8Array)
+        ? toHex(key)
+        : (key !== null && typeof key === "object")
+        ? JSON.stringify(key, (_, v) => typeof v === "bigint" ? v.toString() : v)
+        : String(key);
       newObj[stringKey] = convertMidnightLedger(value);
     }
     return newObj;

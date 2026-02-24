@@ -14,12 +14,11 @@ export ledger games: Map<Uint<32>, GameState>;
 export ledger playerAlive: Map<Uint<32>, Vector<16, Boolean>>;
 export ledger playerRoleCommitments: Map<Uint<32>, Vector<16, Bytes<32>>>;
 export ledger playerEncryptedRoles: Map<Uint<32>, Vector<16, Bytes<3>>>;
-export ledger movesSubmittedCount: Map<Bytes<32>, Vector<2, Uint<32>>>;
+export ledger movesSubmittedCount: Map<GameRoundKey, Vector<2, Uint<32>>>;
 export ledger voteNullifiers: Set<Bytes<32>>;
 export ledger gameSecrets: Map<Uint<32>, Bytes<32>>;
 
-// Back to Bytes<3>
-export ledger roundEncryptedVotes: Map<Bytes<32>, Vector<2, Vector<16, Bytes<3>>>>;
+export ledger roundEncryptedVotes: Map<GameRoundKey, Vector<2, Vector<16, Bytes<3>>>>;
 
 // Helpers
 export pure circuit selectBool(v: Vector<16, Boolean>, idx: Uint<32>): Boolean {
@@ -112,7 +111,7 @@ export circuit createGame(
     playerEncryptedRoles.insert(gameId, encRoles);
     playerRoleCommitments.insert(gameId, commitmentsVec);
 
-    const votesKey = Crypto_hash2(std_persistentHash<Uint<32>>(gameId), std_persistentHash<Uint<32>>(1 as Uint<32>));
+    const votesKey = GameRoundKey { gameId: gameId, round: 1 as Uint<32> };
     const emptyVotes2: Vector<2, Vector<16, Bytes<3>>> = [
         [empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3],
         [empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3]
@@ -152,8 +151,8 @@ export circuit nightAction(
     const encryptedHash = std_persistentHash<Bytes<3>>(encryptedAction);
     const newTranscript = Crypto_hash2(state.transcriptHash, encryptedHash);
 
-    const votesKey = Crypto_hash2(gameIdBytes, std_persistentHash<Uint<32>>(state.round));
-    
+    const votesKey = GameRoundKey { gameId: gameId, round: state.round };
+
     const currentCounts2 = movesSubmittedCount.member(votesKey) ? movesSubmittedCount.lookup(votesKey) : [0 as Uint<32>, 0 as Uint<32>];
     const currentCount = currentCounts2[0 as Uint<32>];
     
@@ -316,8 +315,8 @@ export circuit voteDay(
     const encryptedHash = std_persistentHash<Bytes<3>>(encryptedVote);
     const newTranscript = Crypto_hash2(state.transcriptHash, encryptedHash);
 
-    const votesKey = Crypto_hash2(gameIdBytes, std_persistentHash<Uint<32>>(state.round));
-    
+    const votesKey = GameRoundKey { gameId: gameId, round: state.round };
+
     const currentCounts2 = movesSubmittedCount.member(votesKey) ? movesSubmittedCount.lookup(votesKey) : [0 as Uint<32>, 0 as Uint<32>];
     const currentCount = currentCounts2[1 as Uint<32>];
     
@@ -398,7 +397,7 @@ export circuit resolveDayPhase(
 
     const nextRound = (state.round + 1) as Uint<32>;
     
-    const votesKey = Crypto_hash2(std_persistentHash<Uint<32>>(gameId), std_persistentHash<Uint<32>>(nextRound));
+    const votesKey = GameRoundKey { gameId: gameId, round: nextRound };
     const empty3 = pad(3, "");
     const emptyVotes16: Vector<16, Bytes<3>> = [empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3, empty3];
     const emptyVotes2: Vector<2, Vector<16, Bytes<3>>> = [emptyVotes16, emptyVotes16];
@@ -544,8 +543,7 @@ export circuit getEncryptedVotesForRound(
     const phase = disclose(_phase);
     const round = disclose(_round);
 
-    const gameIdBytes = std_persistentHash<Uint<32>>(gameId);
-    const votesKey = Crypto_hash2(gameIdBytes, std_persistentHash<Uint<32>>(round));
+    const votesKey = GameRoundKey { gameId: gameId, round: round };
 
     const emptyVote = pad(3, "");
     if (!roundEncryptedVotes.member(votesKey)) {

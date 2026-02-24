@@ -848,17 +848,12 @@ function App() {
     if (!votesMap || typeof votesMap.member !== "function") {
       throw new Error("Ledger roundEncryptedVotes map not available.");
     }
-    const gameIdBytes = (runtimeContract as any)._persistentHash_3(gameId);
-    const roundHash = runtimeContract._persistentHash_3(BigInt(round));
-    const countKey = runtimeContract._hash2_0(
-      gameIdBytes,
-      roundHash,
-    );
+    const roundKey = { gameId: gameId, round: BigInt(round) };
     const emptyVote = new Uint8Array(3); // Bytes<3>
-    if (!votesMap.member(countKey)) {
+    if (!votesMap.member(roundKey)) {
       return Array.from({ length: MAX_PLAYERS }, () => emptyVote);
     }
-    const roundVec2 = votesMap.lookup(countKey) as Uint8Array[][];
+    const roundVec2 = votesMap.lookup(roundKey) as Uint8Array[][];
     const roundVec = phase === Phase.Night ? roundVec2[0] : roundVec2[1];
     return Array.from(
       { length: MAX_PLAYERS },

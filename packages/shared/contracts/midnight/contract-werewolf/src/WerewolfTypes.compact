@@ -23,6 +23,11 @@ module WerewolfTypes {
         leafSecret: Bytes<32>
     }
 
+    export struct GameRoundKey {
+        gameId: Uint<32>,
+        round: Uint<32>
+    }
+
     export struct GameState {
         adminKey: ZswapCoinPublicKey,
         adminVotePublicKey: Bytes<33>,
