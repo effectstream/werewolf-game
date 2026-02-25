@@ -16,112 +16,13 @@ import {
 } from "@example-midnight/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
 import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
+import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
 
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
 const VOTE_TIMEOUT_BLOCKS = Number(
   Deno.env.get("WEREWOLF_VOTE_TIMEOUT_BLOCKS") ?? "150",
 );
-
-// ---------------------------------------------------------------------------
-// Helpers for parsing Midnight ledger map / vector formats
-// ---------------------------------------------------------------------------
-
-/**
- * Midnight ledger maps come through as either a plain JS object or a Map.
- * Return a plain Record for uniform access.
- */
-function parseLedgerMap(raw: unknown): Record<string, unknown> {
-  if (raw == null) return {};
-  if (raw instanceof Map) {
-    const out: Record<string, unknown> = {};
-    for (const [k, v] of raw.entries()) {
-      out[String(k)] = v;
-    }
-    return out;
-  }
-  if (typeof raw === "object") return raw as Record<string, unknown>;
-  return {};
-}
-
-/**
- * Extract alive player indices from the playerAlive ledger vector.
- * Handles both array-of-{key,value} and plain object keyed by index.
- */
-function extractAliveIndices(aliveVec: unknown): number[] {
-  if (aliveVec == null) return [];
-  const indices: number[] = [];
-
-  if (Array.isArray(aliveVec)) {
-    for (const entry of aliveVec) {
-      if (entry && typeof entry === "object") {
-        const e = entry as Record<string, unknown>;
-        const alive = e["value"] ?? e["alive"];
-        if (alive === true) {
-          const idx = e["key"] ?? e["playerIdx"] ?? e["index"];
-          if (typeof idx === "number") indices.push(idx);
-        }
-      }
-    }
-    return indices;
-  }
-
-  const map = parseLedgerMap(aliveVec);
-  for (const [k, v] of Object.entries(map)) {
-    if (v === true) {
-      const idx = Number(k);
-      if (!isNaN(idx)) indices.push(idx);
-    }
-  }
-  return indices;
-}
-
-/**
- * Extract the moves-submitted count for a specific (gameId, round).
- *
- * The ledger field is keyed by GameRoundKey which may serialize in various
- * formats; we try several candidates and fall back to JSON.parse iteration.
- */
-function extractVoteCount(
-  movesMap: unknown,
-  gameId: number,
-  round: number,
-): number {
-  if (movesMap == null) return 0;
-  const map = parseLedgerMap(movesMap);
-
-  const candidates = [
-    JSON.stringify({ gameId, round }),
-    JSON.stringify({ game_id: gameId, round }),
-    `GameRoundKey { gameId: ${gameId}, round: ${round} }`,
-    `${gameId}:${round}`,
-    String(gameId * 1000 + round),
-  ];
-
-  for (const key of candidates) {
-    if (key in map) {
-      const val = map[key];
-      return typeof val === "number" ? val : Number(val) || 0;
-    }
-  }
-
-  for (const [k, v] of Object.entries(map)) {
-    try {
-      const parsed = JSON.parse(k);
-      if (
-        parsed &&
-        (parsed.gameId === gameId || parsed.game_id === gameId) &&
-        parsed.round === round
-      ) {
-        return typeof v === "number" ? v : Number(v) || 0;
-      }
-    } catch {
-      // not JSON
-    }
-  }
-
-  return 0;
-}
 
 // ---------------------------------------------------------------------------
 // STF: midnightContractState
@@ -132,38 +33,21 @@ function extractVoteCount(
 stm.addStateTransition(
   "midnightContractState",
   function* (data) {
-    const payload = data.parsedInput.payload;
+    const ledger = WerewolfLedger.from(data.parsedInput.payload);
     const blockHeight = data.blockHeight;
 
     console.log("[midnight] Contract state update at block", blockHeight);
 
-    const games = parseLedgerMap(payload.Werewolf_games);
-    const aliveMap = parseLedgerMap(payload.Werewolf_playerAlive);
-    const movesMap = (payload as Record<string, unknown>)["Werewolf_movesSubmittedCount"];
-
-    for (const [gameKey, gameVal] of Object.entries(games)) {
-      let gameId: number;
-      try {
-        const parsed = JSON.parse(gameKey);
-        gameId = typeof parsed === "number"
-          ? parsed
-          : Number(parsed.id ?? parsed.gameId ?? parsed);
-      } catch {
-        gameId = Number(gameKey);
-      }
+    for (const [rawKey] of Object.entries(ledger.games())) {
+      const gameId = ledger.parseGameId(rawKey);
       if (isNaN(gameId)) continue;
 
-      const game = gameVal as Record<string, unknown>;
+      const game = ledger.getGame(gameId);
       if (!game) continue;
 
-      const round = typeof game["round"] === "number"
-        ? game["round"]
-        : Number(game["round"] ?? 0);
-      const phaseRaw = game["phase"] ?? game["currentPhase"] ?? "day";
-      const phase = typeof phaseRaw === "string" ? phaseRaw : String(phaseRaw);
-
-      const aliveForGame = aliveMap[String(gameId)] ?? aliveMap[gameKey] ?? aliveMap;
-      const aliveIndices = extractAliveIndices(aliveForGame);
+      const round = ledger.getRound(gameId);
+      const phase = ledger.getPhase(gameId);
+      const aliveIndices = ledger.aliveIndices(gameId);
       const aliveCount = aliveIndices.length;
 
       if (aliveCount === 0) continue;
@@ -176,7 +60,7 @@ stm.addStateTransition(
 
       if (existingRows.length > 0) {
         // Round already initialised — sync vote count if it changed
-        const currentVotes = extractVoteCount(movesMap, gameId, round);
+        const currentVotes = ledger.voteCount(gameId, round);
         const dbVotes = existingRows[0].votes_submitted;
 
         if (currentVotes !== dbVotes) {
