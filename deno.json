@@ -4,7 +4,7 @@
   ],
   "nodeModulesDir": "auto",
   "tasks": {
-    "build:evm": "deno task -f @example-midnight/evm-contracts build:mod",
+    "build:evm": "deno task -f @werewolf-game/evm-contracts build:mod",
     "build:midnight": "deno task -f @example-midnight/my-midnight-contract compact",
     "dev": "deno task -f @example-midnight/node dev",
     "testnet": "deno task -f @example-midnight/node dev:testnet",
