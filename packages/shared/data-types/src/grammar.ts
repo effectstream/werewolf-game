@@ -28,4 +28,23 @@ export const grammar = {
     ["round", Type.Number()],
     ["phase", Type.String()],
   ],
+  // EVM Lobby API Grammars
+  "create_game": [
+    ["maxPlayers", Type.Number()],
+  ],
+  "join_game": [
+    ["gameId", Type.Number()],
+    ["midnightAddressHash", Type.String()],
+  ],
+  "close_game": [
+    ["gameId", Type.Number()],
+  ],
+  "game_state": [
+    ["gameId", Type.Number()],
+  ],
+  "game_players": [
+    ["gameId", Type.Number()],
+  ],
 } as const satisfies GrammarDefinition;
+
+export * from "./types.ts";

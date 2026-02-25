@@ -1,19 +1,19 @@
 import { PaimaSTM } from "@paimaexample/sm";
-import { grammar } from "@example-midnight/data-types/grammar";
+import { grammar } from "@werewolf-game/data-types/grammar";
 import type { BaseStfInput } from "@paimaexample/sm";
 import { createScheduledData } from "@paimaexample/db";
 import {
-  type IGetAliveSnapshotsResult,
-  type IGetRoundStateResult,
   getAliveSnapshots,
   getRoundState,
+  type IGetAliveSnapshotsResult,
+  type IGetRoundStateResult,
   insertPendingPunishment,
   resolveRound,
   setRoundTimeout,
   snapshotAlivePlayer,
   updateRoundVoteCount,
   upsertRoundState,
-} from "@example-midnight/database";
+} from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
 import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
@@ -175,7 +175,9 @@ stm.addStateTransition(
       return;
     }
 
-    console.log(`[timeout] ${missing} player(s) missed vote — queuing punishments`);
+    console.log(
+      `[timeout] ${missing} player(s) missed vote — queuing punishments`,
+    );
 
     // Because nightAction/voteDay use Merkle-proof anonymity, we cannot tell
     // exactly who voted. As a deterministic fallback we punish the last

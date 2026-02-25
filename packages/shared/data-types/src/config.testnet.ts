@@ -1,4 +1,4 @@
-import { contractAddressesEvmMain } from "@example-midnight/evm-contracts";
+import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
 import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
 import { convertMidnightLedger } from "../../utils/paima-utils.ts";
 import { getConnection } from "@paimaexample/db";

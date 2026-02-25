@@ -3,7 +3,7 @@ import { runPreparedQuery } from "@paimaexample/db";
 import {
   evmMidnightTableExists,
   getEvmMidnight,
-} from "@example-midnight/database";
+} from "@werewolf-game/database";
 import type { Pool } from "pg";
 import type { StartConfigApiRouter } from "@paimaexample/runtime";
 import type fastify from "fastify";

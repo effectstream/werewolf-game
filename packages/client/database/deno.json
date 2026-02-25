@@ -1,5 +1,5 @@
 {
-    "name": "@example-midnight/database",
+    "name": "@werewolf-game/database",
     "version": "0.3.22",
     "license": "MIT",
     "exports": "./src/mod.ts",
