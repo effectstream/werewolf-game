@@ -11,8 +11,16 @@ import { BatcherClient } from "../../../../shared/utils/batcher-client.ts";
 import nacl from "tweetnacl";
 import { useEvmWallet } from "./contexts/EvmWalletContext.tsx";
 import { WalletModal } from "./components/WalletModal.tsx";
-import { createContractClient } from "@werewolf-game/evm-contracts/src/contract-client.ts";
+import {
+  createPublicClient,
+  http,
+  parseAbi,
+  type WalletClient,
+} from "viem";
 import { hardhat } from "viem/chains";
+import myPaimaL2AbiArtifact from "../../../../shared/contracts/evm/build/artifacts/hardhat/src/contracts/MyPaimaL2.sol/MyPaimaL2Contract.json" with { type: "json" };
+
+const myPaimaL2Abi = myPaimaL2AbiArtifact.abi;
 
 // Suppress Effect version mismatch warnings
 const originalWarn = console.warn;
@@ -1215,10 +1223,42 @@ function App() {
         BigInt(werewolfCount),
       );
 
+      // Create game on EVM contract
+      setStatus("Creating game on EVM chain…");
+      // Deployed on local Hardhat network (chain-31337).
+      // Source: packages/shared/contracts/evm/ignition/deployments/chain-31337/deployed_addresses.json
+      const evmContractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
+      const evmRpcUrl = "http://127.0.0.1:8545"; // Default Hardhat
+
+      // Get the viem wallet client from the connected wallet
+      const walletApiClient = evmWallet?.provider.getConnection().api as WalletClient;
+      if (!walletApiClient) {
+        throw new Error("EVM wallet API not available. Please reconnect your wallet.");
+      }
+
+      // Create public client for reading/simulating
+      const publicClient = createPublicClient({
+        chain: hardhat,
+        transport: http(evmRpcUrl),
+      });
+
+      // Use the ABI directly (it's already in the correct format)
+      const abi = myPaimaL2Abi;
+
+      // Read the game ID the contract will assign to the next createGame call.
+      // The contract auto-increments nextGameId, so reading before the tx gives
+      // us the ID that will be stored — used to register the same ID in the DB.
+      const evmGameId = await publicClient.readContract({
+        address: evmContractAddress as `0x${string}`,
+        abi,
+        functionName: "nextGameId",
+        args: [],
+      }) as bigint;
+
       // Invoke backend API to register game
       setStatus("Registering game with backend…");
       const apiResponse = await fetch(
-        `/api/create_game?maxPlayers=${playerCount}`,
+        `/api/create_game?gameId=${evmGameId}&maxPlayers=${playerCount}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1234,21 +1274,23 @@ function App() {
       const apiData = await apiResponse.json();
       console.log("API Response:", apiData);
 
-      // Create game on EVM contract
       setStatus("Creating game on EVM chain…");
-      const evmContractAddress =
-        "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"; // Default fallback
-      const evmRpcUrl = "http://127.0.0.1:8545"; // Default Hardhat
-
-      // Create EVM contract client
-      const evmClient = createContractClient(
-        hardhat,
-        evmContractAddress,
-        evmRpcUrl,
-      );
+      // The contract's createGame takes only _maxPlayers; the game ID is assigned
+      // by the contract itself via nextGameId (read above).
+      const { request } = await publicClient.simulateContract({
+        address: evmContractAddress as `0x${string}`,
+        abi,
+        functionName: "createGame",
+        args: [BigInt(playerCount)],
+        account: walletApiClient.account,
+      });
 
       // Create game on EVM contract using connected wallet
-      await evmClient.createGame(playerCount);
+      const hash = await walletApiClient.writeContract(request);
+
+      // Wait for transaction to be mined
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      console.log("EVM Game created:", receipt.transactionHash);
 
       setGame({
         gameId,
@@ -1283,6 +1325,7 @@ Players: ${playerCount}
 Werewolves: ${werewolfCount}
 Midnight: ✅
 EVM: ✅`,
+      );
     } catch (e: any) {
       console.error("Create game failed:", e);
       setError(e?.message ?? "Create game failed.");

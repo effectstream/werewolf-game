@@ -1,14 +1,7 @@
 import { type Static, Type } from "@sinclair/typebox";
-import { runPreparedQuery } from "@paimaexample/db";
-import {
-  evmMidnightTableExists,
-  getEvmMidnight,
-} from "@werewolf-game/database";
 import type { Pool } from "pg";
 import type { StartConfigApiRouter } from "@paimaexample/runtime";
 import type fastify from "fastify";
-import { hardhat } from "npm:viem/chains";
-import { initWerewolfContractClient } from "@werewolf-game/evm-contracts/client";
 import {
   closeGameHandler,
   createGameHandler,
@@ -49,14 +42,6 @@ export const apiRouter: StartConfigApiRouter = async function (
   server: fastify.FastifyInstance,
   dbConn: Pool,
 ): Promise<void> {
-  // Initialise the EVM contract client once at startup.
-  // Override via EVM_CONTRACT_ADDRESS / EVM_RPC_URL environment variables.
-  initWerewolfContractClient(
-    hardhat,
-    Deno.env.get("EVM_CONTRACT_ADDRESS") ?? "YOUR_CONTRACT_ADDRESS",
-    Deno.env.get("EVM_RPC_URL") ?? "http://localhost:8545",
-  );
-
   server.get<{
     Querystring: Static<typeof FaucetQueryParamsSchema>;
     Reply: Static<typeof FaucetResponseSchema>;

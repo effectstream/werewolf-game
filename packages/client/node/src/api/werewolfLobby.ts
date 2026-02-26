@@ -1,53 +1,83 @@
 import type { Pool } from "pg";
 import {
-  getWerewolfContractClient,
-} from "@werewolf-game/evm-contracts";
+  closeLobby,
+  getLobby,
+  getLobbyPlayers,
+  insertLobbyPlayer,
+  incrementLobbyPlayerCount,
+  upsertLobby,
+} from "@werewolf-game/database";
 
 export async function createGameHandler(
-  _dbConn: Pool,
+  dbConn: Pool,
   gameId: number,
   maxPlayers: number,
 ) {
-  const client = getWerewolfContractClient();
-  const result = await client.createGame(gameId, maxPlayers);
+  // Create game record in database
+  await upsertLobby.run(
+    {
+      game_id: gameId,
+      max_players: maxPlayers,
+      created_block: 0,
+    },
+    dbConn,
+  );
   return {
-    gameId: Number(result.gameId),
+    gameId,
     state: "Open" as const,
   };
 }
 
 export async function joinGameHandler(
-  _dbConn: Pool,
+  dbConn: Pool,
   gameId: number,
   midnightAddressHash: string,
 ) {
-  const client = getWerewolfContractClient();
-  const result = await client.joinGame(gameId, midnightAddressHash);
-  return { success: result.success };
+  // Add player to lobby in database
+  await insertLobbyPlayer.run(
+    {
+      game_id: gameId,
+      midnight_address_hash: midnightAddressHash,
+      joined_block: 0,
+    },
+    dbConn,
+  );
+  await incrementLobbyPlayerCount.run(
+    { game_id: gameId },
+    dbConn,
+  );
+  return { success: true };
 }
 
-export async function closeGameHandler(_dbConn: Pool, gameId: number) {
-  const client = getWerewolfContractClient();
-  const result = await client.closeGame(gameId);
-  return { success: result.success };
+export async function closeGameHandler(dbConn: Pool, gameId: number) {
+  await closeLobby.run({ game_id: gameId }, dbConn);
+  return { success: true };
 }
 
-export async function getGameStateHandler(_dbConn: Pool, gameId: number) {
-  const client = getWerewolfContractClient();
-  const game = await client.getGame(gameId);
+export async function getGameStateHandler(dbConn: Pool, gameId: number) {
+  const lobbyRows = await getLobby.run({ game_id: gameId }, dbConn);
+  if (lobbyRows.length === 0) {
+    throw new Error(`Game ${gameId} not found`);
+  }
+  const lobby = lobbyRows[0];
   return {
-    id: Number(game.id),
-    state: game.state === 0 ? ("Open" as const) : ("Closed" as const),
-    playerCount: Number(game.playerCount),
-    maxPlayers: Number(game.maxPlayers),
+    id: lobby.game_id,
+    state: lobby.closed ? ("Closed" as const) : ("Open" as const),
+    playerCount: lobby.player_count,
+    maxPlayers: lobby.max_players,
   };
 }
 
-export async function getPlayersHandler(_dbConn: Pool, gameId: number) {
-  const client = getWerewolfContractClient();
-  const players = await client.getPlayers(gameId);
+export async function getPlayersHandler(dbConn: Pool, gameId: number) {
+  const players = await getLobbyPlayers.run({ game_id: gameId }, dbConn);
   return {
     gameId,
-    players,
+    players: players.map((p) => ({
+      // evmAddress is not stored in the DB — it is only available on-chain via
+      // the PlayerJoined event. Callers that need EVM addresses should read
+      // getPlayers() directly from the EVM contract.
+      evmAddress: "",
+      midnightAddressHash: p.midnight_address_hash,
+    })),
   };
 }
