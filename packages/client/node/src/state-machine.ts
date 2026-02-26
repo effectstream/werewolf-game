@@ -3,15 +3,22 @@ import { grammar } from "@werewolf-game/data-types/grammar";
 import type { BaseStfInput } from "@paimaexample/sm";
 import { createScheduledData } from "@paimaexample/db";
 import {
+  closeLobby,
   getAliveSnapshots,
+  getLobby,
   getRoundState,
-  type IGetAliveSnapshotsResult,
-  type IGetRoundStateResult,
+  incrementLobbyPlayerCount,
+  insertLobbyPlayer,
   insertPendingPunishment,
+  type IGetAliveSnapshotsResult,
+  type IGetLobbyResult,
+  type IGetRoundStateResult,
   resolveRound,
+  setLobbyTimeout,
   setRoundTimeout,
   snapshotAlivePlayer,
   updateRoundVoteCount,
+  upsertLobby,
   upsertRoundState,
 } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
@@ -22,6 +29,14 @@ const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
 const VOTE_TIMEOUT_BLOCKS = Number(
   Deno.env.get("WEREWOLF_VOTE_TIMEOUT_BLOCKS") ?? "150",
+);
+
+const LOBBY_TIMEOUT_BLOCKS = Number(
+  Deno.env.get("WEREWOLF_LOBBY_TIMEOUT_BLOCKS") ?? "150",
+);
+
+const LOBBY_MIN_PLAYERS = Number(
+  Deno.env.get("WEREWOLF_LOBBY_MIN_PLAYERS") ?? "5",
 );
 
 // ---------------------------------------------------------------------------
@@ -202,6 +217,148 @@ stm.addStateTransition(
     }
 
     yield* World.resolve(resolveRound, { game_id: gameId, round, phase });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// STF: create_game
+// Fires when a create_game input is processed. Records the lobby in the DB
+// and schedules a werewolfLobbyTimeout at blockHeight + LOBBY_TIMEOUT_BLOCKS.
+// ---------------------------------------------------------------------------
+
+stm.addStateTransition(
+  "create_game",
+  function* (data) {
+    const { gameId, maxPlayers } = data.parsedInput as {
+      gameId: number;
+      maxPlayers: number;
+    };
+    const blockHeight = data.blockHeight;
+
+    console.log(
+      `[lobby] create_game game=${gameId} maxPlayers=${maxPlayers} at block=${blockHeight}`,
+    );
+
+    yield* World.resolve(upsertLobby, {
+      game_id: gameId,
+      max_players: maxPlayers,
+      created_block: blockHeight,
+    });
+
+    const timeoutBlock = blockHeight + LOBBY_TIMEOUT_BLOCKS;
+
+    yield* World.resolve(setLobbyTimeout, {
+      game_id: gameId,
+      timeout_block: timeoutBlock,
+    });
+
+    yield* createScheduledData(
+      JSON.stringify(["werewolfLobbyTimeout", gameId]),
+      { blockHeight: timeoutBlock },
+      { precompile: "system_generated" },
+    );
+
+    console.log(
+      `[lobby] Scheduled lobby timeout game=${gameId} at block=${timeoutBlock}`,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// STF: join_game
+// Fires when a join_game input is processed. Adds the player to the lobby
+// player list and increments the lobby player count.
+// ---------------------------------------------------------------------------
+
+stm.addStateTransition(
+  "join_game",
+  function* (data) {
+    const { gameId, midnightAddressHash } = data.parsedInput as {
+      gameId: number;
+      midnightAddressHash: string;
+    };
+    const blockHeight = data.blockHeight;
+
+    console.log(
+      `[lobby] join_game game=${gameId} player=${midnightAddressHash} at block=${blockHeight}`,
+    );
+
+    yield* World.resolve(insertLobbyPlayer, {
+      game_id: gameId,
+      midnight_address_hash: midnightAddressHash,
+      joined_block: blockHeight,
+    });
+
+    yield* World.resolve(incrementLobbyPlayerCount, {
+      game_id: gameId,
+    });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// STF: close_game
+// Fires when a close_game input is processed. Marks the lobby as closed.
+// ---------------------------------------------------------------------------
+
+stm.addStateTransition(
+  "close_game",
+  function* (data) {
+    const { gameId } = data.parsedInput as { gameId: number };
+    const blockHeight = data.blockHeight;
+
+    console.log(
+      `[lobby] close_game game=${gameId} at block=${blockHeight}`,
+    );
+
+    yield* World.resolve(closeLobby, { game_id: gameId });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// STF: werewolfLobbyTimeout
+// Fires at the scheduled block. If fewer than LOBBY_MIN_PLAYERS have joined,
+// force-closes the lobby. Otherwise, the game proceeds normally.
+// ---------------------------------------------------------------------------
+
+stm.addStateTransition(
+  "werewolfLobbyTimeout",
+  function* (data) {
+    const { gameId } = data.parsedInput as { gameId: number };
+    const blockHeight = data.blockHeight;
+
+    console.log(
+      `[lobby-timeout] Fired for game=${gameId} at block=${blockHeight}`,
+    );
+
+    const lobbyRows = (yield* World.resolve(getLobby, {
+      game_id: gameId,
+    })) as IGetLobbyResult[];
+
+    if (lobbyRows.length === 0) {
+      console.warn(`[lobby-timeout] No lobby found for game=${gameId} — skipping`);
+      return;
+    }
+
+    const lobby = lobbyRows[0];
+
+    if (lobby.closed) {
+      console.log(`[lobby-timeout] Lobby game=${gameId} already closed — skipping`);
+      return;
+    }
+
+    if (lobby.player_count < LOBBY_MIN_PLAYERS) {
+      console.log(
+        `[lobby-timeout] game=${gameId} has ${lobby.player_count}/${LOBBY_MIN_PLAYERS} players — force-closing lobby`,
+      );
+      yield* World.resolve(closeLobby, { game_id: gameId });
+      console.log(
+        `[lobby-timeout] ADMIN ACTION REQUIRED: close EVM game ${gameId} on-chain (insufficient players)`,
+      );
+    } else {
+      console.log(
+        `[lobby-timeout] game=${gameId} has ${lobby.player_count} players — lobby timeout reached, game may proceed`,
+      );
+    }
   },
 );
 

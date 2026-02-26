@@ -1,6 +1,7 @@
 import { Type } from "@sinclair/typebox";
 
 export const CreateGameQuerystringSchema = Type.Object({
+  gameId: Type.Number(),
   maxPlayers: Type.Number(),
 });
 

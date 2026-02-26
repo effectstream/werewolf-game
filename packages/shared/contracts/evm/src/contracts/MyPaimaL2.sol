@@ -26,11 +26,8 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @dev Mapping of games indexed by game ID
     mapping(uint256 => Game) public games;
 
-    /// @dev Counter for generating unique game IDs
-    uint256 public nextGameId;
-
     /// @dev Emitted when a new game is created
-    event GameCreated(uint256 indexed gameId, uint256 maxPlayers);
+    event GameCreated(uint32 indexed gameId, uint256 maxPlayers);
 
     /// @dev Emitted when a player joins a game
     event PlayerJoined(uint256 indexed gameId, address indexed evmAddress, bytes32 midnightAddressHash);
@@ -38,26 +35,23 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @dev Emitted when a game is closed
     event GameClosed(uint256 indexed gameId);
 
-    constructor(address _owner, uint256 _fee) PaimaL2Contract(_owner, _fee) {
-        nextGameId = 1;
-    }
+    constructor(address _owner, uint256 _fee) PaimaL2Contract(_owner, _fee) {}
 
     /// @dev Creates a new game lobby
+    /// @param _gameId ID of the game to create
     /// @param _maxPlayers Maximum number of players for this game (max 16)
-    function createGame(uint256 _maxPlayers) public {
+    function createGame(uint32 _gameId, uint256 _maxPlayers) public {
+        require(games[_gameId].id == 0, "Game already exists");
         require(_maxPlayers > 0 && _maxPlayers <= 16, "Invalid max players");
-        
-        uint256 gameId = nextGameId;
-        nextGameId++;
 
         // Initialize storage fields individually to avoid memory[] -> storage copy.
-        Game storage game = games[gameId];
-        game.id = gameId;
+        Game storage game = games[_gameId];
+        game.id = _gameId;
         game.state = GameState.Open;
         game.playerCount = 0;
         game.maxPlayers = _maxPlayers;
-        
-        emit GameCreated(gameId, _maxPlayers);
+
+        emit GameCreated(_gameId, _maxPlayers);
     }
 
     /// @dev Joins an existing game lobby

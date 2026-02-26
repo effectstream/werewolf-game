@@ -3,7 +3,8 @@
   "exports": {
     ".": "./mod.ts",
     "./build": "./build/mod.ts",
-    "./contractAddressesEvmMain": "./build/contractAddressesEvmMain.ts"
+    "./contractAddressesEvmMain": "./build/contractAddressesEvmMain.ts",
+    "./client": "./src/contract-client.ts"
   },
   "version": "0.3.23",
   "license": "MIT",

@@ -1,70 +1,53 @@
 import type { Pool } from "pg";
-import type { ApiRouter } from "@paimaexample/runtime";
-import type fastify from "fastify";
-import { createGameHandler, joinGameHandler, closeGameHandler, getGameStateHandler, getPlayersHandler } from "./api/werewolfLobby";
-import { apiWerewolfContract } from "@werewolf-game/api";
-import { initWerewolfContractClient } from "@werewolf-game/evm-contracts";
+import {
+  getWerewolfContractClient,
+} from "@werewolf-game/evm-contracts";
 
-export const apiWerewolfHandlers: ApiRouter = async function (
-  server: fastify.FastifyInstance,
-  dbConn: Pool,
-): Promise<void> {
+export async function createGameHandler(
+  _dbConn: Pool,
+  gameId: number,
+  maxPlayers: number,
+) {
+  const client = getWerewolfContractClient();
+  const result = await client.createGame(gameId, maxPlayers);
+  return {
+    gameId: Number(result.gameId),
+    state: "Open" as const,
+  };
+}
 
-  // Initialize contract client with actual configuration
-  initWerewolfContractClient(
-    server,
-    "YOUR_CONTRACT_ADDRESS",
-    "http://localhost:8545"
-  );
+export async function joinGameHandler(
+  _dbConn: Pool,
+  gameId: number,
+  midnightAddressHash: string,
+) {
+  const client = getWerewolfContractClient();
+  const result = await client.joinGame(gameId, midnightAddressHash);
+  return { success: result.success };
+}
 
-  return server.router(apiWerewolfContract, {
-    createGame: async ({ query: { maxPlayers } }) => {
-      const result = await createGameHandler(dbConn, parseInt(maxPlayers));
-      return {
-        status: 200,
-        body: result,
-      };
-    },
-    joinGame: async ({ query: { gameId, midnightAddressHash } }) => {
-      const result = await joinGameHandler(dbConn, parseInt(gameId), midnightAddressHash);
-      return {
-        status: 200,
-        body: result,
-      };
-    },
-    closeGame: async ({ query: { gameId } }) => {
-      const result = await closeGameHandler(dbConn, parseInt(gameId));
-      return {
-        status: 200,
-        body: result,
-      };
-    },
-    getGameState: async ({ query: { gameId } }) => {
-      const result = await getGameStateHandler(dbConn, parseInt(gameId));
-      return {
-        status: 200,
-        body: result,
-      };
-    },
-    getPlayers: async ({ query: { gameId } }) => {
-      const result = await getPlayersHandler(dbConn, parseInt(gameId));
-      return {
-        status: 200,
-        body: result,
-      };
-    },
-  });
-};
+export async function closeGameHandler(_dbConn: Pool, gameId: number) {
+  const client = getWerewolfContractClient();
+  const result = await client.closeGame(gameId);
+  return { success: result.success };
+}
 
-// Initialize function to be called on startup
-export function initWerewolfContractClient(
-  chain: any,
-  contractAddress: string,
-  rpcUrl: string
-): void {
-  contractClient = createContractClient(
-    chain,
-    contractAddress,
-    rpcUrl
-  );
+export async function getGameStateHandler(_dbConn: Pool, gameId: number) {
+  const client = getWerewolfContractClient();
+  const game = await client.getGame(gameId);
+  return {
+    id: Number(game.id),
+    state: game.state === 0 ? ("Open" as const) : ("Closed" as const),
+    playerCount: Number(game.playerCount),
+    maxPlayers: Number(game.maxPlayers),
+  };
+}
+
+export async function getPlayersHandler(_dbConn: Pool, gameId: number) {
+  const client = getWerewolfContractClient();
+  const players = await client.getPlayers(gameId);
+  return {
+    gameId,
+    players,
+  };
 }

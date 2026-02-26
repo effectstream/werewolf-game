@@ -12,11 +12,26 @@ import myPaimaL2Abi from "@werewolf-game/evm-contracts/artifacts/hardhat/contrac
 // Create ABI type
 type MyPaimaL2ContractAbi = typeof myPaimaL2Abi;
 
+export enum GameState {
+  Open = 0,
+  Closed = 1,
+}
+
 // Client interface
 export interface WerewolfContractClient {
   chain: Chain;
   contractAddress: `0x${string}`;
-  createGame(maxPlayers: number): Promise<{ gameId: bigint }>;
+  createGame(
+    gameId: number,
+    maxPlayers: number,
+  ): Promise<
+    {
+      gameId: bigint;
+      gameState: GameState;
+      playerCount: bigint;
+      maxPlayers: bigint;
+    }
+  >;
   joinGame(
     gameId: number,
     midnightAddressHash: string,
@@ -58,12 +73,12 @@ export function createContractClient(
     chain,
     contractAddress,
 
-    createGame: async (maxPlayers: number) => {
+    createGame: async (_gameId: number, maxPlayers: number = 16) => {
       const { request } = await publicClient.simulateContract({
         address: contractAddress as `0x${string}`,
         abi,
         functionName: "createGame",
-        args: [maxPlayers],
+        args: [_gameId, maxPlayers],
       });
 
       const hash = await walletClient.writeContract(request);
@@ -82,7 +97,12 @@ export function createContractClient(
 
       const gameId = gameCreatedLog.args[0] as bigint;
 
-      return { gameId };
+      return {
+        gameId,
+        gameState: GameState.Open,
+        playerCount: 0,
+        maxPlayers: maxPlayers,
+      };
     },
 
     joinGame: async (gameId: number, midnightAddressHash: string) => {
@@ -177,16 +197,21 @@ export function createContractClient(
   };
 }
 
-// Helper function to create a wallet client (for transactions)
-function createWalletClient(config: Parameters<typeof createPublicClient>) {
-  return createWalletClient(config);
+let contractClient: WerewolfContractClient | null = null;
+
+export function initWerewolfContractClient(
+  chain: Chain,
+  contractAddress: string,
+  rpcUrl: string,
+): void {
+  contractClient = createContractClient(chain, contractAddress, rpcUrl);
 }
 
-// Helper to convert GameState enum to/from number
-function gameStateToNumber(state: 0 | 1): 0 | 1 {
-  return state;
-}
-
-function numberToGameState(num: number): 0 | 1 {
-  return num as 0 | 1;
+export function getWerewolfContractClient(): WerewolfContractClient {
+  if (!contractClient) {
+    throw new Error(
+      "WerewolfContractClient not initialised. Call initWerewolfContractClient() first.",
+    );
+  }
+  return contractClient;
 }

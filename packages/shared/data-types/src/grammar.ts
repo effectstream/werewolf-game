@@ -28,8 +28,14 @@ export const grammar = {
     ["round", Type.Number()],
     ["phase", Type.String()],
   ],
+  // Scheduled input: fires at a future block when a lobby timeout expires.
+  // Produced by createScheduledData() in the create_game STF.
+  "werewolfLobbyTimeout": [
+    ["gameId", Type.Number()],
+  ],
   // EVM Lobby API Grammars
   "create_game": [
+    ["gameId", Type.Number()],
     ["maxPlayers", Type.Number()],
   ],
   "join_game": [
