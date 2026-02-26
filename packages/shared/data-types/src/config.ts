@@ -6,10 +6,16 @@ import {
   ConfigSyncProtocolType,
 } from "@paimaexample/config";
 import { getConnection } from "@paimaexample/db";
-import { PrimitiveTypeMidnightGeneric } from "@paimaexample/sm/builtin";
+import {
+  PrimitiveTypeEVMPaimaL2,
+  PrimitiveTypeMidnightGeneric,
+} from "@paimaexample/sm/builtin";
 import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+import { hardhat } from "viem/chains";
 import { convertMidnightLedger } from "../../utils/paima-utils.ts";
+import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
+import { paimaL2Grammar } from "@werewolf-game/data-types/grammar";
 
 /**
  * Let check if the db.
@@ -60,6 +66,10 @@ export const config = new ConfigBuilder()
         networkId: midnightNetworkConfig.id,
         nodeUrl: midnightNetworkConfig.node,
       })
+      .addViemNetwork({
+        ...hardhat,
+        name: "evmParallel_fast",
+      })
   )
   .buildDeployments((builder) => builder).buildSyncProtocols((builder) =>
     builder
@@ -84,6 +94,17 @@ export const config = new ConfigBuilder()
           indexerWs: midnightNetworkConfig.indexerWS,
         }),
       )
+      .addParallel(
+        (networks) => (networks as any).evmParallel_fast,
+        (network, deployments) => ({
+          name: "parallelEvmRPC_fast",
+          type: ConfigSyncProtocolType.EVM_RPC_PARALLEL,
+          chainUri: network.rpcUrls.default.http[0],
+          startBlockHeight: 1,
+          pollingInterval: 500, // poll quickly to react fast
+          confirmationDepth: 1, // TODO: test this
+        }),
+      )
   )
   .buildPrimitives((builder) =>
     builder
@@ -105,6 +126,18 @@ export const config = new ConfigBuilder()
             },
           },
           networkId: midnightNetworkConfig.id,
+        }),
+      )
+      .addPrimitive(
+        (syncProtocols) => (syncProtocols as any).parallelEvmRPC_fast,
+        (network, deployments, syncProtocol) => ({
+          name: "PaimaGameInteraction",
+          type: PrimitiveTypeEVMPaimaL2,
+          startBlockHeight: 0,
+          contractAddress: contractAddressesEvmMain()["chain31337"][
+            "PaimaL2ContractModule#MyPaimaL2Contract"
+          ],
+          paimaL2Grammar: paimaL2Grammar,
         }),
       )
   )

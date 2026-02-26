@@ -7,6 +7,7 @@ import { readMidnightContract } from "@paimaexample/midnight-contracts/read-cont
 import { Contract, witnesses } from "@example-midnight/my-midnight-contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
 import { WerewolfBalancingAdapter } from "./adapters/werewolf-balancing-adapter.ts";
+import { paimaL2Adapter } from "./adapters/adapter-paimaL2.ts";
 import * as path from "@std/path";
 
 const isEnvTrue = (key: string) =>
@@ -92,7 +93,7 @@ const midnightBalancingAdapter = midnight_enabled
 export const config: BatcherConfig = {
   pollingIntervalMs: batchIntervalMs,
   adapters: {
-    // paimaL2,
+    paimaL2: paimaL2Adapter,
     ...(midnightAdapter ? { midnight: midnightAdapter } : {}),
     ...(midnightBalancingAdapter
       ? { midnight_balancing: midnightBalancingAdapter }

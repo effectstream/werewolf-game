@@ -22,6 +22,8 @@ class GameState {
   selectedPlayer: Player | null = null
   hoveredPlayer: Player | null = null
   targetEnvironmentMix: number = 0
+  lobbyGameId: number | null = null
+  playerEvmAddress: string | null = null
   
   private listeners: (() => void)[] = []
 

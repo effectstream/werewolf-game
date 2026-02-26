@@ -8,18 +8,37 @@ import {
   pureCircuits,
 } from "../../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 import { BatcherClient } from "../../../../shared/utils/batcher-client.ts";
+import { werewolfIdCodec } from "../../../../shared/utils/werewolf-id-codec.ts";
 import nacl from "tweetnacl";
 import { useEvmWallet } from "./contexts/EvmWalletContext.tsx";
 import { WalletModal } from "./components/WalletModal.tsx";
-import { createPublicClient, http, parseAbi, type WalletClient } from "viem";
+import { BatcherService } from "./services/batcherService.ts";
+import { createWalletClient, custom } from "viem";
 import { hardhat } from "viem/chains";
-import myPaimaL2AbiArtifact from "../../../../shared/contracts/evm/build/artifacts/hardhat/src/contracts/MyPaimaL2.sol/MyPaimaL2Contract.json" with {
-  type: "json",
-};
-
-const myPaimaL2Abi = myPaimaL2AbiArtifact.abi;
 
 const NODE_API_URL = "http://localhost:9999";
+
+// Component to display game ID with human-readable name and hover tooltip
+function GameIdDisplay({ gameId }: { gameId: bigint | number }) {
+  const readableId = werewolfIdCodec.encode(gameId);
+  const rawId = typeof gameId === "bigint"
+    ? gameId.toString()
+    : gameId.toString();
+
+  return (
+    <span
+      title={`Raw Game ID: ${rawId}`}
+      className="game-id-display"
+      style={{
+        cursor: "help",
+        borderBottom: "1px dotted",
+        borderBottomColor: "#888",
+      }}
+    >
+      {readableId}
+    </span>
+  );
+}
 
 // Suppress Effect version mismatch warnings
 const originalWarn = console.warn;
@@ -499,6 +518,8 @@ function App() {
   const [dayVoteInputs, setDayVoteInputs] = useState<string[]>([]);
   const [nightEliminationInput, setNightEliminationInput] = useState("0");
   const [dayEliminationInput, setDayEliminationInput] = useState("0");
+  const [chatMessages, setChatMessages] = useState<Array<{ id: number; text: string; timestamp: Date }>>([]);
+  const [chatInput, setChatInput] = useState("");
 
   const runtimeWitnesses = useMemo(
     () => ({
@@ -1175,6 +1196,7 @@ function App() {
       // --- Pretty Logging for Game Setup ---
       console.group("🎲 Game Setup Details");
       console.log("Game ID:", gameId.toString());
+      console.log("Game Phrase:", werewolfIdCodec.encode(gameId));
       console.log(
         "Master Secret Commitment:",
         bytesToHex(masterSecretCommitment),
@@ -1222,37 +1244,40 @@ function App() {
         BigInt(werewolfCount),
       );
 
-      // Create game on EVM contract
-      setStatus("Creating game on EVM chain…");
-      // Deployed on local Hardhat network (chain-31337).
-      // Source: packages/shared/contracts/evm/ignition/deployments/chain-31337/deployed_addresses.json
-      const evmContractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3";
-      const evmRpcUrl = "http://127.0.0.1:8545"; // Default Hardhat
+      // Create an EIP-1193 compatible wrapper for the Paima wallet provider.
+      const providerConnection = evmWallet?.provider.getConnection() as
+        { api: { request: (args: { method: string; params?: any[] }) => Promise<any> } } | undefined;
+      console.log("Provider connection:", providerConnection);
 
-      // Get the viem wallet client from the connected wallet
-      const walletApiClient = evmWallet?.provider.getConnection()
-        .api as WalletClient;
-      if (!walletApiClient) {
+      if (!providerConnection) {
         throw new Error(
-          "EVM wallet API not available. Please reconnect your wallet.",
+          "EVM wallet provider not available. Please reconnect your wallet.",
         );
       }
 
-      // Create public client for reading/simulating
-      const publicClient = createPublicClient({
+      const evmProvider = {
+        request: async ({ method, params }: { method: string; params?: any[] }) => {
+          console.log("EIP-1193 request:", method, params);
+          return await providerConnection.api.request({ method, params });
+        },
+      };
+      
+      const walletApiClient = createWalletClient({
+        account: evmAddress as `0x${string}`,
         chain: hardhat,
-        transport: http(evmRpcUrl),
+        transport: custom(evmProvider),
       });
-
-      // Use the ABI directly (it's already in the correct format)
-      const abi = myPaimaL2Abi;
 
       setStatus("Registering game with backend…");
       const apiResponse = await fetch(
-        `${NODE_API_URL}/api/create_game?gameId=${gameId}&maxPlayers=${playerCount}`,
+        `${NODE_API_URL}/api/create_game`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            gameId: gameId.toString(),
+            maxPlayers: playerCount,
+          }),
         },
       );
 
@@ -1265,22 +1290,18 @@ function App() {
       const apiData = await apiResponse.json();
       console.log("API Response:", apiData);
 
-      setStatus("Creating game on EVM chain…");
-      // The contract's createGame takes gameId and maxPlayers as parameters.
-      const { request } = await publicClient.simulateContract({
-        address: evmContractAddress as `0x${string}`,
-        abi,
-        functionName: "createGame",
-        args: [gameId, BigInt(playerCount)],
-        account: walletApiClient.account,
-      });
+      // Create game on EVM chain via batcher (paimaL2 target)
+      setStatus("Creating game on EVM chain via batcher…");
 
-      // Create game on EVM contract using connected wallet
-      const hash = await walletApiClient.writeContract(request);
+      // Send to batcher with target "paimaL2"
+      await BatcherService.createGame(
+        evmAddress,
+        gameId,
+        playerCount,
+        ({ message }) => walletApiClient.signMessage({ message: message as any }),
+      );
 
-      // Wait for transaction to be mined
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      console.log("EVM Game created:", receipt.transactionHash);
+      console.log("Game created on EVM chain via batcher");
 
       setGame({
         gameId,
@@ -1310,7 +1331,7 @@ function App() {
       setStatus(
         `Game created successfully.
 
-GameId: ${gameId}
+GameId: ${werewolfIdCodec.encode(gameId)}
 Players: ${playerCount}
 Werewolves: ${werewolfCount}
 Midnight: ✅
@@ -1901,11 +1922,23 @@ EVM: ✅`,
     setStatus("Game state cleared.");
   };
 
+  const handleSendMessage = () => {
+    const message = chatInput.trim();
+    if (!message) return;
+    setChatMessages((prev) => [
+      ...prev,
+      { id: Date.now(), text: message, timestamp: new Date() }
+    ]);
+    setChatInput("");
+  };
+
   return (
     <div className="page">
-      <div className="card">
-        <div className="title">Midnight dApp</div>
-        <div className="subtitle">Werewolf game (Trusted Node view)</div>
+      <div className="app-container">
+        <div className="main-content">
+          <div className="card">
+            <div className="title">Midnight dApp</div>
+            <div className="subtitle">Werewolf game (Trusted Node view)</div>
 
         <div className="actions">
           <button
@@ -1955,7 +1988,10 @@ EVM: ✅`,
           <div className="info">
             <div className="label">Game info</div>
             <div className="mono">
-              {`GameId: 0x${game.gameId.toString()}\nRound: ${game.round}\nPhase: ${
+              {`GameId: `}
+              <GameIdDisplay gameId={game.gameId} />
+              {"\n"}
+              {`Round: ${game.round}\nPhase: ${
                 phaseName(game.phase)
               }\nPlayers: ${game.playerCount}\nWerewolves: ${game.werewolfCount}`}
             </div>
@@ -2216,6 +2252,46 @@ EVM: ✅`,
         {error && <pre className="message message-error">{error}</pre>}
         {status && <pre className="message message-ok">{status}</pre>}
         {isModalOpen && <WalletModal onClose={closeModal} />}
+      </div>
+        </div>
+        {game && (
+          <div className="chat-panel">
+            <div className="chat-header">Game Chat</div>
+            <div className="chat-messages">
+              {chatMessages.length === 0 ? (
+                <div className="chat-empty">No messages yet</div>
+              ) : (
+                chatMessages.map((msg) => (
+                  <div key={msg.id} className="chat-message">
+                    {msg.text}
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="chat-input-area">
+              <input
+                className="chat-input"
+                type="text"
+                value={chatInput}
+                onChange={(event) => setChatInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    handleSendMessage();
+                  }
+                }}
+                placeholder="Type a message..."
+              />
+              <button
+                className="chat-send-btn"
+                type="button"
+                onClick={handleSendMessage}
+                disabled={!chatInput.trim()}
+              >
+                Send
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

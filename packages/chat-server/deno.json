@@ -1,0 +1,7 @@
+{
+  "name": "@werewolf-game/chat-server",
+  "exports": "./main.ts",
+  "tasks": {
+    "start": "deno run -A main.ts"
+  }
+}

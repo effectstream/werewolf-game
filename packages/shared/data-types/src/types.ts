@@ -5,6 +5,11 @@ export const CreateGameQuerystringSchema = Type.Object({
   maxPlayers: Type.Number(),
 });
 
+export const CreateGameBodySchema = Type.Object({
+  gameId: Type.String(),
+  maxPlayers: Type.Number(),
+});
+
 export const CreateGameResponseSchema = Type.Object({
   gameId: Type.Number(),
   state: Type.Union([

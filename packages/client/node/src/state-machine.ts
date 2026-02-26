@@ -39,6 +39,18 @@ const LOBBY_MIN_PLAYERS = Number(
   Deno.env.get("WEREWOLF_LOBBY_MIN_PLAYERS") ?? "5",
 );
 
+const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ?? "http://localhost:3001";
+
+// Fire-and-forget POST to the chat server. All calls are best-effort;
+// generator functions cannot await, and the game must proceed even if chat is down.
+function chatPost(path: string, body: unknown): void {
+  void fetch(`${CHAT_SERVER_URL}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }).catch((err) => console.warn(`[chat] POST ${path} failed:`, err));
+}
+
 // ---------------------------------------------------------------------------
 // STF: midnightContractState
 // Fires on every Midnight ledger state update. Detects new rounds, snapshots
@@ -76,7 +88,7 @@ stm.addStateTransition(
       if (existingRows.length > 0) {
         // Round already initialised — sync vote count if it changed
         const currentVotes = ledger.voteCount(gameId, round);
-        const dbVotes = existingRows[0].votes_submitted;
+        const dbVotes = Number(existingRows[0].votes_submitted);
 
         if (currentVotes !== dbVotes) {
           yield* World.resolve(updateRoundVoteCount, {
@@ -139,6 +151,11 @@ stm.addStateTransition(
       console.log(
         `[midnight] Scheduled timeout game=${gameId} round=${round} phase=${phase} at block=${timeoutBlock}`,
       );
+
+      chatPost("/broadcast", {
+        gameId,
+        text: `Round ${round} started (${phase} phase). Alive: ${aliveCount} players.`,
+      });
     }
   },
 );
@@ -182,11 +199,17 @@ stm.addStateTransition(
       return;
     }
 
-    const missing = roundState.alive_count - roundState.votes_submitted;
+    const aliveCount = Number(roundState.alive_count);
+    const votesSubmitted = Number(roundState.votes_submitted);
+    const missing = aliveCount - votesSubmitted;
 
     if (missing <= 0) {
       console.log("[timeout] All players voted — no punishments needed");
       yield* World.resolve(resolveRound, { game_id: gameId, round, phase });
+      chatPost("/broadcast", {
+        gameId,
+        text: `Round ${round} (${phase}) ended. All players voted.`,
+      });
       return;
     }
 
@@ -217,6 +240,10 @@ stm.addStateTransition(
     }
 
     yield* World.resolve(resolveRound, { game_id: gameId, round, phase });
+    chatPost("/broadcast", {
+      gameId,
+      text: `Round ${round} (${phase}) ended. ${missing} player(s) missed their vote.`,
+    });
   },
 );
 
@@ -292,6 +319,12 @@ stm.addStateTransition(
     yield* World.resolve(incrementLobbyPlayerCount, {
       game_id: gameId,
     });
+
+    chatPost("/invite", { gameId, midnightAddressHash });
+    chatPost("/broadcast", {
+      gameId,
+      text: `Player ${midnightAddressHash.slice(0, 10)}... joined the game.`,
+    });
   },
 );
 
@@ -311,6 +344,7 @@ stm.addStateTransition(
     );
 
     yield* World.resolve(closeLobby, { game_id: gameId });
+    chatPost("/broadcast", { gameId, text: "The lobby has been closed." });
   },
 );
 
@@ -346,7 +380,7 @@ stm.addStateTransition(
       return;
     }
 
-    if (lobby.player_count < LOBBY_MIN_PLAYERS) {
+    if (Number(lobby.player_count) < LOBBY_MIN_PLAYERS) {
       console.log(
         `[lobby-timeout] game=${gameId} has ${lobby.player_count}/${LOBBY_MIN_PLAYERS} players — force-closing lobby`,
       );
@@ -354,10 +388,18 @@ stm.addStateTransition(
       console.log(
         `[lobby-timeout] ADMIN ACTION REQUIRED: close EVM game ${gameId} on-chain (insufficient players)`,
       );
+      chatPost("/broadcast", {
+        gameId,
+        text: "Lobby timed out — not enough players. Game cancelled.",
+      });
     } else {
       console.log(
         `[lobby-timeout] game=${gameId} has ${lobby.player_count} players — lobby timeout reached, game may proceed`,
       );
+      chatPost("/broadcast", {
+        gameId,
+        text: "Lobby timeout reached — the game will now begin.",
+      });
     }
   },
 );

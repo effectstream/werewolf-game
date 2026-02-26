@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { runPreparedQuery } from "@paimaexample/db";
 import {
   closeLobby,
   getLobby,
@@ -13,14 +14,9 @@ export async function createGameHandler(
   gameId: number,
   maxPlayers: number,
 ) {
-  // Create game record in database
-  await upsertLobby.run(
-    {
-      game_id: gameId,
-      max_players: maxPlayers,
-      created_block: 0,
-    },
-    dbConn,
+  await runPreparedQuery(
+    upsertLobby.run({ game_id: gameId, max_players: maxPlayers, created_block: 0 }, dbConn),
+    "upsertLobby",
   );
   return {
     gameId,
@@ -33,43 +29,47 @@ export async function joinGameHandler(
   gameId: number,
   midnightAddressHash: string,
 ) {
-  // Add player to lobby in database
-  await insertLobbyPlayer.run(
-    {
-      game_id: gameId,
-      midnight_address_hash: midnightAddressHash,
-      joined_block: 0,
-    },
-    dbConn,
+  await runPreparedQuery(
+    insertLobbyPlayer.run({ game_id: gameId, midnight_address_hash: midnightAddressHash, joined_block: 0 }, dbConn),
+    "insertLobbyPlayer",
   );
-  await incrementLobbyPlayerCount.run(
-    { game_id: gameId },
-    dbConn,
+  await runPreparedQuery(
+    incrementLobbyPlayerCount.run({ game_id: gameId }, dbConn),
+    "incrementLobbyPlayerCount",
   );
   return { success: true };
 }
 
 export async function closeGameHandler(dbConn: Pool, gameId: number) {
-  await closeLobby.run({ game_id: gameId }, dbConn);
+  await runPreparedQuery(
+    closeLobby.run({ game_id: gameId }, dbConn),
+    "closeLobby",
+  );
   return { success: true };
 }
 
 export async function getGameStateHandler(dbConn: Pool, gameId: number) {
-  const lobbyRows = await getLobby.run({ game_id: gameId }, dbConn);
+  const lobbyRows = await runPreparedQuery(
+    getLobby.run({ game_id: gameId }, dbConn),
+    "getLobby",
+  );
   if (lobbyRows.length === 0) {
     throw new Error(`Game ${gameId} not found`);
   }
   const lobby = lobbyRows[0];
   return {
-    id: lobby.game_id,
+    id: typeof lobby.game_id === 'string' ? Number(lobby.game_id) : lobby.game_id,
     state: lobby.closed ? ("Closed" as const) : ("Open" as const),
-    playerCount: lobby.player_count,
-    maxPlayers: lobby.max_players,
+    playerCount: typeof lobby.player_count === 'string' ? Number(lobby.player_count) : lobby.player_count,
+    maxPlayers: typeof lobby.max_players === 'string' ? Number(lobby.max_players) : lobby.max_players,
   };
 }
 
 export async function getPlayersHandler(dbConn: Pool, gameId: number) {
-  const players = await getLobbyPlayers.run({ game_id: gameId }, dbConn);
+  const players = await runPreparedQuery(
+    getLobbyPlayers.run({ game_id: gameId }, dbConn),
+    "getLobbyPlayers",
+  );
   return {
     gameId,
     players: players.map((p) => ({

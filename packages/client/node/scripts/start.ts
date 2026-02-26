@@ -38,6 +38,14 @@ const customProcesses = [
     stopProcessAtPort: [3334],
     dependsOn: [ComponentNames.MIDNIGHT_CONTRACT],
   },
+  {
+    name: "chat-server",
+    args: ["task", "-f", "@werewolf-game/chat-server", "start"],
+    waitToExit: false,
+    type: "system-dependency",
+    link: "http://localhost:3001/health",
+    stopProcessAtPort: [3001],
+  },
 ];
 
 const config = Value.Parse(OrchestratorConfig, {

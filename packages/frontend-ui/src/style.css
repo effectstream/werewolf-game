@@ -267,6 +267,134 @@ body {
   border-color: rgba(211, 224, 255, 0.95);
 }
 
+/* ============================================================
+   Lobby Screen
+   ============================================================ */
+
+.lobby-screen {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at top, #18203a 0%, #060a14 60%);
+}
+
+.lobby-card {
+  width: min(420px, 92vw);
+  border: 1px solid rgba(154, 172, 240, 0.28);
+  border-radius: 18px;
+  background: rgba(9, 17, 37, 0.92);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+  padding: 36px 32px 28px;
+  display: grid;
+  gap: 24px;
+}
+
+.lobby-title {
+  margin: 0;
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+  background: linear-gradient(135deg, #a8c0ff 0%, #e0c8ff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.lobby-subtitle {
+  margin: -16px 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  letter-spacing: 0.12em;
+  color: rgba(180, 195, 240, 0.55);
+  text-transform: uppercase;
+}
+
+.lobby-wallet-section,
+.lobby-game-section {
+  display: grid;
+  gap: 10px;
+}
+
+.lobby-address {
+  font-size: 0.75rem;
+  font-family: monospace;
+  color: rgba(180, 200, 255, 0.65);
+  word-break: break-all;
+  text-align: center;
+  min-height: 1.1em;
+}
+
+.lobby-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.lobby-input {
+  border-radius: 10px;
+  border: 1px solid rgba(154, 169, 235, 0.4);
+  background: rgba(12, 24, 49, 0.9);
+  color: #f4f7ff;
+  padding: 8px 12px;
+  font-size: 0.95rem;
+}
+
+.lobby-input:focus {
+  outline: 2px solid rgba(161, 183, 255, 0.45);
+  outline-offset: 1px;
+}
+
+.lobby-game-info {
+  border: 1px solid rgba(138, 160, 220, 0.25);
+  border-radius: 12px;
+  background: rgba(14, 26, 55, 0.7);
+  padding: 12px 14px;
+  display: grid;
+  gap: 6px;
+}
+
+.lobby-game-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.9rem;
+  color: rgba(200, 215, 255, 0.8);
+}
+
+.lobby-game-row strong {
+  color: #f1f4ff;
+}
+
+.lobby-btn {
+  width: 100%;
+}
+
+.lobby-btn--primary {
+  background: rgba(80, 110, 200, 0.8);
+  border-color: rgba(160, 190, 255, 0.55);
+}
+
+.lobby-btn--primary:hover {
+  background: rgba(100, 135, 225, 0.9);
+  border-color: rgba(200, 220, 255, 0.75);
+}
+
+.lobby-status {
+  margin: 0;
+  font-size: 0.83rem;
+  color: rgba(180, 200, 255, 0.7);
+  text-align: center;
+  min-height: 1.2em;
+}
+
+.lobby-status--error {
+  color: rgba(255, 130, 140, 0.9);
+}
+
+/* ============================================================ */
+
 @media (max-width: 980px) {
   .layout {
     grid-template-columns: 230px 1fr;

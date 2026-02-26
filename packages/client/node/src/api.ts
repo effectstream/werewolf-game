@@ -12,7 +12,7 @@ import {
 import {
   CloseGameQuerystringSchema,
   CloseGameResponseSchema,
-  CreateGameQuerystringSchema,
+  CreateGameBodySchema,
   CreateGameResponseSchema,
   GetGameStateQuerystringSchema,
   GetGameStateResponseSchema,
@@ -90,11 +90,11 @@ export const apiRouter: StartConfigApiRouter = async function (
   // Werewolf Lobby API
   // -------------------------------------------------------------------------
   server.post<{
-    Querystring: Static<typeof CreateGameQuerystringSchema>;
+    Body: Static<typeof CreateGameBodySchema>;
     Reply: Static<typeof CreateGameResponseSchema>;
-  }>("/api/create_game", async (request) => {
-    const { gameId, maxPlayers } = request.query;
-    return await createGameHandler(dbConn, gameId, maxPlayers);
+  }>("/api/create_game", { schema: { body: CreateGameBodySchema } }, async (request) => {
+    const { gameId, maxPlayers } = request.body;
+    return await createGameHandler(dbConn, Number(gameId), maxPlayers);
   });
 
   server.post<{

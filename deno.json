@@ -6,16 +6,19 @@
   "tasks": {
     "build:evm": "deno task -f @werewolf-game/evm-contracts build:mod",
     "build:midnight": "deno task -f @example-midnight/my-midnight-contract compact",
-    "dev": "deno task -f @example-midnight/node dev",
-    "testnet": "deno task -f @example-midnight/node dev:testnet",
+    "dev": "deno task -f @werewolf-game/node dev",
+    "testnet": "deno task -f @werewolf-game/node dev:testnet",
     "start:frontend": "deno task -f @example-midnight/frontend dev",
-    "check": "deno task -f @example-midnight/node check"
+    "check": "deno task -f @werewolf-game/node check"
   },
   "imports": {
     // TODO: This is a workaround for a missing dependency.
     "@paimaexample/tui": "jsr:@paimaexample/tui@0.7.0",
     "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.7.0",
-    "@paimaexample/evm-contracts": "jsr:@paimaexample/evm-contracts@0.7.0"
+    "@paimaexample/evm-contracts": "jsr:@paimaexample/evm-contracts@0.7.0",
+    // Workarounds for broken imports in JSR packages
+    "npm:/@sinclair/typebox@0.34.41/value": "npm:@sinclair/typebox@0.34.41/value",
+    "npm:@cardano-foundation/cardano-verify-datasignature@1.0.11": "npm:@cardano-foundation/cardano-verify-datasignature@^1.0.11"
   },
   "lint": {
     "rules": {
