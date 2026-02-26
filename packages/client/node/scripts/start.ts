@@ -2,6 +2,7 @@ import { OrchestratorConfig, start } from "@paimaexample/orchestrator";
 import { ComponentNames } from "@paimaexample/log";
 import { Value } from "@sinclair/typebox/value";
 import { launchMidnight } from "@paimaexample/orchestrator/start-midnight";
+import { launchEvm } from "@paimaexample/orchestrator/start-evm";
 
 const customProcesses = [
   // {
@@ -52,7 +53,8 @@ const config = Value.Parse(OrchestratorConfig, {
 
   // Launch my processes
   processesToLaunch: [
-    ...launchMidnight("@example-midnight/midnight-contracts").map(p => ({
+    ...launchEvm("@werewolf-game/evm-contracts"),
+    ...launchMidnight("@example-midnight/midnight-contracts").map((p) => ({
       ...p,
       logsStartDisabled: false,
     })),

@@ -1,6 +1,7 @@
 import { useEvmWallet } from "../contexts/EvmWalletContext";
 import { type LoginInfo, WalletMode } from "@paimaexample/wallets";
-import { createWalletClient, http, privateKeyToAccount } from "viem";
+import { createWalletClient, http } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { hardhat } from "viem/chains";
 
 interface WalletModalProps {

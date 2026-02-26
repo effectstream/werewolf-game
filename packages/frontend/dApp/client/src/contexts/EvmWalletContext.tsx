@@ -5,8 +5,6 @@ import {
   walletLogin,
   WalletMode,
 } from "@paimaexample/wallets";
-import { createWalletClient, http, privateKeyToAccount } from "viem";
-import { hardhat } from "viem/chains";
 
 // Define the shape of your wallet context
 interface EvmWalletContextType {

@@ -1245,20 +1245,9 @@ function App() {
       // Use the ABI directly (it's already in the correct format)
       const abi = myPaimaL2Abi;
 
-      // Read the game ID the contract will assign to the next createGame call.
-      // The contract auto-increments nextGameId, so reading before the tx gives
-      // us the ID that will be stored — used to register the same ID in the DB.
-      const evmGameId = await publicClient.readContract({
-        address: evmContractAddress as `0x${string}`,
-        abi,
-        functionName: "nextGameId",
-        args: [],
-      }) as bigint;
-
-      // Invoke backend API to register game
       setStatus("Registering game with backend…");
       const apiResponse = await fetch(
-        `/api/create_game?gameId=${evmGameId}&maxPlayers=${playerCount}`,
+        `/api/create_game?gameId=${gameId}&maxPlayers=${playerCount}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1275,13 +1264,12 @@ function App() {
       console.log("API Response:", apiData);
 
       setStatus("Creating game on EVM chain…");
-      // The contract's createGame takes only _maxPlayers; the game ID is assigned
-      // by the contract itself via nextGameId (read above).
+      // The contract's createGame takes gameId and maxPlayers as parameters.
       const { request } = await publicClient.simulateContract({
         address: evmContractAddress as `0x${string}`,
         abi,
         functionName: "createGame",
-        args: [BigInt(playerCount)],
+        args: [gameId, BigInt(playerCount)],
         account: walletApiClient.account,
       });
 
