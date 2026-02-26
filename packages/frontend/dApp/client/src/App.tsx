@@ -9,6 +9,10 @@ import {
 } from "../../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 import { BatcherClient } from "../../../../shared/utils/batcher-client.ts";
 import nacl from "tweetnacl";
+import { useEvmWallet } from "./contexts/EvmWalletContext.tsx";
+import { WalletModal } from "./components/WalletModal.tsx";
+import { createContractClient } from "@werewolf-game/evm-contracts/src/contract-client.ts";
+import { hardhat } from "viem/chains";
 
 // Suppress Effect version mismatch warnings
 const originalWarn = console.warn;
@@ -450,6 +454,16 @@ function App() {
   const [midnightAddress, setMidnightAddress] = useState("");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string>("");
+
+  // EVM wallet integration
+  const {
+    isConnected: evmConnected,
+    address: evmAddress,
+    wallet: evmWallet,
+    isModalOpen,
+    openModal,
+    closeModal,
+  } = useEvmWallet();
   const [txTimer, setTxTimer] = useState<{
     start: number | null;
     elapsed: number;
@@ -1084,6 +1098,10 @@ function App() {
       setError("Connect Midnight wallet first.");
       return;
     }
+    if (!evmConnected || !evmAddress) {
+      setError("Connect EVM wallet first.");
+      return;
+    }
 
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
@@ -1197,6 +1215,41 @@ function App() {
         BigInt(werewolfCount),
       );
 
+      // Invoke backend API to register game
+      setStatus("Registering game with backend…");
+      const apiResponse = await fetch(
+        `/api/create_game?maxPlayers=${playerCount}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        },
+      );
+
+      if (!apiResponse.ok) {
+        throw new Error(
+          `API registration failed: ${apiResponse.status} ${apiResponse.statusText}`,
+        );
+      }
+
+      const apiData = await apiResponse.json();
+      console.log("API Response:", apiData);
+
+      // Create game on EVM contract
+      setStatus("Creating game on EVM chain…");
+      const evmContractAddress =
+        "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"; // Default fallback
+      const evmRpcUrl = "http://127.0.0.1:8545"; // Default Hardhat
+
+      // Create EVM contract client
+      const evmClient = createContractClient(
+        hardhat,
+        evmContractAddress,
+        evmRpcUrl,
+      );
+
+      // Create game on EVM contract using connected wallet
+      await evmClient.createGame(playerCount);
+
       setGame({
         gameId,
         masterSecret,
@@ -1223,8 +1276,13 @@ function App() {
       setDayEliminationInput("0");
       setRevealPlayerIdx(0);
       setStatus(
-        `Game created.\n\nGameId: ${gameId}\nPlayers: ${playerCount}\nWerewolves: ${werewolfCount}`,
-      );
+        `Game created successfully.
+
+GameId: ${gameId}
+Players: ${playerCount}
+Werewolves: ${werewolfCount}
+Midnight: ✅
+EVM: ✅`,
     } catch (e: any) {
       console.error("Create game failed:", e);
       setError(e?.message ?? "Create game failed.");
@@ -1832,6 +1890,18 @@ function App() {
           <button
             type="button"
             className="btn"
+            onClick={openModal}
+            disabled={loading || Boolean(evmAddress)}
+            title={evmAddress ? "Wallet already connected" : undefined}
+          >
+            {evmAddress
+              ? "EVM Wallet Connected"
+              : "Connect EVM Wallet"}
+          </button>
+
+          <button
+            type="button"
+            className="btn"
             onClick={handleAddFunds}
             disabled={loading || !midnightAddress}
             title={!midnightAddress ? "Connect wallet first" : undefined}
@@ -1896,8 +1966,8 @@ function App() {
                 type="button"
                 className="btn btn-primary"
                 onClick={handleCreateGame}
-                disabled={loading || !midnightAddress}
-                title={!midnightAddress ? "Connect wallet first" : undefined}
+                disabled={loading || !midnightAddress || !evmConnected}
+                title={!midnightAddress || !evmConnected ? "Connect both wallets first" : undefined}
               >
                 Create + setup game
               </button>
@@ -2091,8 +2161,9 @@ function App() {
 
         {midnightAddress && (
           <div className="info">
-            <div className="label">Connected address</div>
-            <div className="mono">{midnightAddress}</div>
+            <div className="label">Connected addresses</div>
+            <div className="mono">Midnight: {midnightAddress}</div>
+            {evmAddress && <div className="mono">EVM: {evmAddress}</div>}
             {midnightWallet?.contractAddress?.werewolf && (
               <>
                 <div className="label">Contract address</div>
@@ -2111,6 +2182,7 @@ function App() {
         )}
         {error && <pre className="message message-error">{error}</pre>}
         {status && <pre className="message message-ok">{status}</pre>}
+        {isModalOpen && <WalletModal onClose={closeModal} />}
       </div>
     </div>
   );
