@@ -1,13 +1,15 @@
 /** Types generated for queries found in "src/sql/werewolf_game.sql" */
 import { PreparedQuery } from '@pgtyped/runtime';
 
+export type NumberOrString = number | string;
+
 /** 'UpsertRoundState' parameters type */
 export interface IUpsertRoundStateParams {
   alive_count: number;
-  game_id: number;
+  game_id: NumberOrString;
   phase: string;
   round: number;
-  round_started_block: number;
+  round_started_block: NumberOrString;
 }
 
 /** 'UpsertRoundState' return type */
@@ -34,7 +36,7 @@ export const upsertRoundState = new PreparedQuery<IUpsertRoundStateParams,IUpser
 
 /** 'GetRoundState' parameters type */
 export interface IGetRoundStateParams {
-  game_id: number;
+  game_id: NumberOrString;
   phase: string;
   round: number;
 }
@@ -42,12 +44,12 @@ export interface IGetRoundStateParams {
 /** 'GetRoundState' return type */
 export interface IGetRoundStateResult {
   alive_count: number;
-  game_id: number;
+  game_id: string;
   phase: string;
   resolved: boolean;
   round: number;
-  round_started_block: number;
-  timeout_block: number | null;
+  round_started_block: string;
+  timeout_block: string | null;
   votes_submitted: number;
 }
 
@@ -71,7 +73,7 @@ export const getRoundState = new PreparedQuery<IGetRoundStateParams,IGetRoundSta
 
 /** 'UpdateRoundVoteCount' parameters type */
 export interface IUpdateRoundVoteCountParams {
-  game_id: number;
+  game_id: NumberOrString;
   phase: string;
   round: number;
   votes_submitted: number;
@@ -101,10 +103,10 @@ export const updateRoundVoteCount = new PreparedQuery<IUpdateRoundVoteCountParam
 
 /** 'SetRoundTimeout' parameters type */
 export interface ISetRoundTimeoutParams {
-  game_id: number;
+  game_id: NumberOrString;
   phase: string;
   round: number;
-  timeout_block: number;
+  timeout_block: NumberOrString;
 }
 
 /** 'SetRoundTimeout' return type */
@@ -131,7 +133,7 @@ export const setRoundTimeout = new PreparedQuery<ISetRoundTimeoutParams,ISetRoun
 
 /** 'ResolveRound' parameters type */
 export interface IResolveRoundParams {
-  game_id: number;
+  game_id: NumberOrString;
   phase: string;
   round: number;
 }
@@ -160,7 +162,7 @@ export const resolveRound = new PreparedQuery<IResolveRoundParams,IResolveRoundR
 
 /** 'SnapshotAlivePlayer' parameters type */
 export interface ISnapshotAlivePlayerParams {
-  game_id: number;
+  game_id: NumberOrString;
   phase: string;
   player_idx: number;
   round: number;
@@ -190,7 +192,7 @@ export const snapshotAlivePlayer = new PreparedQuery<ISnapshotAlivePlayerParams,
 
 /** 'GetAliveSnapshots' parameters type */
 export interface IGetAliveSnapshotsParams {
-  game_id: number;
+  game_id: NumberOrString;
   phase: string;
   round: number;
 }
@@ -221,8 +223,8 @@ export const getAliveSnapshots = new PreparedQuery<IGetAliveSnapshotsParams,IGet
 
 /** 'InsertPendingPunishment' parameters type */
 export interface IInsertPendingPunishmentParams {
-  created_at_block: number;
-  game_id: number;
+  created_at_block: NumberOrString;
+  game_id: NumberOrString;
   player_idx: number;
   reason: string;
 }
@@ -253,8 +255,8 @@ export type IGetPendingPunishmentsParams = void;
 
 /** 'GetPendingPunishments' return type */
 export interface IGetPendingPunishmentsResult {
-  created_at_block: number;
-  game_id: number;
+  created_at_block: string;
+  game_id: string;
   id: number;
   player_idx: number;
   reason: string;

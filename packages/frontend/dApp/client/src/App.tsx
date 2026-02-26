@@ -11,16 +11,15 @@ import { BatcherClient } from "../../../../shared/utils/batcher-client.ts";
 import nacl from "tweetnacl";
 import { useEvmWallet } from "./contexts/EvmWalletContext.tsx";
 import { WalletModal } from "./components/WalletModal.tsx";
-import {
-  createPublicClient,
-  http,
-  parseAbi,
-  type WalletClient,
-} from "viem";
+import { createPublicClient, http, parseAbi, type WalletClient } from "viem";
 import { hardhat } from "viem/chains";
-import myPaimaL2AbiArtifact from "../../../../shared/contracts/evm/build/artifacts/hardhat/src/contracts/MyPaimaL2.sol/MyPaimaL2Contract.json" with { type: "json" };
+import myPaimaL2AbiArtifact from "../../../../shared/contracts/evm/build/artifacts/hardhat/src/contracts/MyPaimaL2.sol/MyPaimaL2Contract.json" with {
+  type: "json",
+};
 
 const myPaimaL2Abi = myPaimaL2AbiArtifact.abi;
+
+const NODE_API_URL = "http://localhost:9999";
 
 // Suppress Effect version mismatch warnings
 const originalWarn = console.warn;
@@ -1231,9 +1230,12 @@ function App() {
       const evmRpcUrl = "http://127.0.0.1:8545"; // Default Hardhat
 
       // Get the viem wallet client from the connected wallet
-      const walletApiClient = evmWallet?.provider.getConnection().api as WalletClient;
+      const walletApiClient = evmWallet?.provider.getConnection()
+        .api as WalletClient;
       if (!walletApiClient) {
-        throw new Error("EVM wallet API not available. Please reconnect your wallet.");
+        throw new Error(
+          "EVM wallet API not available. Please reconnect your wallet.",
+        );
       }
 
       // Create public client for reading/simulating
@@ -1247,7 +1249,7 @@ function App() {
 
       setStatus("Registering game with backend…");
       const apiResponse = await fetch(
-        `/api/create_game?gameId=${gameId}&maxPlayers=${playerCount}`,
+        `${NODE_API_URL}/api/create_game?gameId=${gameId}&maxPlayers=${playerCount}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1925,9 +1927,7 @@ EVM: ✅`,
             disabled={loading || Boolean(evmAddress)}
             title={evmAddress ? "Wallet already connected" : undefined}
           >
-            {evmAddress
-              ? "EVM Wallet Connected"
-              : "Connect EVM Wallet"}
+            {evmAddress ? "EVM Wallet Connected" : "Connect EVM Wallet"}
           </button>
 
           <button
@@ -1998,7 +1998,9 @@ EVM: ✅`,
                 className="btn btn-primary"
                 onClick={handleCreateGame}
                 disabled={loading || !midnightAddress || !evmConnected}
-                title={!midnightAddress || !evmConnected ? "Connect both wallets first" : undefined}
+                title={!midnightAddress || !evmConnected
+                  ? "Connect both wallets first"
+                  : undefined}
               >
                 Create + setup game
               </button>
