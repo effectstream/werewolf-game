@@ -123,4 +123,44 @@ export type {
   IGetGameViewQuery,
 } from "./sql/werewolf_game_view.queries.ts";
 
+export {
+  countBundles,
+  insertBundle,
+  popBundle,
+} from "./sql/werewolf_lobby_bundles.queries.ts";
+
+export type {
+  ICountBundlesParams,
+  ICountBundlesResult,
+  ICountBundlesQuery,
+  IInsertBundleParams,
+  IInsertBundleResult,
+  IInsertBundleQuery,
+  IPopBundleParams,
+  IPopBundleResult,
+  IPopBundleQuery,
+} from "./sql/werewolf_lobby_bundles.queries.ts";
+
+export {
+  countVotesForRound,
+  getVotesForRound,
+  hasPlayerVoted,
+  insertPlayerVote,
+} from "./sql/werewolf_player_votes.queries.ts";
+
+export type {
+  ICountVotesForRoundParams,
+  ICountVotesForRoundQuery,
+  ICountVotesForRoundResult,
+  IGetVotesForRoundParams,
+  IGetVotesForRoundQuery,
+  IGetVotesForRoundResult,
+  IHasPlayerVotedParams,
+  IHasPlayerVotedQuery,
+  IHasPlayerVotedResult,
+  IInsertPlayerVoteParams,
+  IInsertPlayerVoteQuery,
+  IInsertPlayerVoteResult,
+} from "./sql/werewolf_player_votes.queries.ts";
+
 export { migrationTable } from "./migration-order.ts";

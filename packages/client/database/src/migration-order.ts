@@ -3,6 +3,8 @@ import databaseSql from "./migrations/database.sql" with { type: "text" };
 import werewolfGameSql from "./migrations/werewolf_game.sql" with { type: "text" };
 import werewolfLobbySql from "./migrations/werewolf_lobby.sql" with { type: "text" };
 import werewolfGameViewSql from "./migrations/werewolf_game_view.sql" with { type: "text" };
+import werewolfLobbyBundlesSql from "./migrations/werewolf_lobby_bundles.sql" with { type: "text" };
+import werewolfPlayerVotesSql from "./migrations/werewolf_player_votes.sql" with { type: "text" };
 
 export const migrationTable: DBMigrations[] = [
   {
@@ -20,5 +22,13 @@ export const migrationTable: DBMigrations[] = [
   {
     name: "werewolf_game_view.sql",
     sql: werewolfGameViewSql,
+  },
+  {
+    name: "werewolf_lobby_bundles.sql",
+    sql: werewolfLobbyBundlesSql,
+  },
+  {
+    name: "werewolf_player_votes.sql",
+    sql: werewolfPlayerVotesSql,
   },
 ];

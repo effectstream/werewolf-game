@@ -108,3 +108,33 @@ export const GetGameViewResponseSchema = Type.Object({
   werewolfIndices: Type.Array(Type.Number()),
   updatedBlock: Type.Number(),
 });
+
+export const SubmitVoteBodySchema = Type.Object({
+  gameId: Type.Number(),
+  round: Type.Number(),
+  phase: Type.String(),
+  voterIndex: Type.Number(),
+  targetIndex: Type.Number(),
+  encryptedVoteHex: Type.String(),
+  merklePathJson: Type.String(),
+});
+
+export const SubmitVoteResponseSchema = Type.Object({
+  success: Type.Boolean(),
+  alreadyVoted: Type.Optional(Type.Boolean()),
+  allVotesIn: Type.Optional(Type.Boolean()),
+  voteCount: Type.Optional(Type.Number()),
+  aliveCount: Type.Optional(Type.Number()),
+  error: Type.Optional(Type.String()),
+});
+
+export const GetVoteStatusQuerystringSchema = Type.Object({
+  gameId: Type.Number(),
+  round: Type.Number(),
+  phase: Type.String(),
+});
+
+export const GetVoteStatusResponseSchema = Type.Object({
+  voteCount: Type.Number(),
+  aliveCount: Type.Number(),
+});
