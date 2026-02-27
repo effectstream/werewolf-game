@@ -58,6 +58,20 @@ export class HUDManager {
       this.phaseLabel.textContent = gameState.phase
       this.phaseLabel.classList.toggle('day', gameState.phase === 'DAY')
     }
+
+    const voteBar = document.querySelector<HTMLDivElement>('#voteStatusBar')
+    const voteLabel = document.querySelector<HTMLSpanElement>('#voteCountLabel')
+    if (voteBar && voteLabel) {
+      const showBar =
+        (gameState.phase === 'DAY' || gameState.phase === 'NIGHT') &&
+        gameState.gameStarted &&
+        !gameState.finished &&
+        gameState.aliveCount > 0
+      voteBar.classList.toggle('hidden', !showBar)
+      if (showBar) {
+        voteLabel.textContent = `${gameState.voteCount}/${gameState.aliveCount} voted`
+      }
+    }
   }
 
   public destroy(): void {

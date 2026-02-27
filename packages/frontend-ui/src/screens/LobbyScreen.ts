@@ -1,12 +1,13 @@
 import { evmWallet } from '../services/evmWallet'
-import { getGameState, joinGame, deriveMidnightAddressHash, type GameInfo } from '../services/lobbyContract'
+import { getGameState, deriveMidnightAddressHash, type GameInfo } from '../services/lobbyContract'
+import { BatcherService } from '../services/batcherService'
 import { gameState, type PlayerBundle } from '../state/gameState'
 import { decodeGamePhrase, isGamePhrase } from '../services/werewolfIdCodec'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:9999'
 
 export class LobbyScreen {
-  onJoined: (gameId: number, gameStarted: boolean) => void = () => {}
+  onJoined: (gameId: number, gameStarted: boolean, midnightAddressHash: string) => void = () => {}
 
   private container: HTMLDivElement
   private statusEl!: HTMLParagraphElement
@@ -104,11 +105,15 @@ export class LobbyScreen {
 
   private async handleFindGame(): Promise<void> {
     const raw = this.gameIdInput.value.trim()
+    console.log('[LobbyScreen] handleFindGame raw input:', raw)
+
     let gameId: number
     if (isGamePhrase(raw)) {
       try {
         gameId = decodeGamePhrase(raw)
+        console.log('[LobbyScreen] decoded game phrase to ID:', gameId)
       } catch (err) {
+        console.error('[LobbyScreen] failed to decode phrase:', err)
         this.setStatus(`Invalid phrase: ${(err as Error).message}`, true)
         return
       }
@@ -118,6 +123,7 @@ export class LobbyScreen {
         this.setStatus('Enter a valid Game ID or 4-word phrase.', true)
         return
       }
+      console.log('[LobbyScreen] parsed numeric game ID:', gameId)
     }
 
     this.setLoading(this.findBtn, true, 'Find Game')
@@ -127,9 +133,10 @@ export class LobbyScreen {
     this.currentGame = null
 
     try {
-      const publicClient = evmWallet.getPublicClient()
-      const game = await getGameState(publicClient, gameId)
+      console.log('[LobbyScreen] calling getGameState for gameId:', gameId)
+      const game = await getGameState(gameId)
       this.currentGame = game
+      console.log('[LobbyScreen] getGameState result:', game)
 
       const stateLabel = game.state === 'Open' ? '🟢 Open' : '🔴 Closed'
       this.gameInfoEl.innerHTML = `
@@ -148,6 +155,7 @@ export class LobbyScreen {
         this.setStatus('This game is full.', true)
       }
     } catch (err) {
+      console.error('[LobbyScreen] getGameState error:', err)
       this.setStatus(`Error: ${(err as Error).message}`, true)
     } finally {
       this.setLoading(this.findBtn, false, 'Find Game')
@@ -156,33 +164,43 @@ export class LobbyScreen {
 
   private async handleJoinGame(): Promise<void> {
     const address = evmWallet.getAddress()
-    if (!address || !this.currentGame) return
+    console.log('[LobbyScreen] handleJoinGame address:', address, 'currentGame:', this.currentGame)
+    if (!address) {
+      this.setStatus('Wallet not connected. Please connect MetaMask first.', true)
+      return
+    }
+    if (!this.currentGame) {
+      this.setStatus('No game selected. Please find a game first.', true)
+      return
+    }
 
     this.setLoading(this.joinBtn, true, 'Join Game')
-    this.setStatus('Waiting for MetaMask signature...')
+    this.setStatus('Signing batcher message...')
 
     try {
       const walletClient = evmWallet.getWalletClient()
-      const publicClient = evmWallet.getPublicClient()
 
       // Derive a bytes32 placeholder from the EVM address.
       // TODO: Replace with the player's Midnight shielded address hash once
       // Midnight wallet integration is added to frontend-ui.
       const midnightAddressHash = await deriveMidnightAddressHash(address)
+      console.log('[LobbyScreen] midnightAddressHash:', midnightAddressHash)
 
-      await joinGame(
+      this.setStatus('Submitting to batcher...')
+      console.log('[LobbyScreen] calling BatcherService.joinGame', { address, gameId: this.currentGame.id, midnightAddressHash })
+      const batcherResult = await BatcherService.joinGame(
+        address,
         this.currentGame.id,
         midnightAddressHash,
-        walletClient,
-        publicClient,
-        address,
+        ({ message }) => walletClient.signMessage({ account: address, message }),
       )
+      console.log('[LobbyScreen] batcher joinGame result:', batcherResult)
 
       this.setStatus('Fetching player bundle...')
-      const bundleRes = await fetch(
-        `${API_BASE}/api/join_game?gameId=${this.currentGame.id}&midnightAddressHash=${encodeURIComponent(midnightAddressHash)}`,
-        { method: 'POST' },
-      )
+      const bundleUrl = `${API_BASE}/api/join_game?gameId=${this.currentGame.id}&midnightAddressHash=${encodeURIComponent(midnightAddressHash)}`
+      console.log('[LobbyScreen] fetching player bundle:', bundleUrl)
+      const bundleRes = await fetch(bundleUrl, { method: 'POST' })
+      console.log('[LobbyScreen] bundle response status:', bundleRes.status)
       if (!bundleRes.ok) {
         const text = await bundleRes.text()
         throw new Error(`Failed to get player bundle: ${bundleRes.status} ${text}`)
@@ -193,22 +211,18 @@ export class LobbyScreen {
         bundle?: PlayerBundle
         gameStarted?: boolean
       }
+      console.log('[LobbyScreen] bundle data:', bundleData)
       if (bundleData.bundle) {
         gameState.setPlayerBundle(bundleData.bundle)
       }
 
       this.setStatus('Joined successfully! Loading game...')
       this.joinBtn.hidden = true
-      this.onJoined(this.currentGame.id, bundleData.gameStarted ?? false)
+      this.onJoined(this.currentGame.id, bundleData.gameStarted ?? false, midnightAddressHash)
     } catch (err) {
+      console.error('[LobbyScreen] handleJoinGame error:', err)
       this.setLoading(this.joinBtn, false, 'Join Game')
-      const msg = (err as Error).message
-      // Surface contract revert reasons when available
-      const revertMatch = msg.match(/reverted with reason string '(.+?)'/)
-      this.setStatus(
-        revertMatch ? `Transaction reverted: ${revertMatch[1]}` : `Error: ${msg}`,
-        true,
-      )
+      this.setStatus(`Error: ${(err as Error).message}`, true)
     }
   }
 }

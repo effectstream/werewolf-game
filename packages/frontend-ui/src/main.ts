@@ -16,10 +16,11 @@ import { CameraControls } from './scene/CameraControls'
 
 // Lobby
 import { LobbyScreen } from './screens/LobbyScreen'
-import { gameState } from './state/gameState'
+import { gameState, roleNumberToRole } from './state/gameState'
+import { gameMaster } from './debug/GameMaster'
 import { evmWallet } from './services/evmWallet'
 import { fetchGameView } from './services/lobbyApi'
-import { GameViewPoller } from './services/gameViewPoller'
+import { GameViewPoller, VoteStatusPoller } from './services/gameViewPoller'
 
 interface GameManagers {
   hudManager: HUDManager
@@ -28,6 +29,7 @@ interface GameManagers {
   rolePicker: RolePicker
   playerEntities: PlayerEntities
   poller: GameViewPoller
+  votePoller: VoteStatusPoller
 }
 
 function destroyGame(managers: GameManagers): void {
@@ -37,6 +39,7 @@ function destroyGame(managers: GameManagers): void {
   managers.rolePicker.destroy()
   managers.playerEntities.destroy()
   managers.poller.stop()
+  managers.votePoller.stop()
 }
 
 async function bootGame(): Promise<GameManagers> {
@@ -84,6 +87,13 @@ async function bootGame(): Promise<GameManagers> {
   }, 3000)
   poller.start()
 
+  // Start vote status poller
+  const votePoller = new VoteStatusPoller(
+    gameId,
+    () => ({ round: gameState.round, phase: gameState.phase }),
+  )
+  votePoller.start()
+
   // Animation Loop
   const clock = new THREE.Clock()
 
@@ -100,7 +110,7 @@ async function bootGame(): Promise<GameManagers> {
 
   animate()
 
-  return { hudManager, chatManager, playerListManager, rolePicker, playerEntities, poller }
+  return { hudManager, chatManager, playerListManager, rolePicker, playerEntities, poller, votePoller }
 }
 
 // Show lobby first; boot the game scene only after the player has joined.
@@ -109,7 +119,7 @@ lobbyScreen.show()
 
 let activeManagers: GameManagers | null = null
 
-lobbyScreen.onJoined = (gameId: number, gameStarted: boolean) => {
+lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, midnightAddressHash: string) => {
   if (activeManagers) {
     destroyGame(activeManagers)
     activeManagers = null
@@ -121,6 +131,20 @@ lobbyScreen.onJoined = (gameId: number, gameStarted: boolean) => {
 
   bootGame().then((managers) => {
     activeManagers = managers
+
+    managers.chatManager.connect(gameId, midnightAddressHash)
+
+    gameMaster._bind(managers.playerEntities)
+    ;(window as unknown as { gamemaster: typeof gameMaster }).gamemaster = gameMaster
+
+    const bundle = gameState.playerBundle
+    if (bundle?.role !== undefined) {
+      const player = gameState.players[bundle.playerId]
+      if (player) {
+        managers.playerEntities.setPlayerRole(player, roleNumberToRole(bundle.role))
+      }
+    }
+
     if (gameStarted) {
       gameState.setGameStarted()
     }

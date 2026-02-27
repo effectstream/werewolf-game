@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "three": "^0.183.0",
+    "tweetnacl": "^1.0.3",
     "viem": "^2.21.0"
   }
 }

@@ -3,6 +3,17 @@ import type { PlayerConfig } from '../models/PlayerConfigInterface'
 import type { GameViewResponse } from '../services/lobbyApi'
 
 export type Role = 'villager' | 'werewolf' | 'doctor' | 'seer' | 'angelDead'
+
+const ROLE_NUMBER_MAP: Record<number, Role> = {
+  0: 'villager',
+  1: 'werewolf',
+  2: 'seer',
+  3: 'doctor',
+}
+
+export function roleNumberToRole(n: number): Role {
+  return ROLE_NUMBER_MAP[n] ?? 'villager'
+}
 export type Phase = 'NIGHT' | 'DAY' | 'FINISHED'
 
 export interface PlayerBundle {
@@ -40,6 +51,8 @@ class GameState {
   playerAlive: boolean[] = []
   /** Whether the game has ended */
   finished: boolean = false
+  /** Whether the game has started (first valid game view received or last-joiner flag set) */
+  gameStarted: boolean = false
   /** Indices of werewolf players (only populated when finished) */
   werewolfIndices: number[] = []
   /** Player count from the backend */
@@ -48,6 +61,12 @@ class GameState {
   aliveCount: number = 0
   /** Block height of the last game view update */
   lastUpdatedBlock: number = -1
+  /** Whether the local player has voted in the current round+phase */
+  hasVotedThisRound: boolean = false
+  /** Number of votes submitted so far this round (from polling) */
+  voteCount: number = 0
+  /** Internal key to detect round/phase changes for auto-reset */
+  private votedRoundPhaseKey: string = ''
 
   private listeners: (() => void)[] = []
 
@@ -76,11 +95,18 @@ class GameState {
   }
 
   setGameStarted() {
+    this.gameStarted = true
     this.setPhase('NIGHT')
   }
 
   applyGameView(view: GameViewResponse): void {
     let changed = false
+
+    const isValidPhase = ['night', 'day', 'finished'].includes(view.phase.toLowerCase())
+    if (!this.gameStarted && isValidPhase) {
+      this.gameStarted = true
+      changed = true
+    }
 
     const mappedPhase = this.mapPhase(view.phase)
     if (mappedPhase !== this.phase) {
@@ -96,6 +122,14 @@ class GameState {
 
     if (view.round !== this.round) {
       this.round = view.round
+      changed = true
+    }
+
+    // Auto-reset hasVotedThisRound when the round or phase changes
+    const newVotedKey = `${view.round}:${mappedPhase}`
+    if (this.hasVotedThisRound && newVotedKey !== this.votedRoundPhaseKey) {
+      this.hasVotedThisRound = false
+      this.votedRoundPhaseKey = ''
       changed = true
     }
 
@@ -148,6 +182,19 @@ class GameState {
   setSelectedPlayer(player: Player | null) {
     this.selectedPlayer = player
     this.notify()
+  }
+
+  markVotedThisRound() {
+    this.hasVotedThisRound = true
+    this.votedRoundPhaseKey = `${this.round}:${this.phase}`
+    this.notify()
+  }
+
+  setVoteCount(count: number) {
+    if (count !== this.voteCount) {
+      this.voteCount = count
+      this.notify()
+    }
   }
 
   setHoveredPlayer(player: Player | null) {

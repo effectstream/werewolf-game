@@ -408,3 +408,79 @@ body {
     height: 110px;
   }
 }
+
+/* ============================================================
+   Vote UI
+   ============================================================ */
+
+.vote-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.vote-confirm-backdrop.hidden {
+  display: none;
+}
+
+.vote-confirm-modal {
+  background: #0e1628;
+  border: 1px solid rgba(100, 140, 220, 0.4);
+  border-radius: 10px;
+  padding: 1.75rem 2rem;
+  min-width: 280px;
+  max-width: 400px;
+  color: #f1f4ff;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.vote-confirm-modal h3 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+  color: #c8d8ff;
+}
+
+.vote-confirm-modal p {
+  margin: 0 0 0.5rem;
+  font-size: 0.9rem;
+  color: rgba(200, 220, 255, 0.8);
+}
+
+.vote-confirm-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.vote-confirm-actions .ui-btn {
+  flex: 1;
+}
+
+/* Vote status bar */
+.vote-status-bar {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  color: rgba(180, 200, 255, 0.65);
+  text-align: center;
+  border-top: 1px solid rgba(100, 140, 220, 0.15);
+  margin-top: 0.25rem;
+}
+
+.vote-status-bar.hidden {
+  display: none;
+}
+
+/* ACCUSE button variant (blue) */
+.ui-btn.small.accuse-btn {
+  background: rgba(40, 80, 180, 0.5);
+  border-color: rgba(80, 130, 220, 0.6);
+  color: #c8d8ff;
+}
+
+.ui-btn.small.accuse-btn:hover {
+  background: rgba(50, 100, 210, 0.65);
+}

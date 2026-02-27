@@ -15,6 +15,9 @@ export function initLayout() {
       <aside class="sidebar">
         <h2>Players</h2>
         <div id="playersList" class="players-list"></div>
+        <div id="voteStatusBar" class="vote-status-bar hidden">
+          <span id="voteCountLabel">0/0 voted</span>
+        </div>
         <button id="endVoteBtn" class="ui-btn full">End Voting Phase</button>
       </aside>
       <div class="main-panel">
@@ -37,6 +40,16 @@ export function initLayout() {
           <button class="ui-btn full role-option-btn" data-role="doctor">Doctor</button>
           <button class="ui-btn full role-option-btn" data-role="seer">Seer</button>
           <button class="ui-btn full role-option-btn" data-role="angelDead">Angel (dead)</button>
+        </div>
+      </div>
+    </div>
+    <div id="voteConfirmBackdrop" class="vote-confirm-backdrop hidden" aria-hidden="true">
+      <div class="vote-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="voteConfirmTitle">
+        <h3 id="voteConfirmTitle">Confirm Vote</h3>
+        <p id="voteConfirmDesc">Are you sure you want to vote against <strong id="voteConfirmTargetName"></strong>?</p>
+        <div class="vote-confirm-actions">
+          <button id="voteConfirmYesBtn" class="ui-btn full danger">Confirm</button>
+          <button id="voteConfirmNoBtn" class="ui-btn full">Cancel</button>
         </div>
       </div>
     </div>
