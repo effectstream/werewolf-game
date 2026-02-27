@@ -84,7 +84,7 @@ export interface IGetGameViewQuery {
   result: IGetGameViewResult;
 }
 
-const getGameViewIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":44,"b":52}]}],"statement":"SELECT * FROM werewolf_game_view\nWHERE game_id = :game_id!"};
+const getGameViewIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":49,"b":57}]}],"statement":"SELECT * FROM werewolf_game_view\nWHERE game_id = :game_id!"};
 
 /**
  * Query generated from SQL:
@@ -94,3 +94,5 @@ const getGameViewIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"g
  * ```
  */
 export const getGameView = new PreparedQuery<IGetGameViewParams,IGetGameViewResult>(getGameViewIR);
+
+
