@@ -36,3 +36,31 @@ export async function fetchGamePlayers(gameId: number): Promise<GamePlayersRespo
   }
   return res.json() as Promise<GamePlayersResponse>
 }
+
+export interface PlayerStatus {
+  index: number
+  alive: boolean
+}
+
+export interface GameViewResponse {
+  gameId: number
+  phase: string
+  round: number
+  playerCount: number
+  aliveCount: number
+  werewolfCount: number
+  villagerCount: number
+  players: PlayerStatus[]
+  finished: boolean
+  werewolfIndices: number[]
+  updatedBlock: number
+}
+
+export async function fetchGameView(gameId: number): Promise<GameViewResponse> {
+  const res = await fetch(`${API_BASE}/api/game_view?gameId=${gameId}`)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Failed to fetch game view: ${res.status} ${text}`)
+  }
+  return res.json() as Promise<GameViewResponse>
+}

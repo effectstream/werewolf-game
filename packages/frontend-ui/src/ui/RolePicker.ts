@@ -3,12 +3,18 @@ import { gameState, Player, Role } from '../state/gameState'
 export class RolePicker {
   private backdropEl: HTMLDivElement
   private roleOptionButtons: HTMLButtonElement[]
-  
+  private keydownHandler: (event: KeyboardEvent) => void
+
   public onRoleSelected?: (player: Player, role: Role) => void
 
   constructor() {
     this.backdropEl = document.querySelector<HTMLDivElement>('#rolePickerBackdrop')!
     this.roleOptionButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('.role-option-btn'))
+    this.keydownHandler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !this.backdropEl.classList.contains('hidden')) {
+        this.close()
+      }
+    }
 
     this.initEventListeners()
   }
@@ -33,11 +39,7 @@ export class RolePicker {
       })
     })
 
-    window.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !this.backdropEl.classList.contains('hidden')) {
-        this.close()
-      }
-    })
+    window.addEventListener('keydown', this.keydownHandler)
   }
 
   public open(player: Player): void {
@@ -54,5 +56,9 @@ export class RolePicker {
     gameState.setSelectedPlayer(null)
     this.backdropEl.classList.add('hidden')
     this.backdropEl.setAttribute('aria-hidden', 'true')
+  }
+
+  public destroy(): void {
+    window.removeEventListener('keydown', this.keydownHandler)
   }
 }

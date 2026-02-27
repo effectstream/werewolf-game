@@ -1,8 +1,12 @@
 import { evmWallet } from '../services/evmWallet'
 import { getGameState, joinGame, deriveMidnightAddressHash, type GameInfo } from '../services/lobbyContract'
+import { gameState, type PlayerBundle } from '../state/gameState'
+import { decodeGamePhrase, isGamePhrase } from '../services/werewolfIdCodec'
+
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:9999'
 
 export class LobbyScreen {
-  onJoined: (gameId: number) => void = () => {}
+  onJoined: (gameId: number, gameStarted: boolean) => void = () => {}
 
   private container: HTMLDivElement
   private statusEl!: HTMLParagraphElement
@@ -31,7 +35,7 @@ export class LobbyScreen {
 
         <section id="lobbyGameSection" class="lobby-game-section" hidden>
           <div class="lobby-row">
-            <input id="lobbyGameIdInput" class="lobby-input" type="number" min="1" placeholder="Game ID" />
+            <input id="lobbyGameIdInput" class="lobby-input" type="text" placeholder="Game ID or 4-word phrase" />
             <button id="lobbyFindBtn" class="ui-btn lobby-btn">Find Game</button>
           </div>
           <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
@@ -99,10 +103,21 @@ export class LobbyScreen {
   }
 
   private async handleFindGame(): Promise<void> {
-    const gameId = parseInt(this.gameIdInput.value, 10)
-    if (isNaN(gameId) || gameId < 1) {
-      this.setStatus('Enter a valid Game ID.', true)
-      return
+    const raw = this.gameIdInput.value.trim()
+    let gameId: number
+    if (isGamePhrase(raw)) {
+      try {
+        gameId = decodeGamePhrase(raw)
+      } catch (err) {
+        this.setStatus(`Invalid phrase: ${(err as Error).message}`, true)
+        return
+      }
+    } else {
+      gameId = parseInt(raw, 10)
+      if (isNaN(gameId) || gameId < 1) {
+        this.setStatus('Enter a valid Game ID or 4-word phrase.', true)
+        return
+      }
     }
 
     this.setLoading(this.findBtn, true, 'Find Game')
@@ -163,9 +178,28 @@ export class LobbyScreen {
         address,
       )
 
+      this.setStatus('Fetching player bundle...')
+      const bundleRes = await fetch(
+        `${API_BASE}/api/join_game?gameId=${this.currentGame.id}&midnightAddressHash=${encodeURIComponent(midnightAddressHash)}`,
+        { method: 'POST' },
+      )
+      if (!bundleRes.ok) {
+        const text = await bundleRes.text()
+        throw new Error(`Failed to get player bundle: ${bundleRes.status} ${text}`)
+      }
+      const bundleData = await bundleRes.json() as {
+        success: boolean
+        message?: string
+        bundle?: PlayerBundle
+        gameStarted?: boolean
+      }
+      if (bundleData.bundle) {
+        gameState.setPlayerBundle(bundleData.bundle)
+      }
+
       this.setStatus('Joined successfully! Loading game...')
       this.joinBtn.hidden = true
-      this.onJoined(this.currentGame.id)
+      this.onJoined(this.currentGame.id, bundleData.gameStarted ?? false)
     } catch (err) {
       this.setLoading(this.joinBtn, false, 'Join Game')
       const msg = (err as Error).message
