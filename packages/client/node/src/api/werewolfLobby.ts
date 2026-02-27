@@ -300,6 +300,25 @@ export async function getVoteStatusHandler(
   };
 }
 
+export async function getVotesForRoundHandler(
+  dbConn: Pool,
+  gameId: number,
+  round: number,
+  phase: string,
+): Promise<{ votes: { voterIndex: number; encryptedVoteHex: string; merklePathJson: string }[] }> {
+  const rows = await runPreparedQuery(
+    getVotesForRound.run({ game_id: gameId, round, phase }, dbConn),
+    "getVotesForRound",
+  );
+  return {
+    votes: rows.map((r) => ({
+      voterIndex: r.voter_index,
+      encryptedVoteHex: r.encrypted_vote,
+      merklePathJson: r.merkle_path,
+    })),
+  };
+}
+
 export async function getGameViewHandler(dbConn: Pool, gameId: number) {
   const rows = await runPreparedQuery(
     getGameView.run({ game_id: gameId }, dbConn),

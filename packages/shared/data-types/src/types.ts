@@ -138,3 +138,19 @@ export const GetVoteStatusResponseSchema = Type.Object({
   voteCount: Type.Number(),
   aliveCount: Type.Number(),
 });
+
+export const GetVotesForRoundQuerystringSchema = Type.Object({
+  gameId: Type.Number(),
+  round: Type.Number(),
+  phase: Type.String(),
+});
+
+export const PlayerVoteSchema = Type.Object({
+  voterIndex: Type.Number(),
+  encryptedVoteHex: Type.String(),
+  merklePathJson: Type.String(),
+});
+
+export const GetVotesForRoundResponseSchema = Type.Object({
+  votes: Type.Array(PlayerVoteSchema),
+});

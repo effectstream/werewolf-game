@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { loginMidnight } from "./interface.ts";
 import { GameChat } from "./components/GameChat.tsx";
@@ -523,6 +523,11 @@ function App() {
   const [dayEliminationInput, setDayEliminationInput] = useState("0");
   const [copied, setCopied] = useState(false);
   const [chatRoomReady, setChatRoomReady] = useState(false);
+  // Voter indices who have submitted votes in the current round/phase
+  const [votedPlayerIndices, setVotedPlayerIndices] = useState<number[]>([]);
+  // Track which round:phase keys we have already auto-submitted to avoid double submission
+  // Using a ref so the polling interval does not need to be recreated on each update
+  const autoSubmittedKeysRef = useRef<Set<string>>(new Set());
 
   const runtimeWitnesses = useMemo(
     () => ({
@@ -626,6 +631,120 @@ function App() {
     }, 1000);
     return () => globalThis.clearInterval(intervalId);
   }, [txTimer.start]);
+
+  // Poll /api/vote_status every 6 seconds. When all alive players have submitted
+  // encrypted votes, fetch them, decrypt each with adminVoteSecretKey + player's
+  // encKeypair.publicKey, then stage + submit each via the batcher (nightAction /
+  // voteDay). This mirrors handleSubmitNightActions / handleSubmitDayVotes but uses
+  // the player-submitted targets from the DB instead of manual UI inputs.
+  useEffect(() => {
+    if (!game || game.phase === Phase.Finished || !midnightWallet?.contract?.werewolf) {
+      return;
+    }
+
+    const phaseStr = game.phase === Phase.Night ? "NIGHT" : "DAY";
+    const pollKey = `${game.gameId}:${game.round}:${phaseStr}`;
+
+    // Clear voter list when entering a new round/phase
+    setVotedPlayerIndices([]);
+
+    const poll = async () => {
+      try {
+        // Always fetch current votes so the UI stays up to date
+        const votesRes = await fetch(
+          `${NODE_API_URL}/api/votes_for_round?gameId=${game.gameId}&round=${game.round}&phase=${encodeURIComponent(phaseStr)}`,
+        );
+        if (!votesRes.ok) return;
+        const { votes } = await votesRes.json() as {
+          votes: { voterIndex: number; encryptedVoteHex: string; merklePathJson: string }[];
+        };
+
+        // Update which players have voted so the UI can show it
+        setVotedPlayerIndices(votes.map((v) => v.voterIndex));
+
+        // Only auto-submit once per round/phase when all alive players have voted
+        if (autoSubmittedKeysRef.current.has(pollKey)) return;
+
+        const alivePlayerCount = game.players.filter((p) => p.alive).length;
+        if (alivePlayerCount === 0 || votes.length < alivePlayerCount) return;
+
+        // Mark as submitted before async work to prevent race conditions
+        autoSubmittedKeysRef.current.add(pollKey);
+
+        console.log(
+          `[autoVote] All ${votes.length}/${alivePlayerCount} votes in for ${phaseStr} round ${game.round}. Fetching and submitting.`,
+        );
+
+        const targets: number[] = [];
+        const batcherClient = getBatcherClient();
+
+        for (const vote of votes) {
+          const player = game.players.find((p) => p.id === vote.voterIndex);
+          if (!player || !player.alive) continue;
+
+          // Decrypt the stored encrypted vote to recover the target index
+          const cipherHex = vote.encryptedVoteHex.startsWith("0x")
+            ? vote.encryptedVoteHex.slice(2)
+            : vote.encryptedVoteHex;
+          const cipherBytes = new Uint8Array(
+            cipherHex.match(/.{2}/g)!.map((h: string) => parseInt(h, 16)),
+          );
+          const sessionKey = deriveSessionKey(
+            game.adminVoteSecretKey,
+            player.encKeypair.publicKey,
+            game.round,
+          );
+          const plaintext = xorPayload(cipherBytes.slice(0, 3), sessionKey);
+          const { target: targetIdx, round: voteRound } = unpackData(plaintext);
+
+          if (voteRound !== game.round) {
+            console.warn(
+              `[autoVote] Vote round mismatch: expected ${game.round}, got ${voteRound}`,
+            );
+            continue;
+          }
+
+          const path = game.tree.getProof(player.id, player.leaf);
+          await stageNextAction(
+            game.gameId,
+            {
+              targetNumber: targetIdx,
+              random: Math.floor(Math.random() * 1000),
+              merklePath: path,
+              leafSecret: player.sk,
+            },
+            player.encKeypair,
+            game.adminVotePublicKeyBytes,
+          );
+
+          if (game.phase === Phase.Night) {
+            await batcherClient.nightAction(game.gameId);
+          } else {
+            await batcherClient.voteDay(game.gameId);
+          }
+
+          targets.push(targetIdx);
+        }
+
+        if (game.phase === Phase.Night) {
+          setNightVotes(targets);
+          setStatus(
+            `[Auto] Night actions submitted for ${targets.length} players.`,
+          );
+        } else {
+          setDayVotes(targets);
+          setStatus(
+            `[Auto] Day votes submitted for ${targets.length} players.`,
+          );
+        }
+      } catch (err: any) {
+        console.error("[autoVote] Failed:", err);
+      }
+    };
+
+    const intervalId = globalThis.setInterval(poll, 6000);
+    return () => globalThis.clearInterval(intervalId);
+  }, [game?.gameId, game?.round, game?.phase, midnightWallet?.contract?.werewolf]);
 
   const parseBytes32 = (value: string, label: string) => {
     const trimmed = value.trim();
@@ -2289,6 +2408,43 @@ EVM: ✅`,
                     })`,
                 )
                 .join("\n")}
+            </div>
+          </div>
+        )}
+
+        {game && game.phase !== Phase.Finished && (
+          <div className="info">
+            <div className="label">
+              Vote status — {game.phase === Phase.Night ? "Night" : "Day"} round{" "}
+              {game.round} ({votedPlayerIndices.length}/
+              {game.players.filter((p) => p.alive).length} voted)
+            </div>
+            <div className="vote-status-grid">
+              {game.players.map((player) => {
+                const hasVoted = votedPlayerIndices.includes(player.id);
+                return (
+                  <div
+                    key={player.id}
+                    className={`vote-status-cell ${
+                      !player.alive
+                        ? "vote-cell-dead"
+                        : hasVoted
+                        ? "vote-cell-voted"
+                        : "vote-cell-waiting"
+                    }`}
+                    title={`P${player.id} (${roleName(player.role)}) — ${
+                      !player.alive
+                        ? "dead"
+                        : hasVoted
+                        ? "voted"
+                        : "waiting"
+                    }`}
+                  >
+                    P{player.id}
+                    {!player.alive ? " ✕" : hasVoted ? " ✓" : " …"}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

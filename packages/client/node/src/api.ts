@@ -9,6 +9,7 @@ import {
   getGameViewHandler,
   getPlayersHandler,
   getVoteStatusHandler,
+  getVotesForRoundHandler,
   joinGameHandler,
   submitVoteHandler,
 } from "./api/werewolfLobby.ts";
@@ -26,6 +27,8 @@ import {
   GetPlayersResponseSchema,
   GetVoteStatusQuerystringSchema,
   GetVoteStatusResponseSchema,
+  GetVotesForRoundQuerystringSchema,
+  GetVotesForRoundResponseSchema,
   JoinGameQuerystringSchema,
   JoinGameResponseSchema,
   SubmitVoteBodySchema,
@@ -207,5 +210,13 @@ export const apiRouter: StartConfigApiRouter = async function (
   }>("/api/vote_status", async (request) => {
     const { gameId, round, phase } = request.query;
     return await getVoteStatusHandler(dbConn, Number(gameId), round, phase);
+  });
+
+  server.get<{
+    Querystring: Static<typeof GetVotesForRoundQuerystringSchema>;
+    Reply: Static<typeof GetVotesForRoundResponseSchema>;
+  }>("/api/votes_for_round", async (request) => {
+    const { gameId, round, phase } = request.query;
+    return await getVotesForRoundHandler(dbConn, Number(gameId), round, phase);
   });
 };

@@ -491,3 +491,39 @@ textarea {
   transform: scale(0.97);
 }
 
+/* Vote status grid */
+.vote-status-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.vote-status-cell {
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.vote-cell-voted {
+  background: rgba(34, 197, 94, 0.15);
+  border-color: rgba(34, 197, 94, 0.4);
+  color: #86efac;
+}
+
+.vote-cell-waiting {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--muted);
+}
+
+.vote-cell-dead {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: rgba(255, 255, 255, 0.3);
+  text-decoration: line-through;
+}
+
