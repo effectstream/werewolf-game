@@ -8,7 +8,9 @@ import {
   getGameStateHandler,
   getGameViewHandler,
   getPlayersHandler,
+  getVoteStatusHandler,
   joinGameHandler,
+  submitVoteHandler,
 } from "./api/werewolfLobby.ts";
 import {
   CloseGameQuerystringSchema,
@@ -22,8 +24,12 @@ import {
   GetGameViewResponseSchema,
   GetPlayersQuerystringSchema,
   GetPlayersResponseSchema,
+  GetVoteStatusQuerystringSchema,
+  GetVoteStatusResponseSchema,
   JoinGameQuerystringSchema,
   JoinGameResponseSchema,
+  SubmitVoteBodySchema,
+  SubmitVoteResponseSchema,
 } from "@werewolf-game/data-types/grammar";
 
 const FaucetQueryParamsSchema = Type.Object({
@@ -167,5 +173,39 @@ export const apiRouter: StartConfigApiRouter = async function (
   }>("/api/game_view", async (request) => {
     const { gameId } = request.query;
     return await getGameViewHandler(dbConn, gameId);
+  });
+
+  server.post<{
+    Body: Static<typeof SubmitVoteBodySchema>;
+    Reply: Static<typeof SubmitVoteResponseSchema | typeof GenericErrorResponseSchema>;
+  }>(
+    "/api/submit_vote",
+    { schema: { body: SubmitVoteBodySchema } },
+    async (request, reply) => {
+      const { gameId, round, phase, voterIndex, targetIndex, encryptedVoteHex, merklePathJson } =
+        request.body;
+      try {
+        return await submitVoteHandler(
+          dbConn,
+          Number(gameId),
+          round,
+          phase,
+          voterIndex,
+          targetIndex,
+          encryptedVoteHex,
+          merklePathJson,
+        );
+      } catch (err: any) {
+        return reply.status(500).send({ error: String(err?.message ?? err) });
+      }
+    },
+  );
+
+  server.get<{
+    Querystring: Static<typeof GetVoteStatusQuerystringSchema>;
+    Reply: Static<typeof GetVoteStatusResponseSchema>;
+  }>("/api/vote_status", async (request) => {
+    const { gameId, round, phase } = request.query;
+    return await getVoteStatusHandler(dbConn, Number(gameId), round, phase);
   });
 };

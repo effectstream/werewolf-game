@@ -99,6 +99,19 @@ stm.addStateTransition(
       // Werewolf indices only populated when game is finished
       const werewolfIndices: number[] = [];
 
+      // Validate derived values before hitting the DB — NaN or non-finite numbers
+      // cause a silent PostgreSQL type error that aborts the transaction, making
+      // every subsequent query fail with 25P02 instead of the real error.
+      if (!Number.isFinite(round) || !Number.isFinite(playerCount) ||
+          !Number.isFinite(aliveCount) || !Number.isFinite(werewolfCount) ||
+          !Number.isFinite(villagerCount)) {
+        console.error(
+          `[midnight] SKIPPING game=${gameId}: non-finite value detected`,
+          { round, playerCount, aliveCount, werewolfCount, villagerCount, phase, rawKey },
+        );
+        continue;
+      }
+
       yield* World.resolve(upsertGameView, {
         game_id: gameId,
         phase: String(phase),
