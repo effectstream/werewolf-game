@@ -21,3 +21,9 @@ export interface BroadcastBody {
   gameId: number;
   text: string;
 }
+
+// HTTP body for POST /create-room — creates the room and pre-invites the moderator
+export interface CreateRoomBody {
+  gameId: number;
+  moderatorHash: string;
+}

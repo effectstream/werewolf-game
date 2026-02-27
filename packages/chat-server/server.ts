@@ -1,4 +1,4 @@
-import type { BroadcastBody, ClientMessage, InviteBody, ServerMessage } from "./types.ts";
+import type { BroadcastBody, ClientMessage, CreateRoomBody, InviteBody, ServerMessage } from "./types.ts";
 import {
   addConnection,
   broadcastAll,
@@ -11,6 +11,19 @@ import {
 
 const MAX_TEXT_LENGTH = 500;
 const IDENTIFY_TIMEOUT_MS = 10_000;
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type",
+};
+
+function corsJson(body: unknown, init?: ResponseInit): Response {
+  return Response.json(body, {
+    ...init,
+    headers: { ...CORS_HEADERS, ...(init?.headers ?? {}) },
+  });
+}
 
 function send(socket: WebSocket, msg: ServerMessage): void {
   if (socket.readyState === WebSocket.OPEN) {
@@ -138,7 +151,7 @@ async function handleInvite(req: Request): Promise<Response> {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    return corsJson({ error: "Invalid JSON body" }, { status: 400 });
   }
 
   const gameId = typeof body.gameId === "number" ? body.gameId : null;
@@ -147,7 +160,7 @@ async function handleInvite(req: Request): Promise<Response> {
     : null;
 
   if (!gameId || !hash) {
-    return Response.json(
+    return corsJson(
       { error: "gameId (number) and midnightAddressHash (string) are required" },
       { status: 400 },
     );
@@ -155,7 +168,42 @@ async function handleInvite(req: Request): Promise<Response> {
 
   invitePlayer(gameId, hash);
   console.log(`[chat] Invited player=${hash} to game=${gameId}`);
-  return Response.json({ ok: true });
+  return corsJson({ ok: true });
+}
+
+async function handleCreateRoom(req: Request): Promise<Response> {
+  let body: Partial<CreateRoomBody>;
+  try {
+    body = await req.json();
+  } catch {
+    return corsJson({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const gameId = typeof body.gameId === "number" ? body.gameId : null;
+  const hash = typeof body.moderatorHash === "string" ? body.moderatorHash.trim() : null;
+
+  if (!gameId || !hash) {
+    return corsJson(
+      { error: "gameId (number) and moderatorHash (string) are required" },
+      { status: 400 },
+    );
+  }
+
+  invitePlayer(gameId, hash);
+  console.log(`[chat] Created room game=${gameId} moderator=${hash}`);
+
+  // After 10 s, send a welcome system message to everyone connected in the room.
+  setTimeout(() => {
+    const msg: ServerMessage = {
+      type: "system",
+      text: "Welcome to the Werewolf Midnight",
+      timestamp: Date.now(),
+    };
+    broadcastAll(gameId, JSON.stringify(msg));
+    console.log(`[chat] Sent welcome message to game=${gameId}`);
+  }, 10_000);
+
+  return corsJson({ ok: true });
 }
 
 async function handleBroadcast(req: Request): Promise<Response> {
@@ -163,14 +211,14 @@ async function handleBroadcast(req: Request): Promise<Response> {
   try {
     body = await req.json();
   } catch {
-    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+    return corsJson({ error: "Invalid JSON body" }, { status: 400 });
   }
 
   const gameId = typeof body.gameId === "number" ? body.gameId : null;
   const text = typeof body.text === "string" ? body.text.trim() : null;
 
   if (!gameId || !text) {
-    return Response.json(
+    return corsJson(
       { error: "gameId (number) and text (string) are required" },
       { status: 400 },
     );
@@ -179,12 +227,21 @@ async function handleBroadcast(req: Request): Promise<Response> {
   const msg: ServerMessage = { type: "system", text, timestamp: Date.now() };
   broadcastAll(gameId, JSON.stringify(msg));
   console.log(`[chat] System broadcast game=${gameId}: ${text}`);
-  return Response.json({ ok: true });
+  return corsJson({ ok: true });
 }
 
 export function startChatServer(port: number): void {
   Deno.serve({ port }, async (req) => {
     const url = new URL(req.url);
+
+    // Handle CORS preflight for all routes
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+    if (req.method === "POST" && url.pathname === "/create-room") {
+      return await handleCreateRoom(req);
+    }
 
     if (req.method === "POST" && url.pathname === "/invite") {
       return await handleInvite(req);
@@ -197,7 +254,7 @@ export function startChatServer(port: number): void {
     if (req.method === "GET" && url.pathname.startsWith("/chat/")) {
       const gameId = parseGameId(url.pathname);
       if (gameId === null) {
-        return Response.json({ error: "Invalid game ID in path" }, { status: 400 });
+        return corsJson({ error: "Invalid game ID in path" }, { status: 400 });
       }
       const upgrade = req.headers.get("upgrade");
       if (!upgrade || upgrade.toLowerCase() !== "websocket") {
@@ -207,7 +264,7 @@ export function startChatServer(port: number): void {
     }
 
     if (req.method === "GET" && url.pathname === "/health") {
-      return Response.json({ status: "ok" });
+      return corsJson({ status: "ok" });
     }
 
     return new Response("Not found", { status: 404 });

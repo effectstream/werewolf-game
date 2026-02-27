@@ -22,10 +22,8 @@ const paimaL2Address = evm_enabled
   ] as `0x${string}`
   : `0x0`;
 
-const batcherPrivateKey = ENV.getString(
-  "BATCHER_EVM_SECRET_KEY",
-) ??
-  ("0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as `0x${string}`);
+const batcherPrivateKey =
+  "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
 
 // Defaults consistent with E2E usage
 const paimaL2Fee = 0n; // old batcher defaulted to 0 for local dev

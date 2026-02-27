@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import { loginMidnight } from "./interface.ts";
+import { GameChat } from "./components/GameChat.tsx";
 import { callWerewolfMethod, connectToContract } from "./contracts/contract.ts";
 import { fromHex } from "@midnight-ntwrk/compact-runtime";
 import {
@@ -17,6 +18,8 @@ import { createWalletClient, custom } from "viem";
 import { hardhat } from "viem/chains";
 
 const NODE_API_URL = "http://localhost:9999";
+const CHAT_SERVER_HTTP_URL = (import.meta.env.VITE_CHAT_SERVER_URL as string | undefined)
+  ?.replace(/^ws/, "http") ?? "http://localhost:3001";
 
 // Component to display game ID with human-readable name and hover tooltip
 function GameIdDisplay({ gameId }: { gameId: bigint | number }) {
@@ -518,8 +521,8 @@ function App() {
   const [dayVoteInputs, setDayVoteInputs] = useState<string[]>([]);
   const [nightEliminationInput, setNightEliminationInput] = useState("0");
   const [dayEliminationInput, setDayEliminationInput] = useState("0");
-  const [chatMessages, setChatMessages] = useState<Array<{ id: number; text: string; timestamp: Date }>>([]);
-  const [chatInput, setChatInput] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [chatRoomReady, setChatRoomReady] = useState(false);
 
   const runtimeWitnesses = useMemo(
     () => ({
@@ -1303,6 +1306,19 @@ function App() {
 
       console.log("Game created on EVM chain via batcher");
 
+      // Pre-invite the moderator (trusted node) into the game chat room.
+      // Must succeed before <GameChat> is mounted — we gate on chatRoomReady.
+      setStatus("Creating chat room…");
+      const chatRes = await fetch(`${CHAT_SERVER_HTTP_URL}/create-room`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ gameId: Number(gameId), moderatorHash: midnightAddress }),
+      });
+      if (!chatRes.ok) {
+        throw new Error(`Chat server error: ${chatRes.status} ${await chatRes.text()}`);
+      }
+      setChatRoomReady(true);
+
       setGame({
         gameId,
         masterSecret,
@@ -1912,6 +1928,7 @@ EVM: ✅`,
 
   const handleResetGame = () => {
     setGame(null);
+    setChatRoomReady(false);
     setNightVotes([]);
     setDayVotes([]);
     setNightVoteInputs([]);
@@ -1922,14 +1939,17 @@ EVM: ✅`,
     setStatus("Game state cleared.");
   };
 
-  const handleSendMessage = () => {
-    const message = chatInput.trim();
-    if (!message) return;
-    setChatMessages((prev) => [
-      ...prev,
-      { id: Date.now(), text: message, timestamp: new Date() }
-    ]);
-    setChatInput("");
+  const handleCopyGameCode = async () => {
+    if (!game) return;
+    const gameCode = werewolfIdCodec.encode(game.gameId);
+    try {
+      await navigator.clipboard.writeText(gameCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy game code:", err);
+      setError("Failed to copy game code to clipboard.");
+    }
   };
 
   return (
@@ -1939,6 +1959,26 @@ EVM: ✅`,
           <div className="card">
             <div className="title">Midnight dApp</div>
             <div className="subtitle">Werewolf game (Trusted Node view)</div>
+
+        {game && (
+          <div className="game-code-banner">
+            <div className="game-code-label">Game Code</div>
+            <div className="game-code-container">
+              <span className="game-code-text">
+                {werewolfIdCodec.encode(game.gameId)}
+              </span>
+              <button
+                type="button"
+                className="btn btn-copy"
+                onClick={handleCopyGameCode}
+                disabled={loading}
+                title="Copy game code to clipboard"
+              >
+                {copied ? "✓ Copied!" : "📋 Copy"}
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="actions">
           <button
@@ -2254,43 +2294,11 @@ EVM: ✅`,
         {isModalOpen && <WalletModal onClose={closeModal} />}
       </div>
         </div>
-        {game && (
-          <div className="chat-panel">
-            <div className="chat-header">Game Chat</div>
-            <div className="chat-messages">
-              {chatMessages.length === 0 ? (
-                <div className="chat-empty">No messages yet</div>
-              ) : (
-                chatMessages.map((msg) => (
-                  <div key={msg.id} className="chat-message">
-                    {msg.text}
-                  </div>
-                ))
-              )}
-            </div>
-            <div className="chat-input-area">
-              <input
-                className="chat-input"
-                type="text"
-                value={chatInput}
-                onChange={(event) => setChatInput(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    handleSendMessage();
-                  }
-                }}
-                placeholder="Type a message..."
-              />
-              <button
-                className="chat-send-btn"
-                type="button"
-                onClick={handleSendMessage}
-                disabled={!chatInput.trim()}
-              >
-                Send
-              </button>
-            </div>
-          </div>
+        {game && midnightAddress && chatRoomReady && (
+          <GameChat
+            gameId={game.gameId}
+            midnightAddressHash={midnightAddress}
+          />
         )}
       </div>
     </div>
