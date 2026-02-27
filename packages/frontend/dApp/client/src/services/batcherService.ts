@@ -37,14 +37,15 @@ export class BatcherService {
     const timestamp = Date.now().toString();
     const inputString = JSON.stringify(inputData);
 
-    // Create the message to be signed
+    // NOTE: target is not serialized into the on-chain batch by the batcher library,
+    // so the L2 primitive always re-verifies with target=undefined. Sign without it.
     const message = createMessageForBatcher(
       null, // namespace
       timestamp,
       address,
       AddressType.EVM,
       inputString,
-      target, // target for the batcher
+      // target intentionally omitted
     );
 
     // Sign the message with the wallet

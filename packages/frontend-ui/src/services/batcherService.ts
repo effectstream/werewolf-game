@@ -46,7 +46,9 @@ export class BatcherService {
     const timestamp = Date.now().toString()
     const inputString = JSON.stringify(inputData)
 
-    const message = createMessageForBatcher(null, timestamp, address, inputString, target)
+    // NOTE: target is not serialized into the on-chain batch by the batcher library,
+    // so the L2 primitive always re-verifies with target=undefined. Sign without it.
+    const message = createMessageForBatcher(null, timestamp, address, inputString)
     console.log('[BatcherService] message to sign:', message)
 
     const signature = await signMessage({ message })

@@ -171,7 +171,8 @@ class GameState {
     if (lower === 'day') return 'DAY'
     if (lower === 'night') return 'NIGHT'
     if (lower === 'finished') return 'FINISHED'
-    return 'DAY'
+    // Unknown phase (e.g. 'waiting', 'not_started') — preserve current phase
+    return this.phase
   }
 
   incrementRound() {

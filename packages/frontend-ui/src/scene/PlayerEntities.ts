@@ -142,6 +142,14 @@ export class PlayerEntities {
   }
 
   private syncVisuals(): void {
+    // Don't process alive/dead status until the game has actually started;
+    // pre-game views return all alive flags as false which would mark everyone dead.
+    if (!gameState.gameStarted) return
+
+    // aliveCount === 0 with finished=false means the ledger data is not yet
+    // reliable (no alive flags set). Skip to avoid marking everyone as dead.
+    if (gameState.aliveCount === 0 && !gameState.finished) return
+
     for (const player of gameState.players) {
       const alive = gameState.playerAlive[player.index]
 

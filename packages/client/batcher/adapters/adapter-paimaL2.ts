@@ -1,8 +1,10 @@
 import { PaimaL2DefaultAdapter } from "@paimaexample/batcher";
+import type { DefaultBatcherInput } from "@paimaexample/batcher";
 import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
 import { ENV } from "@paimaexample/utils/node-env";
 import * as chains from "viem/chains";
 import type { Chain } from "viem";
+import { verifyMessage } from "viem";
 
 // This file loads either a local hardhat chain contract or a testnet contract.
 //
@@ -40,9 +42,36 @@ if (isTestnet) {
   chain = chains.hardhat;
 }
 
-// PaimaL2 EVM adapter
-export const paimaL2Adapter: PaimaL2DefaultAdapter = evm_enabled
-  ? new PaimaL2DefaultAdapter(
+// PaimaL2 EVM adapter with custom signature verification.
+// The default batcher verification includes `target` in the signed message, but
+// the L2 primitive re-verifies on-chain without `target` (it's not stored in the
+// batch). Both sides must agree, so we omit `target` from the message here too.
+class WerewolfPaimaL2Adapter extends PaimaL2DefaultAdapter {
+  async verifySignature(input: DefaultBatcherInput): Promise<boolean> {
+    if (!input.signature) return false;
+    const address = input.address.toLowerCase() as `0x${string}`;
+    const message = (
+      "" + // namespace (matches batcher config namespace: "")
+      input.timestamp +
+      address +
+      input.input
+    )
+      .replace(/[^a-zA-Z0-9]/g, "-")
+      .toLocaleLowerCase();
+    try {
+      return await verifyMessage({
+        address: input.address as `0x${string}`,
+        message,
+        signature: input.signature as `0x${string}`,
+      });
+    } catch {
+      return false;
+    }
+  }
+}
+
+export const paimaL2Adapter: WerewolfPaimaL2Adapter = evm_enabled
+  ? new WerewolfPaimaL2Adapter(
     paimaL2Address,
     batcherPrivateKey as `0x${string}`,
     paimaL2Fee,

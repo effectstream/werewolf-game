@@ -78,14 +78,6 @@ stm.addStateTransition(
       const aliveIndices = ledger.aliveIndices(gameId);
       const aliveCount = aliveIndices.length;
 
-      // Build alive vector and upsert the denormalized game view
-      const playerCount = Number(game.playerCount ?? 0);
-      const aliveSet = new Set(aliveIndices);
-      const aliveVector: boolean[] = [];
-      for (let i = 0; i < playerCount; i++) {
-        aliveVector.push(aliveSet.has(i));
-      }
-
       const phaseRaw = game.phase ?? game.currentPhase;
       const finished =
         phaseRaw === "Finished" ||
@@ -95,6 +87,19 @@ stm.addStateTransition(
 
       const werewolfCount = Number(game.werewolfCount ?? 0);
       const villagerCount = Number(game.villagerCount ?? 0);
+
+      // Build alive vector and upsert the denormalized game view.
+      // When aliveCount is 0 but the game is not finished and playerCount > 0,
+      // the ledger snapshot is ambiguous (alive flags not yet propagated).
+      // Default every slot to alive so the frontend never shows all players dead
+      // before the game has actually started.
+      const playerCount = Number(game.playerCount ?? 0);
+      const aliveSet = new Set(aliveIndices);
+      const aliveVector: boolean[] = [];
+      const useAllAlive = !finished && aliveCount === 0 && playerCount > 0;
+      for (let i = 0; i < playerCount; i++) {
+        aliveVector.push(useAllAlive ? true : aliveSet.has(i));
+      }
 
       // Werewolf indices only populated when game is finished
       const werewolfIndices: number[] = [];
@@ -350,6 +355,9 @@ stm.addStateTransition(
 stm.addStateTransition(
   "join_game",
   function* (data) {
+    console.log("[join_game] RAW data.parsedInput:", JSON.stringify(data.parsedInput));
+    console.log("[join_game] RAW data keys:", JSON.stringify(Object.keys(data)));
+
     const { gameId, midnightAddressHash } = data.parsedInput as {
       gameId: number;
       midnightAddressHash: string;
