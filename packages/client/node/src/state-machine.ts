@@ -19,6 +19,7 @@ import {
   snapshotAlivePlayer,
   updateRoundVoteCount,
   upsertLobby,
+  upsertGameView,
   upsertRoundState,
 } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
@@ -77,6 +78,42 @@ stm.addStateTransition(
       const aliveIndices = ledger.aliveIndices(gameId);
       const aliveCount = aliveIndices.length;
 
+      // Build alive vector and upsert the denormalized game view
+      const playerCount = Number(game.playerCount ?? 0);
+      const aliveSet = new Set(aliveIndices);
+      const aliveVector: boolean[] = [];
+      for (let i = 0; i < playerCount; i++) {
+        aliveVector.push(aliveSet.has(i));
+      }
+
+      const phaseRaw = game.phase ?? game.currentPhase;
+      const finished =
+        phaseRaw === "Finished" ||
+        phaseRaw === "finished" ||
+        phaseRaw === 3 ||
+        String(phaseRaw).toLowerCase() === "finished";
+
+      const werewolfCount = Number(game.werewolfCount ?? 0);
+      const villagerCount = Number(game.villagerCount ?? 0);
+
+      // Werewolf indices only populated when game is finished
+      const werewolfIndices: number[] = [];
+
+      yield* World.resolve(upsertGameView, {
+        game_id: gameId,
+        phase: String(phase),
+        round,
+        player_count: playerCount,
+        alive_count: aliveCount,
+        werewolf_count: werewolfCount,
+        villager_count: villagerCount,
+        alive_vector: JSON.stringify(aliveVector),
+        finished,
+        werewolf_indices: JSON.stringify(werewolfIndices),
+        updated_block: blockHeight,
+      });
+
+      // Skip round-state logic for games with no alive players
       if (aliveCount === 0) continue;
 
       const existingRows = (yield* World.resolve(getRoundState, {

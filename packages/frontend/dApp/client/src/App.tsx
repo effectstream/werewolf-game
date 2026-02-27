@@ -1146,6 +1146,13 @@ function App() {
         playerCount - 1,
       );
 
+      if (playerCount < 5) {
+        throw new Error("Minimum 5 players required.");
+      }
+      if (werewolfCount < 2) {
+        throw new Error("Minimum 2 werewolves required.");
+      }
+
       const adminKeyBytes = getAdminKeyBytes();
       const gameId = randomGameId();
       const adminVoteKeypair = nacl.box.keyPair();
@@ -1195,6 +1202,23 @@ function App() {
         players.map((p) => p.leaf),
       );
       const initialRoot = tree.getRoot();
+
+      // Compute player bundles inline so they can be sent to the Node API
+      // immediately, before setGame() is called (which would update the useMemo).
+      const bundlesToSend: PlayerBundle[] = players.map((player) => {
+        const proof = tree.getProof(player.id, player.leaf);
+        return {
+          gameId: gameId.toString(),
+          playerId: player.id,
+          leafSecret: bytesToHex(player.sk),
+          merklePath: proof.path.map((entry) => ({
+            sibling: { field: entry.sibling.field.toString() },
+            goes_left: entry.goes_left,
+          })),
+          adminVotePublicKeyHex,
+          role: player.role,
+        } satisfies PlayerBundle;
+      });
 
       // --- Pretty Logging for Game Setup ---
       console.group("🎲 Game Setup Details");
@@ -1280,6 +1304,7 @@ function App() {
           body: JSON.stringify({
             gameId: gameId.toString(),
             maxPlayers: playerCount,
+            playerBundles: bundlesToSend,
           }),
         },
       );

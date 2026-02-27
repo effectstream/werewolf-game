@@ -18,8 +18,40 @@ import { CameraControls } from './scene/CameraControls'
 import { LobbyScreen } from './screens/LobbyScreen'
 import { gameState } from './state/gameState'
 import { evmWallet } from './services/evmWallet'
+import { fetchGameView } from './services/lobbyApi'
+import { GameViewPoller } from './services/gameViewPoller'
 
-function bootGame(): void {
+interface GameManagers {
+  hudManager: HUDManager
+  chatManager: ChatManager
+  playerListManager: PlayerListManager
+  rolePicker: RolePicker
+  playerEntities: PlayerEntities
+  poller: GameViewPoller
+}
+
+function destroyGame(managers: GameManagers): void {
+  managers.hudManager.destroy()
+  managers.chatManager.destroy()
+  managers.playerListManager.destroy()
+  managers.rolePicker.destroy()
+  managers.playerEntities.destroy()
+  managers.poller.stop()
+}
+
+async function bootGame(): Promise<GameManagers> {
+  const gameId = gameState.lobbyGameId!
+
+  // Fetch initial game view to get the player count
+  let initialPlayerCount = 8
+  try {
+    const initialView = await fetchGameView(gameId)
+    gameState.applyGameView(initialView)
+    initialPlayerCount = initialView.playerCount || 8
+  } catch (err) {
+    console.warn('[bootGame] Failed to fetch initial game view, using fallback count:', err)
+  }
+
   // Bootstrap Layout
   initLayout()
 
@@ -31,7 +63,7 @@ function bootGame(): void {
 
   // Initialize Scene Layer
   const gameScene = new GameScene()
-  const playerEntities = new PlayerEntities(gameScene.scene, chatManager, (count) => {
+  const playerEntities = new PlayerEntities(gameScene.scene, chatManager, initialPlayerCount, (count) => {
     if (gameScene.table.userData.updateCardLayout) {
       gameScene.table.userData.updateCardLayout(count)
     }
@@ -43,8 +75,14 @@ function bootGame(): void {
   }
   playerListManager.buildPlayerList()
 
-  const interactionManager = new InteractionManager(gameScene.camera, gameScene.renderer.domElement, rolePicker)
+  new InteractionManager(gameScene.camera, gameScene.renderer.domElement, rolePicker)
   const cameraControls = new CameraControls(gameScene.camera, gameScene.renderer.domElement)
+
+  // Start the game view polling service
+  const poller = new GameViewPoller(gameId, (view) => {
+    gameState.applyGameView(view)
+  }, 3000)
+  poller.start()
 
   // Animation Loop
   const clock = new THREE.Clock()
@@ -61,15 +99,32 @@ function bootGame(): void {
   }
 
   animate()
+
+  return { hudManager, chatManager, playerListManager, rolePicker, playerEntities, poller }
 }
 
 // Show lobby first; boot the game scene only after the player has joined.
 const lobbyScreen = new LobbyScreen()
 lobbyScreen.show()
 
-lobbyScreen.onJoined = (gameId: number) => {
+let activeManagers: GameManagers | null = null
+
+lobbyScreen.onJoined = (gameId: number, gameStarted: boolean) => {
+  if (activeManagers) {
+    destroyGame(activeManagers)
+    activeManagers = null
+  }
+
   gameState.lobbyGameId = gameId
   gameState.playerEvmAddress = evmWallet.getAddress()
   lobbyScreen.hide()
-  bootGame()
+
+  bootGame().then((managers) => {
+    activeManagers = managers
+    if (gameStarted) {
+      gameState.setGameStarted()
+    }
+  }).catch((err) => {
+    console.error('[bootGame] Failed to start game:', err)
+  })
 }

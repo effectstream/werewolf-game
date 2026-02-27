@@ -6,6 +6,7 @@ import {
   closeGameHandler,
   createGameHandler,
   getGameStateHandler,
+  getGameViewHandler,
   getPlayersHandler,
   joinGameHandler,
 } from "./api/werewolfLobby.ts";
@@ -14,8 +15,11 @@ import {
   CloseGameResponseSchema,
   CreateGameBodySchema,
   CreateGameResponseSchema,
+  GenericErrorResponseSchema,
   GetGameStateQuerystringSchema,
   GetGameStateResponseSchema,
+  GetGameViewQuerystringSchema,
+  GetGameViewResponseSchema,
   GetPlayersQuerystringSchema,
   GetPlayersResponseSchema,
   JoinGameQuerystringSchema,
@@ -91,18 +95,46 @@ export const apiRouter: StartConfigApiRouter = async function (
   // -------------------------------------------------------------------------
   server.post<{
     Body: Static<typeof CreateGameBodySchema>;
-    Reply: Static<typeof CreateGameResponseSchema>;
-  }>("/api/create_game", { schema: { body: CreateGameBodySchema } }, async (request) => {
-    const { gameId, maxPlayers } = request.body;
-    return await createGameHandler(dbConn, Number(gameId), maxPlayers);
-  });
+    Reply: Static<
+      | typeof CreateGameResponseSchema
+      | typeof GenericErrorResponseSchema
+    >;
+  }>(
+    "/api/create_game",
+    { schema: { body: CreateGameBodySchema } },
+    async (request, reply) => {
+      const { gameId, maxPlayers, playerBundles } = request.body;
+      try {
+        return await createGameHandler(
+          dbConn,
+          Number(gameId),
+          maxPlayers,
+          playerBundles,
+        );
+      } catch (err: any) {
+        if (err?.statusCode === 400) {
+          return reply.status(400).send({ error: err.message });
+        }
+        throw err;
+      }
+    },
+  );
 
   server.post<{
     Querystring: Static<typeof JoinGameQuerystringSchema>;
-    Reply: Static<typeof JoinGameResponseSchema>;
-  }>("/api/join_game", async (request) => {
+    Reply: Static<
+      typeof JoinGameResponseSchema | typeof GenericErrorResponseSchema
+    >;
+  }>("/api/join_game", async (request, reply) => {
     const { gameId, midnightAddressHash } = request.query;
-    return await joinGameHandler(dbConn, gameId, midnightAddressHash);
+    try {
+      return await joinGameHandler(dbConn, gameId, midnightAddressHash);
+    } catch (err: any) {
+      if (err?.statusCode === 409) {
+        return reply.status(409).send({ error: err.message });
+      }
+      throw err;
+    }
   });
 
   server.post<{
@@ -127,5 +159,13 @@ export const apiRouter: StartConfigApiRouter = async function (
   }>("/api/game_players", async (request) => {
     const { gameId } = request.query;
     return await getPlayersHandler(dbConn, gameId);
+  });
+
+  server.get<{
+    Querystring: Static<typeof GetGameViewQuerystringSchema>;
+    Reply: Static<typeof GetGameViewResponseSchema>;
+  }>("/api/game_view", async (request) => {
+    const { gameId } = request.query;
+    return await getGameViewHandler(dbConn, gameId);
   });
 };

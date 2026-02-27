@@ -15,6 +15,7 @@ export class PlayerEntities {
   private scene: THREE.Scene
   private chatManager: ChatManager
   private speechAccumulator = 0
+  private unsubscribe: () => void
 
   private readonly ROLE_ORDER: Role[] = ['villager', 'werewolf', 'doctor', 'seer', 'angelDead']
   private readonly ROLE_LABEL: Record<Role, string> = {
@@ -25,15 +26,16 @@ export class PlayerEntities {
     angelDead: 'Angel (dead)'
   }
 
-  constructor(scene: THREE.Scene, chatManager: ChatManager, updateCardLayout?: (count: number) => void) {
+  constructor(scene: THREE.Scene, chatManager: ChatManager, playerCount: number, updateCardLayout?: (count: number) => void) {
     this.scene = scene
     this.chatManager = chatManager
-    
-    this.initPlayers(updateCardLayout)
+
+    this.initPlayers(playerCount, updateCardLayout)
+
+    this.unsubscribe = gameState.subscribe(() => this.syncVisuals())
   }
 
-  private initPlayers(updateCardLayout?: (count: number) => void) {
-    const playerCount = Math.floor(Math.random() * 8) + 8
+  private initPlayers(playerCount: number, updateCardLayout?: (count: number) => void) {
     const seed = 42
 
     const basePlayerConfigs = generatePlayerConfigs(playerCount, seed)
@@ -134,9 +136,35 @@ export class PlayerEntities {
     nextModel.visible = true
     player.activeRole = role
     player.activeModel = nextModel
-    
+
     const roleLabel = this.ROLE_LABEL[role] ?? role
     this.chatManager.addMessageLine('System', `${player.name} marked as ${roleLabel}`)
+  }
+
+  private syncVisuals(): void {
+    for (const player of gameState.players) {
+      const alive = gameState.playerAlive[player.index]
+
+      // Skip if alive status is not yet known from the backend
+      if (alive === undefined) continue
+
+      // Dead player → angel
+      if (!alive && player.activeRole !== 'angelDead') {
+        this.setPlayerRole(player, 'angelDead')
+      }
+
+      // On game end, reveal living werewolves
+      if (gameState.finished && gameState.werewolfIndices.includes(player.index)) {
+        if (alive && player.activeRole !== 'werewolf') {
+          this.setPlayerRole(player, 'werewolf')
+        }
+        // Dead werewolves stay as angels
+      }
+    }
+  }
+
+  public destroy(): void {
+    this.unsubscribe()
   }
 
   public updateSpeech(delta: number, clockTime: number): void {

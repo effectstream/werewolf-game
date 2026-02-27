@@ -1,5 +1,19 @@
 import { Type } from "@sinclair/typebox";
 
+export const MerklePathEntrySchema = Type.Object({
+  sibling: Type.Object({ field: Type.String() }),
+  goes_left: Type.Boolean(),
+});
+
+export const PlayerBundleSchema = Type.Object({
+  gameId: Type.String(),
+  playerId: Type.Number(),
+  leafSecret: Type.String(),
+  merklePath: Type.Array(MerklePathEntrySchema),
+  adminVotePublicKeyHex: Type.String(),
+  role: Type.Optional(Type.Number()),
+});
+
 export const CreateGameQuerystringSchema = Type.Object({
   gameId: Type.Number(),
   maxPlayers: Type.Number(),
@@ -8,6 +22,7 @@ export const CreateGameQuerystringSchema = Type.Object({
 export const CreateGameBodySchema = Type.Object({
   gameId: Type.String(),
   maxPlayers: Type.Number(),
+  playerBundles: Type.Array(PlayerBundleSchema),
 });
 
 export const CreateGameResponseSchema = Type.Object({
@@ -18,6 +33,10 @@ export const CreateGameResponseSchema = Type.Object({
   ]),
 });
 
+export const GenericErrorResponseSchema = Type.Object({
+  error: Type.String(),
+});
+
 export const JoinGameQuerystringSchema = Type.Object({
   gameId: Type.Number(),
   midnightAddressHash: Type.String(),
@@ -26,6 +45,8 @@ export const JoinGameQuerystringSchema = Type.Object({
 export const JoinGameResponseSchema = Type.Object({
   success: Type.Boolean(),
   message: Type.Optional(Type.String()),
+  bundle: Type.Optional(PlayerBundleSchema),
+  gameStarted: Type.Optional(Type.Boolean()),
 });
 
 export const CloseGameQuerystringSchema = Type.Object({
@@ -63,4 +84,27 @@ export const PlayerInfoSchema = Type.Object({
 export const GetPlayersResponseSchema = Type.Object({
   gameId: Type.Number(),
   players: Type.Array(PlayerInfoSchema),
+});
+
+export const GetGameViewQuerystringSchema = Type.Object({
+  gameId: Type.Number(),
+});
+
+export const PlayerStatusSchema = Type.Object({
+  index: Type.Number(),
+  alive: Type.Boolean(),
+});
+
+export const GetGameViewResponseSchema = Type.Object({
+  gameId: Type.Number(),
+  phase: Type.String(),
+  round: Type.Number(),
+  playerCount: Type.Number(),
+  aliveCount: Type.Number(),
+  werewolfCount: Type.Number(),
+  villagerCount: Type.Number(),
+  players: Type.Array(PlayerStatusSchema),
+  finished: Type.Boolean(),
+  werewolfIndices: Type.Array(Type.Number()),
+  updatedBlock: Type.Number(),
 });

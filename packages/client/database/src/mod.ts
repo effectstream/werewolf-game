@@ -33,6 +33,11 @@ export {
   upsertRoundState,
 } from "./sql/werewolf_game.queries.ts";
 
+export {
+  getGameView,
+  upsertGameView,
+} from "./sql/werewolf_game_view.queries.ts";
+
 // Export all interface types (excluding duplicate NumberOrString type)
 export type {
   IEvmMidnightTableExistsParams,
@@ -108,5 +113,14 @@ export type {
   IMarkPunishmentExecutedResult,
   IMarkPunishmentExecutedQuery,
 } from "./sql/werewolf_game.queries.ts";
+
+export type {
+  IUpsertGameViewParams,
+  IUpsertGameViewResult,
+  IUpsertGameViewQuery,
+  IGetGameViewParams,
+  IGetGameViewResult,
+  IGetGameViewQuery,
+} from "./sql/werewolf_game_view.queries.ts";
 
 export { migrationTable } from "./migration-order.ts";
