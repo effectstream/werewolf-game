@@ -7,19 +7,19 @@ import {
   getAliveSnapshots,
   getLobby,
   getRoundState,
-  incrementLobbyPlayerCount,
-  insertLobbyPlayer,
-  insertPendingPunishment,
   type IGetAliveSnapshotsResult,
   type IGetLobbyResult,
   type IGetRoundStateResult,
+  incrementLobbyPlayerCount,
+  insertLobbyPlayer,
+  insertPendingPunishment,
   resolveRound,
   setLobbyTimeout,
   setRoundTimeout,
   snapshotAlivePlayer,
   updateRoundVoteCount,
-  upsertLobby,
   upsertGameView,
+  upsertLobby,
   upsertRoundState,
 } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
@@ -29,18 +29,19 @@ import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
 const VOTE_TIMEOUT_BLOCKS = Number(
-  Deno.env.get("WEREWOLF_VOTE_TIMEOUT_BLOCKS") ?? "150",
+  Deno.env.get("WEREWOLF_VOTE_TIMEOUT_BLOCKS") ?? "180",
 );
 
 const LOBBY_TIMEOUT_BLOCKS = Number(
-  Deno.env.get("WEREWOLF_LOBBY_TIMEOUT_BLOCKS") ?? "150",
+  Deno.env.get("WEREWOLF_LOBBY_TIMEOUT_BLOCKS") ?? "600",
 );
 
 const LOBBY_MIN_PLAYERS = Number(
   Deno.env.get("WEREWOLF_LOBBY_MIN_PLAYERS") ?? "5",
 );
 
-const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ?? "http://localhost:3001";
+const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ??
+  "http://localhost:3001";
 
 // Fire-and-forget POST to the chat server. All calls are best-effort;
 // generator functions cannot await, and the game must proceed even if chat is down.
@@ -78,9 +79,12 @@ stm.addStateTransition(
       const aliveIndices = ledger.aliveIndices(gameId);
       const aliveCount = aliveIndices.length;
 
+      console.log(
+        `[midnight] game=${gameId} round=${round} phase=${phase} aliveCount=${aliveCount} aliveIndices=[${aliveIndices.join(",")}]`,
+      );
+
       const phaseRaw = game.phase ?? game.currentPhase;
-      const finished =
-        phaseRaw === "Finished" ||
+      const finished = phaseRaw === "Finished" ||
         phaseRaw === "finished" ||
         phaseRaw === 3 ||
         String(phaseRaw).toLowerCase() === "finished";
@@ -94,11 +98,10 @@ stm.addStateTransition(
       // Default every slot to alive so the frontend never shows all players dead
       // before the game has actually started.
       const playerCount = Number(game.playerCount ?? 0);
-      const aliveSet = new Set(aliveIndices);
-      const aliveVector: boolean[] = [];
       const useAllAlive = !finished && aliveCount === 0 && playerCount > 0;
+      const aliveVector: boolean[] = [];
       for (let i = 0; i < playerCount; i++) {
-        aliveVector.push(useAllAlive ? true : aliveSet.has(i));
+        aliveVector.push(useAllAlive ? true : aliveIndices.includes(i));
       }
 
       // Werewolf indices only populated when game is finished
@@ -107,12 +110,22 @@ stm.addStateTransition(
       // Validate derived values before hitting the DB — NaN or non-finite numbers
       // cause a silent PostgreSQL type error that aborts the transaction, making
       // every subsequent query fail with 25P02 instead of the real error.
-      if (!Number.isFinite(round) || !Number.isFinite(playerCount) ||
-          !Number.isFinite(aliveCount) || !Number.isFinite(werewolfCount) ||
-          !Number.isFinite(villagerCount)) {
+      if (
+        !Number.isFinite(round) || !Number.isFinite(playerCount) ||
+        !Number.isFinite(aliveCount) || !Number.isFinite(werewolfCount) ||
+        !Number.isFinite(villagerCount)
+      ) {
         console.error(
           `[midnight] SKIPPING game=${gameId}: non-finite value detected`,
-          { round, playerCount, aliveCount, werewolfCount, villagerCount, phase, rawKey },
+          {
+            round,
+            playerCount,
+            aliveCount,
+            werewolfCount,
+            villagerCount,
+            phase,
+            rawKey,
+          },
         );
         continue;
       }
@@ -131,8 +144,21 @@ stm.addStateTransition(
         updated_block: blockHeight,
       });
 
+      // When the ledger hasn't propagated alive flags yet, treat all player
+      // slots as alive — same reasoning as useAllAlive above.
+      const effectiveAliveCount = useAllAlive ? playerCount : aliveCount;
+      const effectiveAliveIndices = useAllAlive
+        ? Array.from({ length: playerCount }, (_, i) => i)
+        : aliveIndices;
+      const aliveSet = new Set(effectiveAliveIndices);
+
       // Skip round-state logic for games with no alive players
-      if (aliveCount === 0) continue;
+      if (effectiveAliveCount === 0) {
+        console.log(
+          `[midnight] game=${gameId} skipping round-state logic (effectiveAliveCount=0, playerCount=${playerCount})`,
+        );
+        continue;
+      }
 
       const existingRows = (yield* World.resolve(getRoundState, {
         game_id: gameId,
@@ -153,7 +179,7 @@ stm.addStateTransition(
             votes_submitted: currentVotes,
           });
           console.log(
-            `[midnight] game=${gameId} round=${round} phase=${phase} votes=${currentVotes}/${aliveCount}`,
+            `[midnight] game=${gameId} round=${round} phase=${phase} votes=${currentVotes}/${effectiveAliveCount}`,
           );
         }
         continue;
@@ -161,18 +187,18 @@ stm.addStateTransition(
 
       // New round — persist state, snapshot alive players, schedule timeout
       console.log(
-        `[midnight] New round detected game=${gameId} round=${round} phase=${phase} alive=${aliveCount}`,
+        `[midnight] New round detected game=${gameId} round=${round} phase=${phase} alive=${effectiveAliveCount} (ledgerAlive=${aliveCount})`,
       );
 
       yield* World.resolve(upsertRoundState, {
         game_id: gameId,
         round,
         phase,
-        alive_count: aliveCount,
+        alive_count: effectiveAliveCount,
         round_started_block: blockHeight,
       });
 
-      for (const playerIdx of aliveIndices) {
+      for (const playerIdx of effectiveAliveIndices) {
         yield* World.resolve(snapshotAlivePlayer, {
           game_id: gameId,
           round,
@@ -207,9 +233,55 @@ stm.addStateTransition(
         `[midnight] Scheduled timeout game=${gameId} round=${round} phase=${phase} at block=${timeoutBlock}`,
       );
 
+      // Detect and announce player deaths by comparing previous phase's snapshot.
+      // Phase comes from the contract as a numeric string: "1"=Night, "2"=Day.
+      // Round increments on day->night, so:
+      //   current=day (2) → previous=night (1), same round (night just ended)
+      //   current=night (1) → previous=day (2), round-1 (round just incremented from day->night)
+      const isDay = phase === "2";
+      const prevPhase = isDay ? "1" : "2";
+      const prevRound = isDay ? round : round - 1;
+
+      console.log(
+        `[midnight] Death detection game=${gameId} checking prev round=${prevRound} phase=${prevPhase} (current round=${round} phase=${phase})`,
+      );
+
+      if (prevRound >= 1) {
+        const prevAliveSnapshots = (yield* World.resolve(getAliveSnapshots, {
+          game_id: gameId,
+          round: prevRound,
+          phase: prevPhase,
+        })) as IGetAliveSnapshotsResult[];
+
+        console.log(
+          `[midnight] Death detection game=${gameId} prevAlive=[${prevAliveSnapshots.map((r) => r.player_idx).join(",")}] currentAlive=[${[...aliveSet].join(",")}]`,
+        );
+
+        const deadPlayers = prevAliveSnapshots.filter(
+          (r) => !aliveSet.has(r.player_idx),
+        );
+
+        console.log(
+          `[midnight] Death detection game=${gameId} dead=[${deadPlayers.map((r) => r.player_idx).join(",")}]`,
+        );
+
+        for (const dead of deadPlayers) {
+          chatPost("/broadcast", {
+            gameId,
+            text:
+              `Player ${dead.player_idx} was eliminated during the ${prevPhase} phase of round ${prevRound}.`,
+          });
+        }
+      } else {
+        console.log(
+          `[midnight] Death detection game=${gameId} skipped (prevRound=${prevRound} < 1, first night)`,
+        );
+      }
+
       chatPost("/broadcast", {
         gameId,
-        text: `Round ${round} started (${phase} phase). Alive: ${aliveCount} players.`,
+        text:
+          `Round ${round} started (${phase} phase). Alive: ${aliveCount} players.`,
       });
     }
   },
@@ -297,7 +369,8 @@ stm.addStateTransition(
     yield* World.resolve(resolveRound, { game_id: gameId, round, phase });
     chatPost("/broadcast", {
       gameId,
-      text: `Round ${round} (${phase}) ended. ${missing} player(s) missed their vote.`,
+      text:
+        `Round ${round} (${phase}) ended. ${missing} player(s) missed their vote.`,
     });
   },
 );
@@ -355,8 +428,14 @@ stm.addStateTransition(
 stm.addStateTransition(
   "join_game",
   function* (data) {
-    console.log("[join_game] RAW data.parsedInput:", JSON.stringify(data.parsedInput));
-    console.log("[join_game] RAW data keys:", JSON.stringify(Object.keys(data)));
+    console.log(
+      "[join_game] RAW data.parsedInput:",
+      JSON.stringify(data.parsedInput),
+    );
+    console.log(
+      "[join_game] RAW data keys:",
+      JSON.stringify(Object.keys(data)),
+    );
 
     const { gameId, midnightAddressHash, nickname } = data.parsedInput as {
       gameId: number;
@@ -429,14 +508,18 @@ stm.addStateTransition(
     })) as IGetLobbyResult[];
 
     if (lobbyRows.length === 0) {
-      console.warn(`[lobby-timeout] No lobby found for game=${gameId} — skipping`);
+      console.warn(
+        `[lobby-timeout] No lobby found for game=${gameId} — skipping`,
+      );
       return;
     }
 
     const lobby = lobbyRows[0];
 
     if (lobby.closed) {
-      console.log(`[lobby-timeout] Lobby game=${gameId} already closed — skipping`);
+      console.log(
+        `[lobby-timeout] Lobby game=${gameId} already closed — skipping`,
+      );
       return;
     }
 

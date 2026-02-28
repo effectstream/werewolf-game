@@ -120,9 +120,12 @@ export class WerewolfLedger {
     const aliveMap = this.parser.parseMap(
       this.payload["Werewolf_playerAlive"],
     );
+    // Look up the Vector<16, Boolean> for this gameId.
+    // The key is a Uint<32> serialised as a plain number string.
     const aliveVec = aliveMap[String(gameId)] ??
       aliveMap[JSON.stringify(gameId)] ??
-      aliveMap;
+      null;
+    if (aliveVec == null) return [];
     return this.#extractAliveIndices(aliveVec);
   }
 
@@ -150,7 +153,15 @@ export class WerewolfLedger {
     const indices: number[] = [];
 
     if (Array.isArray(aliveVec)) {
-      for (const entry of aliveVec) {
+      for (let i = 0; i < aliveVec.length; i++) {
+        const entry = aliveVec[i];
+        // Case 1: Vector<16, Boolean> serialised as a flat boolean array
+        //   [true, true, false, …]  — the most common Midnight wire format
+        if (typeof entry === "boolean") {
+          if (entry) indices.push(i);
+          continue;
+        }
+        // Case 2: array of {key, value} or {playerIdx, alive} objects
         if (entry && typeof entry === "object") {
           const e = entry as Record<string, unknown>;
           const alive = e["value"] ?? e["alive"];
@@ -163,6 +174,7 @@ export class WerewolfLedger {
       return indices;
     }
 
+    // Fallback: plain object keyed by player index string
     const map = this.parser.parseMap(aliveVec);
     for (const [k, v] of Object.entries(map)) {
       if (v === true) {

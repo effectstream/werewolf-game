@@ -106,8 +106,13 @@ export class MidnightLedgerParser {
   }
 
   /**
-   * Ledger maps arrive as Map | plain object | null.
-   * Returns a uniform Record<string, unknown>.
+   * Ledger maps arrive as Map | plain object | array-of-pairs | null.
+   *
+   * Midnight's convertLedger can emit a Map<K,V> as either:
+   *   - a plain object  { "key": value, … }           (Map-like branch)
+   *   - an array of [key, value] pairs                 (Set-like fallback)
+   *
+   * Returns a uniform Record<string, unknown> in all cases.
    */
   parseMap(raw: unknown): Record<string, unknown> {
     if (raw == null) return {};
@@ -115,6 +120,18 @@ export class MidnightLedgerParser {
       const out: Record<string, unknown> = {};
       for (const [k, v] of raw.entries()) {
         out[String(k)] = v;
+      }
+      return out;
+    }
+    // convertLedger emits Set-like iterables (including Map entries when the
+    // Midnight object lacks a `lookup` method) as a plain JS array of entries.
+    // Each entry is either [key, value] (2-element array) or a scalar.
+    if (Array.isArray(raw)) {
+      const out: Record<string, unknown> = {};
+      for (const entry of raw) {
+        if (Array.isArray(entry) && entry.length === 2) {
+          out[String(entry[0])] = entry[1];
+        }
       }
       return out;
     }
