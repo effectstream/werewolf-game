@@ -103,10 +103,19 @@ class GameState {
   }
 
   applyGameView(view: GameViewResponse): void {
+    console.log('[gameState] applyGameView called')
+    console.log('[gameState] Phase:', view.phase, 'Round:', view.round, 'AliveCount:', view.aliveCount)
+    console.log('[gameState] Players alive status:', view.players.map(p => ({ index: p.index, alive: p.alive })))
+    console.log('[gameState] Finished:', view.finished)
+
     let changed = false
 
-    const isValidPhase = ['night', 'day', 'finished'].includes(view.phase.toLowerCase())
+    // The Midnight contract stores phase as a numeric enum (1=night, 2=day, 3=finished).
+    // The state machine writes String(phase) to the DB, so the frontend receives "1", "2", "3".
+    // Also accept text variants for forward-compatibility.
+    const isValidPhase = ['night', 'day', 'finished', '1', '2', '3'].includes(view.phase.toLowerCase())
     if (!this.gameStarted && isValidPhase) {
+      console.log('[gameState] Setting gameStarted = true (valid phase detected)')
       this.gameStarted = true
       changed = true
     }
@@ -121,11 +130,13 @@ class GameState {
       }
       // FINISHED keeps current lighting
       changed = true
+      console.log('[gameState] Phase changed to:', mappedPhase)
     }
 
     if (view.round !== this.round) {
       this.round = view.round
       changed = true
+      console.log('[gameState] Round changed to:', view.round)
     }
 
     // Auto-reset hasVotedThisRound when the round or phase changes
@@ -139,15 +150,20 @@ class GameState {
     if (view.finished !== this.finished) {
       this.finished = view.finished
       changed = true
+      console.log('[gameState] Finished changed to:', view.finished)
     }
 
     const newAlive = view.players.map(p => p.alive)
     if (JSON.stringify(newAlive) !== JSON.stringify(this.playerAlive)) {
+      console.log('[gameState] playerAlive changed!')
+      console.log('[gameState]   Previous:', this.playerAlive)
+      console.log('[gameState]   New:', newAlive)
       this.playerAlive = newAlive
       changed = true
     }
 
     if (view.aliveCount !== this.aliveCount) {
+      console.log('[gameState] aliveCount changed from', this.aliveCount, 'to', view.aliveCount)
       this.aliveCount = view.aliveCount
       changed = true
     }
@@ -165,16 +181,19 @@ class GameState {
     this.lastUpdatedBlock = view.updatedBlock
 
     if (changed) {
+      console.log('[gameState] notifying listeners (changed=true)')
       this.notify()
+    } else {
+      console.log('[gameState] no changes, not notifying')
     }
   }
 
   private mapPhase(backendPhase: string): Phase {
     const lower = backendPhase.toLowerCase()
-    if (lower === 'day') return 'DAY'
-    if (lower === 'night') return 'NIGHT'
-    if (lower === 'finished') return 'FINISHED'
-    // Unknown phase (e.g. 'waiting', 'not_started') — preserve current phase
+    if (lower === 'day' || lower === '2') return 'DAY'
+    if (lower === 'night' || lower === '1') return 'NIGHT'
+    if (lower === 'finished' || lower === '3') return 'FINISHED'
+    // Unknown phase (e.g. 'waiting', 'not_started', '0') — preserve current phase
     return this.phase
   }
 

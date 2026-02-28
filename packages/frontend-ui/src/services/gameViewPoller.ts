@@ -41,10 +41,14 @@ export class GameViewPoller {
   private async poll(): Promise<void> {
     try {
       const view = await fetchGameView(this.gameId);
+      console.log('[GameViewPoller] Poll received - Block:', view.updatedBlock, 'Phase:', view.phase, 'Round:', view.round, 'AliveCount:', view.aliveCount)
 
       if (view.updatedBlock !== this.lastUpdatedBlock) {
+        console.log('[GameViewPoller] Block changed - calling callback')
         this.lastUpdatedBlock = view.updatedBlock;
         this.callback(view);
+      } else {
+        console.log('[GameViewPoller] Block unchanged, skipping callback')
       }
     } catch (err) {
       console.warn("[GameViewPoller] poll failed:", err);
