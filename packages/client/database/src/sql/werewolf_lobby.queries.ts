@@ -151,6 +151,7 @@ export interface IInsertLobbyPlayerParams {
   game_id: NumberOrString;
   joined_block: NumberOrString;
   midnight_address_hash: string;
+  nickname: string;
 }
 
 /** 'InsertLobbyPlayer' return type */
@@ -162,13 +163,13 @@ export interface IInsertLobbyPlayerQuery {
   result: IInsertLobbyPlayerResult;
 }
 
-const insertLobbyPlayerIR: any = {"usedParamSet":{"game_id":true,"midnight_address_hash":true,"joined_block":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":90,"b":98}]},{"name":"midnight_address_hash","required":true,"transform":{"type":"scalar"},"locs":[{"a":101,"b":123}]},{"name":"joined_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":126,"b":139}]}],"statement":"INSERT INTO werewolf_lobby_players (game_id, midnight_address_hash, joined_block)\nVALUES (:game_id!, :midnight_address_hash!, :joined_block!)\nON CONFLICT (game_id, midnight_address_hash) DO NOTHING"};
+const insertLobbyPlayerIR: any = {"usedParamSet":{"game_id":true,"midnight_address_hash":true,"nickname":true,"joined_block":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":100,"b":108}]},{"name":"midnight_address_hash","required":true,"transform":{"type":"scalar"},"locs":[{"a":111,"b":133}]},{"name":"nickname","required":true,"transform":{"type":"scalar"},"locs":[{"a":136,"b":145}]},{"name":"joined_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":148,"b":161}]}],"statement":"INSERT INTO werewolf_lobby_players (game_id, midnight_address_hash, nickname, joined_block)\nVALUES (:game_id!, :midnight_address_hash!, :nickname!, :joined_block!)\nON CONFLICT (game_id, midnight_address_hash) DO NOTHING"};
 
 /**
  * Query generated from SQL:
  * ```
- * INSERT INTO werewolf_lobby_players (game_id, midnight_address_hash, joined_block)
- * VALUES (:game_id!, :midnight_address_hash!, :joined_block!)
+ * INSERT INTO werewolf_lobby_players (game_id, midnight_address_hash, nickname, joined_block)
+ * VALUES (:game_id!, :midnight_address_hash!, :nickname!, :joined_block!)
  * ON CONFLICT (game_id, midnight_address_hash) DO NOTHING
  * ```
  */
@@ -183,6 +184,7 @@ export interface IGetLobbyPlayersParams {
 /** 'GetLobbyPlayers' return type */
 export interface IGetLobbyPlayersResult {
   midnight_address_hash: string;
+  nickname: string;
 }
 
 /** 'GetLobbyPlayers' query type */
@@ -191,12 +193,12 @@ export interface IGetLobbyPlayersQuery {
   result: IGetLobbyPlayersResult;
 }
 
-const getLobbyPlayersIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":73,"b":81}]}],"statement":"SELECT midnight_address_hash FROM werewolf_lobby_players\nWHERE game_id = :game_id!\nORDER BY joined_block ASC"};
+const getLobbyPlayersIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":83,"b":91}]}],"statement":"SELECT midnight_address_hash, nickname FROM werewolf_lobby_players\nWHERE game_id = :game_id!\nORDER BY joined_block ASC"};
 
 /**
  * Query generated from SQL:
  * ```
- * SELECT midnight_address_hash FROM werewolf_lobby_players
+ * SELECT midnight_address_hash, nickname FROM werewolf_lobby_players
  * WHERE game_id = :game_id!
  * ORDER BY joined_block ASC
  * ```

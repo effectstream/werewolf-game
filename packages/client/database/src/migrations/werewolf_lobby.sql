@@ -12,6 +12,7 @@ CREATE TABLE werewolf_lobby (
 CREATE TABLE werewolf_lobby_players (
   game_id               BIGINT NOT NULL,
   midnight_address_hash TEXT    NOT NULL,
+  nickname              TEXT    NOT NULL,
   joined_block          BIGINT NOT NULL,
   PRIMARY KEY (game_id, midnight_address_hash)
 );

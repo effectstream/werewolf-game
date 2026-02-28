@@ -73,6 +73,7 @@ export async function joinGameHandler(
   dbConn: Pool,
   gameId: number,
   midnightAddressHash: string,
+  nickname: string,
 ) {
   // Guard: game must have bundles remaining (i.e. createGame was called and
   // slots are still open). Using the DB count survives node restarts.
@@ -101,7 +102,7 @@ export async function joinGameHandler(
   }
 
   await runPreparedQuery(
-    insertLobbyPlayer.run({ game_id: gameId, midnight_address_hash: midnightAddressHash, joined_block: 0 }, dbConn),
+    insertLobbyPlayer.run({ game_id: gameId, midnight_address_hash: midnightAddressHash, nickname, joined_block: 0 }, dbConn),
     "insertLobbyPlayer",
   );
   await runPreparedQuery(
@@ -111,7 +112,7 @@ export async function joinGameHandler(
 
   // Invite the player to the chat room immediately so they can connect to the
   // WebSocket without waiting for the STF to process the batcher transaction.
-  chatPost("/invite", { gameId, midnightAddressHash });
+  chatPost("/invite", { gameId, midnightAddressHash, nickname });
 
   // Atomically pop one bundle from the DB.
   const popRows = await runPreparedQuery(
@@ -177,6 +178,7 @@ export async function getPlayersHandler(dbConn: Pool, gameId: number) {
       // getPlayers() directly from the EVM contract.
       evmAddress: "",
       midnightAddressHash: p.midnight_address_hash,
+      nickname: p.nickname,
     })),
   };
 }

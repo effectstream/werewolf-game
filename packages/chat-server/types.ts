@@ -1,6 +1,6 @@
 // Messages sent from client to server
 export type ClientMessage =
-  | { type: "identify"; midnightAddressHash: string }
+  | { type: "identify"; midnightAddressHash: string; nickname: string }
   | { type: "message"; text: string };
 
 // Messages sent from server to client
@@ -14,6 +14,7 @@ export type ServerMessage =
 export interface InviteBody {
   gameId: number;
   midnightAddressHash: string;
+  nickname: string;
 }
 
 // HTTP body for POST /broadcast

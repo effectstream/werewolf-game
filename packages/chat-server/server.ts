@@ -3,6 +3,7 @@ import {
   addConnection,
   broadcastAll,
   broadcast,
+  getNickname,
   invitePlayer,
   isAllowed,
   isAlreadyConnected,
@@ -121,7 +122,7 @@ function handleWebSocket(req: Request, gameId: number): Response {
 
     const outbound: ServerMessage = {
       type: "message",
-      from: playerHash!,
+      from: getNickname(gameId, playerHash!),
       text,
       timestamp: Date.now(),
     };
@@ -158,16 +159,17 @@ async function handleInvite(req: Request): Promise<Response> {
   const hash = typeof body.midnightAddressHash === "string"
     ? body.midnightAddressHash.trim()
     : null;
+  const nickname = typeof body.nickname === "string" ? body.nickname.trim() : null;
 
-  if (!gameId || !hash) {
+  if (!gameId || !hash || !nickname) {
     return corsJson(
-      { error: "gameId (number) and midnightAddressHash (string) are required" },
+      { error: "gameId (number), midnightAddressHash (string), and nickname (string) are required" },
       { status: 400 },
     );
   }
 
-  invitePlayer(gameId, hash);
-  console.log(`[chat] Invited player=${hash} to game=${gameId}`);
+  invitePlayer(gameId, hash, nickname);
+  console.log(`[chat] Invited player=${hash} nickname=${nickname} to game=${gameId}`);
   return corsJson({ ok: true });
 }
 

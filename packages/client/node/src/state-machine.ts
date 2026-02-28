@@ -358,19 +358,21 @@ stm.addStateTransition(
     console.log("[join_game] RAW data.parsedInput:", JSON.stringify(data.parsedInput));
     console.log("[join_game] RAW data keys:", JSON.stringify(Object.keys(data)));
 
-    const { gameId, midnightAddressHash } = data.parsedInput as {
+    const { gameId, midnightAddressHash, nickname } = data.parsedInput as {
       gameId: number;
       midnightAddressHash: string;
+      nickname: string;
     };
     const blockHeight = data.blockHeight;
 
     console.log(
-      `[lobby] join_game game=${gameId} player=${midnightAddressHash} at block=${blockHeight}`,
+      `[lobby] join_game game=${gameId} player=${midnightAddressHash} nickname=${nickname} at block=${blockHeight}`,
     );
 
     yield* World.resolve(insertLobbyPlayer, {
       game_id: gameId,
       midnight_address_hash: midnightAddressHash,
+      nickname,
       joined_block: blockHeight,
     });
 
@@ -378,10 +380,10 @@ stm.addStateTransition(
       game_id: gameId,
     });
 
-    chatPost("/invite", { gameId, midnightAddressHash });
+    chatPost("/invite", { gameId, midnightAddressHash, nickname });
     chatPost("/broadcast", {
       gameId,
-      text: `Player ${midnightAddressHash.slice(0, 10)}... joined the game.`,
+      text: `${nickname} joined the game.`,
     });
   },
 );

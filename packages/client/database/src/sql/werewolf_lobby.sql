@@ -22,11 +22,11 @@ SET closed = TRUE
 WHERE game_id = :game_id!;
 
 /* @name insertLobbyPlayer */
-INSERT INTO werewolf_lobby_players (game_id, midnight_address_hash, joined_block)
-VALUES (:game_id!, :midnight_address_hash!, :joined_block!)
+INSERT INTO werewolf_lobby_players (game_id, midnight_address_hash, nickname, joined_block)
+VALUES (:game_id!, :midnight_address_hash!, :nickname!, :joined_block!)
 ON CONFLICT (game_id, midnight_address_hash) DO NOTHING;
 
 /* @name getLobbyPlayers */
-SELECT midnight_address_hash FROM werewolf_lobby_players
+SELECT midnight_address_hash, nickname FROM werewolf_lobby_players
 WHERE game_id = :game_id!
 ORDER BY joined_block ASC;

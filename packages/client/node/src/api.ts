@@ -135,9 +135,9 @@ export const apiRouter: StartConfigApiRouter = async function (
       typeof JoinGameResponseSchema | typeof GenericErrorResponseSchema
     >;
   }>("/api/join_game", async (request, reply) => {
-    const { gameId, midnightAddressHash } = request.query;
+    const { gameId, midnightAddressHash, nickname } = request.query;
     try {
-      return await joinGameHandler(dbConn, gameId, midnightAddressHash);
+      return await joinGameHandler(dbConn, gameId, midnightAddressHash, nickname);
     } catch (err: any) {
       if (err?.statusCode === 409) {
         return reply.status(409).send({ error: err.message });
