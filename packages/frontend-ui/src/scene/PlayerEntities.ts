@@ -33,6 +33,12 @@ export class PlayerEntities {
     this.initPlayers(playerCount, updateCardLayout)
 
     this.unsubscribe = gameState.subscribe(() => this.syncVisuals())
+
+    // Apply any alive/dead state that was already in gameState before we subscribed.
+    // Without this, players who died before the scene was constructed never get
+    // converted to angels because the notify() that carried the death event fired
+    // before PlayerEntities existed and the poller won't re-fire if the block hasn't changed.
+    this.syncVisuals()
   }
 
   private initPlayers(playerCount: number, updateCardLayout?: (count: number) => void) {

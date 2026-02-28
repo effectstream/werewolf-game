@@ -93,15 +93,18 @@ async function bootGame(): Promise<GameManagers> {
 
   // Start the game view polling service
   const poller = new GameViewPoller(gameId, (view) => {
-    const prevCount = gameState.playerNicknames.size
     gameState.applyGameView(view)
-    // Re-fetch nicknames whenever more players have joined than we have names for
+    // Re-fetch nicknames whenever we have fewer names than expected players
     if (gameState.playerNicknames.size < view.playerCount) {
       fetchGamePlayers(gameId).then((r) => {
+        let changed = false
         r.players.forEach((p, index) => {
-          gameState.playerNicknames.set(index, p.nickname)
+          if (gameState.playerNicknames.get(index) !== p.nickname) {
+            gameState.playerNicknames.set(index, p.nickname)
+            changed = true
+          }
         })
-        if (gameState.playerNicknames.size > prevCount) {
+        if (changed) {
           gameState.notify()
         }
       }).catch(() => { /* best-effort */ })
