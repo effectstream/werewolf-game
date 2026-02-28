@@ -7,15 +7,15 @@ import { createWerewolfMesh } from '../models/werewolfModel'
 import { createAngelMesh } from '../models/angelModel'
 import { makeTextSprite, makeBubbleSprite, createBubbleTexture } from '../utils/spriteUtils'
 import { generatePlayerConfigs, generateHairParameters } from '../utils/playerGenerator'
-import { WEREWOLF_PHRASES } from '../data/phrases'
 import type { PlayerConfig } from '../models/PlayerConfigInterface'
 import type { ChatManager } from '../ui/ChatManager'
 
 export class PlayerEntities {
   private scene: THREE.Scene
   private chatManager: ChatManager
-  private speechAccumulator = 0
   private unsubscribe: () => void
+  private nameSprites: Map<number, THREE.Sprite> = new Map()
+  private resolvedNames: Map<number, string> = new Map()
 
   private readonly ROLE_ORDER: Role[] = ['villager', 'werewolf', 'doctor', 'seer', 'angelDead']
   private readonly ROLE_LABEL: Record<Role, string> = {
@@ -72,9 +72,12 @@ export class PlayerEntities {
       this.markModelAsPickable(basePlayerMesh, index)
       playerGroup.add(basePlayerMesh)
 
-      const nameSprite = makeTextSprite(playerConfig.name, { color: '#d9e0ff', scale: 1.4 })
+      const displayName = gameState.playerNicknames.get(index) ?? '?'
+      const nameSprite = makeTextSprite(displayName, { color: '#d9e0ff', scale: 1.4 })
       nameSprite.position.set(0, 0.12, 0)
       playerGroup.add(nameSprite)
+      this.nameSprites.set(index, nameSprite)
+      this.resolvedNames.set(index, displayName)
 
       const bubbleSprite = makeBubbleSprite('...')
       bubbleSprite.position.set(0, 3.35, 0)
@@ -142,6 +145,20 @@ export class PlayerEntities {
   }
 
   private syncVisuals(): void {
+    // Update name sprites for any slots that now have a nickname
+    for (const [index, sprite] of this.nameSprites) {
+      const nickname = gameState.playerNicknames.get(index)
+      if (nickname && nickname !== this.resolvedNames.get(index)) {
+        const oldMap = (sprite.material as THREE.SpriteMaterial).map
+        const newSprite = makeTextSprite(nickname, { color: '#d9e0ff', scale: 1.4 })
+        ;(sprite.material as THREE.SpriteMaterial).map = (newSprite.material as THREE.SpriteMaterial).map
+        ;(sprite.material as THREE.SpriteMaterial).needsUpdate = true
+        sprite.scale.copy(newSprite.scale)
+        oldMap?.dispose()
+        this.resolvedNames.set(index, nickname)
+      }
+    }
+
     // Don't process alive/dead status until the game has actually started;
     // pre-game views return all alive flags as false which would mark everyone dead.
     if (!gameState.gameStarted) return
@@ -175,41 +192,40 @@ export class PlayerEntities {
     this.unsubscribe()
   }
 
-  public updateSpeech(delta: number, clockTime: number): void {
-    this.speechAccumulator += delta
+  private findPlayerByNickname(nickname: string): Player | null {
+    for (const [index, name] of gameState.playerNicknames) {
+      if (name === nickname) {
+        return gameState.players[index] ?? null
+      }
+    }
+    return null
+  }
 
+  public showMessageForPlayer(nickname: string, text: string): void {
+    const player = this.findPlayerByNickname(nickname)
+    if (!player) {
+      console.warn(`[PlayerEntities] No player found for nickname: ${nickname}`)
+      return
+    }
+
+    const oldMap = (player.bubble.material as THREE.SpriteMaterial).map
+    const bubbleUpdate = createBubbleTexture(text)
+    ;(player.bubble.material as THREE.SpriteMaterial).map = bubbleUpdate.texture
+    ;(player.bubble.material as THREE.SpriteMaterial).needsUpdate = true
+    player.bubble.scale.copy(bubbleUpdate.scale)
+    oldMap?.dispose()
+
+    // Use clock elapsed time via the bubble talkingUntil; we need current time
+    // from the animation loop. We store an absolute timestamp offset instead.
+    player.talkingUntil = performance.now() / 1000 + 3
+  }
+
+  public updateSpeech(delta: number, clockTime: number): void {
     gameState.players.forEach((player, index) => {
       player.group.position.y = Math.sin(clockTime * 1.6 + index) * 0.03
 
-      if (player.talkingUntil > clockTime) {
-        player.bubble.visible = true
-      } else {
-        player.bubble.visible = false
-      }
+      const now = performance.now() / 1000
+      player.bubble.visible = player.talkingUntil > now
     })
-
-    if (this.speechAccumulator < 0.8) {
-      return
-    }
-    this.speechAccumulator = 0
-
-    const speakingPlayer = gameState.players[Math.floor(Math.random() * gameState.players.length)]
-    if (!speakingPlayer || speakingPlayer.talkingUntil > clockTime) {
-      return
-    }
-
-    if (Math.random() < 0.38) {
-      const message = WEREWOLF_PHRASES[Math.floor(Math.random() * WEREWOLF_PHRASES.length)]
-      const oldMap = (speakingPlayer.bubble.material as THREE.SpriteMaterial).map
-      const bubbleUpdate = createBubbleTexture(message)
-      ;(speakingPlayer.bubble.material as THREE.SpriteMaterial).map = bubbleUpdate.texture
-      ;(speakingPlayer.bubble.material as THREE.SpriteMaterial).needsUpdate = true
-      speakingPlayer.bubble.scale.copy(bubbleUpdate.scale)
-      oldMap?.dispose()
-      
-      this.chatManager.addMessageLine(speakingPlayer.name, message)
-
-      speakingPlayer.talkingUntil = clockTime + 2 + Math.random() * 2
-    }
   }
 }

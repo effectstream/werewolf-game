@@ -43,7 +43,7 @@ export function GameChat({ gameId, midnightAddressHash }: Props) {
           ...prev,
           {
             id: Date.now() + Math.random(),
-            from: msg.from.slice(0, 10) + "…",
+            from: msg.from,
             text: msg.text,
             isSystem: false,
           },

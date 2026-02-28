@@ -7,7 +7,7 @@ import { decodeGamePhrase, isGamePhrase } from '../services/werewolfIdCodec'
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:9999'
 
 export class LobbyScreen {
-  onJoined: (gameId: number, gameStarted: boolean, midnightAddressHash: string) => void = () => {}
+  onJoined: (gameId: number, gameStarted: boolean, midnightAddressHash: string, nickname: string) => void = () => {}
 
   private container: HTMLDivElement
   private statusEl!: HTMLParagraphElement
@@ -15,6 +15,7 @@ export class LobbyScreen {
   private walletAddressEl!: HTMLSpanElement
   private gameSection!: HTMLDivElement
   private gameIdInput!: HTMLInputElement
+  private nicknameInput!: HTMLInputElement
   private findBtn!: HTMLButtonElement
   private gameInfoEl!: HTMLDivElement
   private joinBtn!: HTMLButtonElement
@@ -40,6 +41,7 @@ export class LobbyScreen {
             <button id="lobbyFindBtn" class="ui-btn lobby-btn">Find Game</button>
           </div>
           <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
+          <input id="lobbyNicknameInput" class="lobby-input" type="text" placeholder="Nickname (min 3 characters)" hidden />
           <button id="lobbyJoinBtn" class="ui-btn lobby-btn lobby-btn--primary" hidden>Join Game</button>
         </section>
 
@@ -51,6 +53,7 @@ export class LobbyScreen {
     this.walletAddressEl = this.container.querySelector<HTMLSpanElement>('#lobbyWalletAddress')!
     this.gameSection = this.container.querySelector<HTMLDivElement>('#lobbyGameSection')!
     this.gameIdInput = this.container.querySelector<HTMLInputElement>('#lobbyGameIdInput')!
+    this.nicknameInput = this.container.querySelector<HTMLInputElement>('#lobbyNicknameInput')!
     this.findBtn = this.container.querySelector<HTMLButtonElement>('#lobbyFindBtn')!
     this.gameInfoEl = this.container.querySelector<HTMLDivElement>('#lobbyGameInfo')!
     this.joinBtn = this.container.querySelector<HTMLButtonElement>('#lobbyJoinBtn')!
@@ -147,11 +150,14 @@ export class LobbyScreen {
       this.gameInfoEl.hidden = false
 
       if (game.state === 'Open' && game.playerCount < game.maxPlayers) {
+        this.nicknameInput.hidden = false
         this.joinBtn.hidden = false
-        this.setStatus('Game is open. You can join.')
+        this.setStatus('Game is open. Enter a nickname and join.')
       } else if (game.state === 'Closed') {
+        this.nicknameInput.hidden = true
         this.setStatus('This game is closed.', true)
       } else {
+        this.nicknameInput.hidden = true
         this.setStatus('This game is full.', true)
       }
     } catch (err) {
@@ -174,6 +180,12 @@ export class LobbyScreen {
       return
     }
 
+    const nickname = this.nicknameInput.value.trim()
+    if (nickname.length < 3) {
+      this.setStatus('Nickname must be at least 3 characters.', true)
+      return
+    }
+
     this.setLoading(this.joinBtn, true, 'Join Game')
     this.setStatus('Signing batcher message...')
 
@@ -187,17 +199,18 @@ export class LobbyScreen {
       console.log('[LobbyScreen] midnightAddressHash:', midnightAddressHash)
 
       this.setStatus('Submitting to batcher...')
-      console.log('[LobbyScreen] calling BatcherService.joinGame', { address, gameId: this.currentGame.id, midnightAddressHash })
+      console.log('[LobbyScreen] calling BatcherService.joinGame', { address, gameId: this.currentGame.id, midnightAddressHash, nickname })
       const batcherResult = await BatcherService.joinGame(
         address,
         this.currentGame.id,
         midnightAddressHash,
+        nickname,
         ({ message }) => walletClient.signMessage({ account: address, message }),
       )
       console.log('[LobbyScreen] batcher joinGame result:', batcherResult)
 
       this.setStatus('Fetching player bundle...')
-      const bundleUrl = `${API_BASE}/api/join_game?gameId=${this.currentGame.id}&midnightAddressHash=${encodeURIComponent(midnightAddressHash)}`
+      const bundleUrl = `${API_BASE}/api/join_game?gameId=${this.currentGame.id}&midnightAddressHash=${encodeURIComponent(midnightAddressHash)}&nickname=${encodeURIComponent(nickname)}`
       console.log('[LobbyScreen] fetching player bundle:', bundleUrl)
       const bundleRes = await fetch(bundleUrl, { method: 'POST' })
       console.log('[LobbyScreen] bundle response status:', bundleRes.status)
@@ -218,7 +231,8 @@ export class LobbyScreen {
 
       this.setStatus('Joined successfully! Loading game...')
       this.joinBtn.hidden = true
-      this.onJoined(this.currentGame.id, bundleData.gameStarted ?? false, midnightAddressHash)
+      this.nicknameInput.hidden = true
+      this.onJoined(this.currentGame.id, bundleData.gameStarted ?? false, midnightAddressHash, nickname)
     } catch (err) {
       console.error('[LobbyScreen] handleJoinGame error:', err)
       this.setLoading(this.joinBtn, false, 'Join Game')

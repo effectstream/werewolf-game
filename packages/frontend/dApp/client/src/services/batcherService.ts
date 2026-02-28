@@ -22,20 +22,17 @@ export class BatcherService {
   private static readonly DEFAULT_TARGET = "paimaL2";
 
   /**
-   * Send data to the batcher for the paimaL2 target
-   * @param address - The wallet address
-   * @param inputData - The data to send (will be JSON stringified)
-   * @param signMessage - A function that signs the message (from viem wallet client)
-   * @param target - The batcher target (default: "paimaL2")
+   * Send a grammar-format array input to the batcher.
+   * inputArray must be ["grammar_key", ...args] — the exact format the Paima STM expects.
    */
   static async sendToBatcher(
     address: string,
-    inputData: any,
+    inputArray: unknown[],
     signMessage: (args: { message: string }) => Promise<`0x${string}`>,
     target: string = BatcherService.DEFAULT_TARGET,
   ): Promise<unknown> {
     const timestamp = Date.now().toString();
-    const inputString = JSON.stringify(inputData);
+    const inputString = JSON.stringify(inputArray);
 
     // NOTE: target is not serialized into the on-chain batch by the batcher library,
     // so the L2 primitive always re-verifies with target=undefined. Sign without it.
@@ -48,11 +45,8 @@ export class BatcherService {
       // target intentionally omitted
     );
 
-    // Sign the message with the wallet
-    // viem's signMessage expects { message: string | Uint8Array }
     const signature = await signMessage({ message });
 
-    // Prepare the batcher input
     const batcherInput: BatcherInput = {
       address,
       addressType: AddressType.EVM,
@@ -62,24 +56,16 @@ export class BatcherService {
       target,
     };
 
-    // Prepare the request body
     const requestBody: BatcherRequestBody = {
       data: batcherInput,
       confirmationLevel: "wait-effectstream-processed",
     };
 
-    console.log("Sending to batcher:", {
-      url: BATCHER_URL,
-      target,
-      inputData,
-    });
+    console.log("Sending to batcher:", { url: BATCHER_URL, target, inputString });
 
-    // Send to batcher
     const response = await fetch(BATCHER_URL, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
 
@@ -95,45 +81,30 @@ export class BatcherService {
     return result;
   }
 
-  /**
-   * Create game via batcher
-   */
   static async createGame(
     address: string,
     gameId: bigint,
     maxPlayers: number,
     signMessage: (args: { message: string }) => Promise<`0x${string}`>,
   ): Promise<unknown> {
-    const inputData = {
-      method: "createGame",
-      args: [gameId.toString(), maxPlayers],
-    };
-
     return this.sendToBatcher(
       address,
-      inputData,
+      ["create_game", Number(gameId), maxPlayers],
       signMessage,
-      BatcherService.DEFAULT_TARGET,
     );
   }
 
-  /**
-   * Submit game input via batcher
-   */
-  static async submitGameInput(
+  static async joinGame(
     address: string,
-    inputs: string[],
+    gameId: bigint,
+    midnightAddressHash: string,
+    nickname: string,
     signMessage: (args: { message: string }) => Promise<`0x${string}`>,
   ): Promise<unknown> {
-    const inputData = {
-      inputs,
-    };
-
     return this.sendToBatcher(
       address,
-      inputData,
+      ["join_game", Number(gameId), midnightAddressHash, nickname],
       signMessage,
-      BatcherService.DEFAULT_TARGET,
     );
   }
 }

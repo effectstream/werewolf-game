@@ -27,6 +27,7 @@ export const paimaL2Grammar = {
   "join_game": [
     ["gameId", Type.Number()],
     ["midnightAddressHash", Type.String()],
+    ["nickname", Type.String()],
   ],
   "close_game": [
     ["gameId", Type.Number()],

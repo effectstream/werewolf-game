@@ -28,7 +28,8 @@ export class PlayerListManager {
       const targetPlayer = gameState.players[targetIndex]
       if (!targetPlayer) return
 
-      this.openVoteModal(targetIndex, targetPlayer.name)
+      const targetName = gameState.playerNicknames.get(targetIndex) ?? targetPlayer.name
+      this.openVoteModal(targetIndex, targetName)
     })
   }
 
@@ -42,10 +43,11 @@ export class PlayerListManager {
       .map((player, index) => {
         const alive = gameState.playerAlive[index] !== false
         const deadClass = alive ? '' : ' dead'
+        const displayName = gameState.playerNicknames.get(index) ?? '?'
 
         return `
         <div class="player-row${deadClass}" data-player-index="${index}">
-          <span>${player.name}${alive ? '' : ' (dead)'}</span>
+          <span>${displayName}${alive ? '' : ' (dead)'}</span>
           <div class="actions">
             ${this.getButtonsHtml(index, index === localPlayerIndex, phase, localRole, alive, hasVoted)}
           </div>

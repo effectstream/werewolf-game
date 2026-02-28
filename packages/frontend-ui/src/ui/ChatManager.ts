@@ -8,9 +8,12 @@ export class ChatManager {
   private chatInputEl: HTMLInputElement
   private ws: WebSocket | null = null
   private playerHash: string | null = null
+  private playerNickname: string | null = null
   private connectedGameId: number | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private destroyed = false
+
+  public onMessage?: (nickname: string, text: string) => void
 
   constructor() {
     this.messagesBoxEl = document.querySelector<HTMLDivElement>('#messagesBox')!
@@ -20,7 +23,7 @@ export class ChatManager {
     this.initEventListeners()
   }
 
-  public connect(gameId: number, midnightAddressHash: string): void {
+  public connect(gameId: number, midnightAddressHash: string, nickname: string): void {
     // Close any existing connection before opening a new one
     if (this.ws) {
       this.ws.onclose = null
@@ -33,6 +36,7 @@ export class ChatManager {
     }
 
     this.playerHash = midnightAddressHash
+    this.playerNickname = nickname
     this.connectedGameId = gameId
     this.destroyed = false
 
@@ -41,14 +45,15 @@ export class ChatManager {
     this.ws = new WebSocket(`${base}/chat/${gameId}`)
 
     this.ws.onopen = () => {
-      this.ws!.send(JSON.stringify({ type: 'identify', midnightAddressHash }))
+      this.ws!.send(JSON.stringify({ type: 'identify', midnightAddressHash, nickname }))
     }
 
     this.ws.onmessage = (event) => {
       const msg = JSON.parse(event.data)
       if (msg.type === 'message') {
-        const label = msg.from === midnightAddressHash ? 'You' : msg.from.slice(0, 10) + '...'
+        const label = msg.from === this.playerNickname ? 'You' : msg.from
         this.addMessageLine(label, msg.text)
+        this.onMessage?.(msg.from, msg.text)
       } else if (msg.type === 'system') {
         this.addMessageLine('System', msg.text)
         if (typeof msg.text === 'string' && msg.text.startsWith('GAME_STARTED:')) {
@@ -67,8 +72,8 @@ export class ChatManager {
       if (this.destroyed) return
       this.addMessageLine('System', 'Disconnected from chat. Reconnecting...')
       this.reconnectTimer = setTimeout(() => {
-        if (!this.destroyed && this.connectedGameId !== null && this.playerHash !== null) {
-          this.connect(this.connectedGameId, this.playerHash)
+        if (!this.destroyed && this.connectedGameId !== null && this.playerHash !== null && this.playerNickname !== null) {
+          this.connect(this.connectedGameId, this.playerHash, this.playerNickname)
         }
       }, RECONNECT_DELAY_MS)
     }

@@ -40,6 +40,7 @@ export const GenericErrorResponseSchema = Type.Object({
 export const JoinGameQuerystringSchema = Type.Object({
   gameId: Type.Number(),
   midnightAddressHash: Type.String(),
+  nickname: Type.String(),
 });
 
 export const JoinGameResponseSchema = Type.Object({
@@ -79,6 +80,7 @@ export const GetPlayersQuerystringSchema = Type.Object({
 export const PlayerInfoSchema = Type.Object({
   evmAddress: Type.String(),
   midnightAddressHash: Type.String(),
+  nickname: Type.String(),
 });
 
 export const GetPlayersResponseSchema = Type.Object({

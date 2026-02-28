@@ -45,7 +45,10 @@ class GameState {
   targetEnvironmentMix: number = 0
   lobbyGameId: number | null = null
   playerEvmAddress: string | null = null
+  playerNickname: string | null = null
   playerBundle: PlayerBundle | null = null
+  /** Maps player index → nickname, populated from /api/game_players at boot */
+  playerNicknames: Map<number, string> = new Map()
 
   /** Per-player alive status, indexed by player_idx */
   playerAlive: boolean[] = []

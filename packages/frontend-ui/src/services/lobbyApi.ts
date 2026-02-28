@@ -13,6 +13,7 @@ export interface GameStateResponse {
 export interface PlayerInfo {
   evmAddress: string;
   midnightAddressHash: string;
+  nickname: string;
 }
 
 export interface GamePlayersResponse {
