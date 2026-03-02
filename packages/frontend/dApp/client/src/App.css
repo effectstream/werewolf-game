@@ -581,7 +581,11 @@ textarea {
   font-size: 12px;
   font-weight: 600;
   color: var(--text);
-  width: 28px;
+  min-width: 80px;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   flex-shrink: 0;
 }
 
@@ -653,5 +657,42 @@ textarea {
 
 .outcome-panel-text {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* Read-only vote display */
+.vote-display {
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.vote-display-received {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.3);
+}
+
+.vote-display-waiting {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+}
+
+.vote-display-dead {
+  background: rgba(239, 68, 68, 0.05);
+  border-color: rgba(239, 68, 68, 0.15);
+  color: rgba(255, 255, 255, 0.3);
+  text-decoration: line-through;
+}
+
+.vote-display-text {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.vote-display-text strong {
+  color: var(--primary-2);
+  font-weight: 700;
 }
 

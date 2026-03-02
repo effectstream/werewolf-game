@@ -129,6 +129,7 @@ type PlayerLocalState = {
   alive: boolean;
   commitment: Uint8Array;
   leaf: Uint8Array;
+  nickname?: string;
 };
 
 type PlayerBundle = {
@@ -537,6 +538,16 @@ function App() {
   const [voteTally, setVoteTally] = useState<{ voter: number; target: number }[]>([]);
   // Human-readable outcome of the last resolved round
   const [lastOutcome, setLastOutcome] = useState<string | null>(null);
+  // Store player nicknames from the API
+  const [playerNicknames, setPlayerNicknames] = useState<Map<number, string>>(new Map());
+  // Track received votes for display (voter index -> target index)
+  const [receivedVotes, setReceivedVotes] = useState<Map<number, number>>(new Map());
+
+  // Helper function to get player display name (nickname or "Player X")
+  const getPlayerName = (playerId: number): string => {
+    const nickname = playerNicknames.get(playerId);
+    return nickname || `Player ${playerId}`;
+  };
 
   const runtimeWitnesses = useMemo(
     () => ({
@@ -641,6 +652,23 @@ function App() {
     return () => globalThis.clearInterval(intervalId);
   }, [txTimer.start]);
 
+  const fetchPlayerNicknames = async (gameId: bigint) => {
+    try {
+      const res = await fetch(`${NODE_API_URL}/api/game_players?gameId=${gameId}`);
+      if (!res.ok) return;
+      const data = await res.json() as { players: { playerId: number; nickname: string }[] };
+      const nicknameMap = new Map<number, string>();
+      for (const p of data.players) {
+        if (p.playerId !== undefined && p.nickname) {
+          nicknameMap.set(p.playerId, p.nickname);
+        }
+      }
+      setPlayerNicknames(nicknameMap);
+    } catch (err) {
+      console.error("Failed to fetch player nicknames:", err);
+    }
+  };
+
   // Poll /api/vote_status every 6 seconds. When all alive players have submitted
   // encrypted votes, fetch them, decrypt each with adminVoteSecretKey + player's
   // encKeypair.publicKey, then stage + submit each via the batcher (nightAction /
@@ -654,9 +682,13 @@ function App() {
     const phaseStr = game.phase === Phase.Night ? "NIGHT" : "DAY";
     const pollKey = `${game.gameId}:${game.round}:${phaseStr}`;
 
+    // Fetch player nicknames when game changes
+    void fetchPlayerNicknames(game.gameId);
+
     // Clear per-round state when entering a new round/phase
     setVotedPlayerIndices([]);
     setVoteTally([]);
+    setReceivedVotes(new Map());
     setSubmitProgress(null);
     setLastOutcome(null);
 
@@ -673,6 +705,36 @@ function App() {
 
         // Update which players have voted so the UI can show it
         setVotedPlayerIndices(votes.map((v) => v.voterIndex));
+
+        // Decrypt and display votes as they come in (even before all votes are in)
+        const receivedVotesMap = new Map<number, number>();
+        for (const vote of votes) {
+          const player = game.players.find((p) => p.id === vote.voterIndex);
+          if (!player || !player.alive) continue;
+
+          // Decrypt the vote to show target
+          const cipherHex = vote.encryptedVoteHex.startsWith("0x")
+            ? vote.encryptedVoteHex.slice(2)
+            : vote.encryptedVoteHex;
+          const cipherBytes = new Uint8Array(
+            cipherHex.match(/.{2}/g)!.map((h: string) => parseInt(h, 16)),
+          );
+          // Derive the player's Curve25519 public key from their leafSecret (sk).
+          // voteService.ts uses sk directly as the private key, so scalarMult.base(sk)
+          // gives the matching public key for the Diffie-Hellman shared-secret derivation.
+          const sessionKey = deriveSessionKey(
+            game.adminVoteSecretKey,
+            nacl.scalarMult.base(player.sk),
+            game.round,
+          );
+          const plaintext = xorPayload(cipherBytes.slice(0, 3), sessionKey);
+          const { target: targetIdx, round: voteRound } = unpackData(plaintext);
+
+          if (voteRound === game.round) {
+            receivedVotesMap.set(vote.voterIndex, targetIdx);
+          }
+        }
+        setReceivedVotes(receivedVotesMap);
 
         // Only auto-submit once per round/phase when all alive players have voted
         if (autoSubmittedKeysRef.current.has(pollKey)) return;
@@ -708,9 +770,12 @@ function App() {
           const cipherBytes = new Uint8Array(
             cipherHex.match(/.{2}/g)!.map((h: string) => parseInt(h, 16)),
           );
+          // Derive the player's Curve25519 public key from their leafSecret (sk).
+          // voteService.ts uses sk directly as the private key, so scalarMult.base(sk)
+          // gives the matching public key for the Diffie-Hellman shared-secret derivation.
           const sessionKey = deriveSessionKey(
             game.adminVoteSecretKey,
-            player.encKeypair.publicKey,
+            nacl.scalarMult.base(player.sk),
             game.round,
           );
           const plaintext = xorPayload(cipherBytes.slice(0, 3), sessionKey);
@@ -788,18 +853,17 @@ function App() {
               return {
                 ...prev,
                 players: nextPlayers,
-                round: prev.round + 1,
                 phase: outcome ? Phase.Finished : Phase.Day,
               };
             });
             setNightVotes([]);
             setLastOutcome(
-              `Night ${game.round}: Player ${resolvedTargetIdx} ${hasDeath ? "died" : "survived"} — ${result.info}`,
+              `Night ${game.round}: ${getPlayerName(resolvedTargetIdx)} ${hasDeath ? "died" : "survived"} — ${result.info}`,
             );
             setStatus(
               outcome
                 ? `[Auto] Night resolved. ${result.info} ${outcome} Game finished.`
-                : `[Auto] Night resolved. ${result.info} Player ${resolvedTargetIdx} ${hasDeath ? "died" : "survived"}.`,
+                : `[Auto] Night resolved. ${result.info} ${getPlayerName(resolvedTargetIdx)} ${hasDeath ? "died" : "survived"}.`,
             );
           } else {
             await batcherClient.resolveDay(
@@ -816,17 +880,18 @@ function App() {
               return {
                 ...prev,
                 players: nextPlayers,
+                round: prev.round + 1,
                 phase: outcome ? Phase.Finished : Phase.Night,
               };
             });
             setDayVotes([]);
             setLastOutcome(
-              `Day ${game.round}: Player ${resolvedTargetIdx} ${hasDeath ? "eliminated" : "survived"} — ${result.info}`,
+              `Day ${game.round}: ${getPlayerName(resolvedTargetIdx)} ${hasDeath ? "eliminated" : "survived"} — ${result.info}`,
             );
             setStatus(
               outcome
                 ? `[Auto] Day resolved. ${result.info} ${outcome} Game finished.`
-                : `[Auto] Day resolved. ${result.info} Player ${resolvedTargetIdx} ${hasDeath ? "eliminated" : "survived"}.`,
+                : `[Auto] Day resolved. ${result.info} ${getPlayerName(resolvedTargetIdx)} ${hasDeath ? "eliminated" : "survived"}.`,
             );
           }
         }
@@ -1720,17 +1785,16 @@ EVM: ✅`,
         setGame({
           ...game,
           players: nextPlayers,
-          round: game.round + 1,
           phase: outcome ? Phase.Finished : Phase.Day,
         });
         setNightVotes([]);
         setLastOutcome(
-          `Night ${game.round}: Player ${targetIdx} ${hasDeath ? "died" : "survived"} — Trusted node override.`,
+          `Night ${game.round}: ${getPlayerName(targetIdx)} ${hasDeath ? "died" : "survived"} — Trusted node override.`,
         );
         setStatus(
           outcome
-            ? `Night resolved. Trusted node eliminated P${targetIdx}. ${outcome}`
-            : `Night resolved. Trusted node eliminated P${targetIdx}.`,
+            ? `Night resolved. Trusted node eliminated ${getPlayerName(targetIdx)}. ${outcome}`
+            : `Night resolved. Trusted node eliminated ${getPlayerName(targetIdx)}.`,
         );
         return;
       }
@@ -1789,17 +1853,16 @@ EVM: ✅`,
       setGame({
         ...game,
         players: nextPlayers,
-        round: game.round + 1,
         phase: outcome ? Phase.Finished : Phase.Day,
       });
       setNightVotes([]);
       setLastOutcome(
-        `Night ${game.round}: Player ${targetIdx} ${hasDeath ? "died" : "survived"} — ${result.info}`,
+        `Night ${game.round}: ${getPlayerName(targetIdx)} ${hasDeath ? "died" : "survived"} — ${result.info}`,
       );
       setStatus(
         outcome
           ? `Night resolved. ${result.info} ${outcome} Game finished.`
-          : `Night resolved. ${result.info} Player ${targetIdx} ${
+          : `Night resolved. ${result.info} ${getPlayerName(targetIdx)} ${
             hasDeath ? "died" : "survived"
           }.`,
       );
@@ -1995,16 +2058,17 @@ EVM: ✅`,
         setGame({
           ...game,
           players: nextPlayers,
+          round: game.round + 1,
           phase: outcome ? Phase.Finished : Phase.Night,
         });
         setDayVotes([]);
         setLastOutcome(
-          `Day ${game.round}: Player ${targetIdx} ${hasElimination ? "eliminated" : "survived"} — Trusted node override.`,
+          `Day ${game.round}: ${getPlayerName(targetIdx)} ${hasElimination ? "eliminated" : "survived"} — Trusted node override.`,
         );
         setStatus(
           outcome
-            ? `Day resolved. Trusted node eliminated P${targetIdx}. ${outcome}`
-            : `Day resolved. Trusted node eliminated P${targetIdx}.`,
+            ? `Day resolved. Trusted node eliminated ${getPlayerName(targetIdx)}. ${outcome}`
+            : `Day resolved. Trusted node eliminated ${getPlayerName(targetIdx)}.`,
         );
         return;
       }
@@ -2058,16 +2122,17 @@ EVM: ✅`,
       setGame({
         ...game,
         players: nextPlayers,
+        round: game.round + 1,
         phase: outcome ? Phase.Finished : Phase.Night,
       });
       setDayVotes([]);
       setLastOutcome(
-        `Day ${game.round}: Player ${targetIdx} ${hasElimination ? "eliminated" : "survived"} — ${result.info}`,
+        `Day ${game.round}: ${getPlayerName(targetIdx)} ${hasElimination ? "eliminated" : "survived"} — ${result.info}`,
       );
       setStatus(
         outcome
           ? `Day resolved. ${result.info} ${outcome} Game finished.`
-          : `Day resolved. ${result.info} Player ${targetIdx} ${
+          : `Day resolved. ${result.info} ${getPlayerName(targetIdx)} ${
             hasElimination ? "eliminated" : "survived"
           }.`,
       );
@@ -2415,83 +2480,32 @@ EVM: ✅`,
               ? (
                 <>
                   <div className="form">
-                    <div className="label">Night votes</div>
-                    {game.players.map((player) => (
-                      <div className="field" key={`night-${player.id}`}>
-                        <div className="label">
-                          P{player.id} {player.alive ? "(alive)" : "(dead)"}
+                    <div className="label">{game.phase === Phase.Night ? "Night votes" : "Day votes"}</div>
+                    {game.players.map((player) => {
+                      const voteTarget = receivedVotes.get(player.id);
+                      const hasVoted = votedPlayerIndices.includes(player.id);
+                      return (
+                        <div className="field" key={`vote-${player.id}`}>
+                          <div className="label">
+                            {getPlayerName(player.id)} {player.alive ? "(alive)" : "(dead)"}
+                          </div>
+                          <div className={`vote-display ${!player.alive ? "vote-display-dead" : hasVoted ? "vote-display-received" : "vote-display-waiting"}`}>
+                            {hasVoted && voteTarget !== undefined ? (
+                              <span className="vote-display-text">
+                                Voted for <strong>{getPlayerName(voteTarget)}</strong>
+                              </span>
+                            ) : player.alive ? (
+                              <span className="vote-display-text">Waiting for vote...</span>
+                            ) : (
+                              <span className="vote-display-text vote-display-dead">No vote (dead)</span>
+                            )}
+                          </div>
                         </div>
-                        <input
-                          className="input"
-                          type="number"
-                          min={0}
-                          max={game.players.length - 1}
-                          value={nightVoteInputs[player.id] ?? "0"}
-                          onChange={(event) =>
-                            setNightVoteInputs((prev) => {
-                              const next = normalizeVoteInputs(
-                                prev,
-                                game.players.length,
-                              );
-                              next[player.id] = event.target.value;
-                              return next;
-                            })}
-                          disabled={loading || !player.alive}
-                        />
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleSubmitNightActions}
-                      disabled={loading || game.phase !== Phase.Night}
-                    >
-                      Submit night actions
-                    </button>
-                    {nightVotes.length > 0 && (
+                      );
+                    })}
+                    {receivedVotes.size > 0 && (
                       <div className="mono">
-                        Night votes: {nightVotes.join(", ")}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="form">
-                    <div className="label">Day votes</div>
-                    {game.players.map((player) => (
-                      <div className="field" key={`day-${player.id}`}>
-                        <div className="label">
-                          P{player.id} {player.alive ? "(alive)" : "(dead)"}
-                        </div>
-                        <input
-                          className="input"
-                          type="number"
-                          min={0}
-                          max={game.players.length - 1}
-                          value={dayVoteInputs[player.id] ?? "0"}
-                          onChange={(event) =>
-                            setDayVoteInputs((prev) => {
-                              const next = normalizeVoteInputs(
-                                prev,
-                                game.players.length,
-                              );
-                              next[player.id] = event.target.value;
-                              return next;
-                            })}
-                          disabled={loading || !player.alive}
-                        />
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleSubmitDayVotes}
-                      disabled={loading || game.phase !== Phase.Day}
-                    >
-                      Submit day votes
-                    </button>
-                    {dayVotes.length > 0 && (
-                      <div className="mono">
-                        Day votes: {dayVotes.join(", ")}
+                        {game.phase === Phase.Night ? "Night" : "Day"} votes received: {receivedVotes.size}/{game.players.filter((p) => p.alive).length}
                       </div>
                     )}
                   </div>
@@ -2537,7 +2551,7 @@ EVM: ✅`,
                         ? "vote-cell-voted"
                         : "vote-cell-waiting"
                     }`}
-                    title={`P${player.id} (${roleName(player.role)}) — ${
+                    title={`${getPlayerName(player.id)} (${roleName(player.role)}) — ${
                       !player.alive
                         ? "dead"
                         : hasVoted
@@ -2545,7 +2559,7 @@ EVM: ✅`,
                         : "waiting"
                     }`}
                   >
-                    P{player.id}
+                    {getPlayerName(player.id)}
                     {!player.alive ? " ✕" : hasVoted ? " ✓" : " …"}
                   </div>
                 );
@@ -2584,7 +2598,7 @@ EVM: ✅`,
                   <div className="vote-tally-title">Vote tally</div>
                   {sorted.map(([targetIdx, count]) => (
                     <div key={targetIdx} className="vote-tally-row">
-                      <span className="vote-tally-player">P{targetIdx}</span>
+                      <span className="vote-tally-player">{getPlayerName(targetIdx)}</span>
                       <span className="vote-tally-bar-wrap">
                         <span
                           className={`vote-tally-bar${count === maxCount ? " vote-tally-bar-winner" : ""}`}
@@ -2595,7 +2609,7 @@ EVM: ✅`,
                     </div>
                   ))}
                   <div className="vote-tally-breakdown">
-                    {voteTally.map(({ voter, target }) => `P${voter}→P${target}`).join("  ")}
+                    {voteTally.map(({ voter, target }) => `${getPlayerName(voter)}→${getPlayerName(target)}`).join("  ")}
                   </div>
                 </div>
               );
