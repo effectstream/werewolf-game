@@ -53,5 +53,9 @@ export function initLayout() {
         </div>
       </div>
     </div>
+    <div id="announcementOverlay" class="announcement-overlay hidden" aria-live="assertive" role="status">
+      <div id="announcementText" class="announcement-text"></div>
+    </div>
+    <div id="toastContainer" class="toast-container"></div>
   `
 }

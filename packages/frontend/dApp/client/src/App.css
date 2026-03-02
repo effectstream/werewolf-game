@@ -527,3 +527,131 @@ textarea {
   text-decoration: line-through;
 }
 
+/* Vote submission progress bar */
+.submit-progress {
+  margin-top: 12px;
+}
+
+.submit-progress-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+
+.submit-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.submit-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #6366f1, #60a5fa);
+  transition: width 0.3s ease;
+}
+
+/* Vote tally breakdown */
+.vote-tally {
+  margin-top: 14px;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.vote-tally-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.vote-tally-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+}
+
+.vote-tally-player {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.vote-tally-bar-wrap {
+  flex: 1;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.vote-tally-bar {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  transition: width 0.4s ease;
+}
+
+.vote-tally-bar-winner {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.vote-tally-count {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  color: var(--muted);
+  width: 20px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.vote-tally-breakdown {
+  margin-top: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+/* Resolution outcome panel */
+.outcome-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 13px;
+}
+
+.outcome-panel-death {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+}
+
+.outcome-panel-safe {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: #86efac;
+}
+
+.outcome-panel-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.outcome-panel-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+

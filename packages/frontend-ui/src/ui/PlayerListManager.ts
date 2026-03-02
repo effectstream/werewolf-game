@@ -1,5 +1,6 @@
 import { gameState } from '../state/gameState'
 import { submitVote } from '../services/voteService'
+import { toastManager } from './ToastManager'
 import type { Phase } from '../state/gameState'
 
 export class PlayerListManager {
@@ -87,18 +88,21 @@ export class PlayerListManager {
   ): string {
     if (!alive || isLocalPlayer || phase === 'FINISHED') return ''
 
-    const votedHtml = '<button class="ui-btn small" disabled>Voted</button>'
+    // When all votes are in, voting is closed — suppress all action buttons
+    if (gameState.allVotesIn) return ''
+
+    const votedHtml = '<button class="ui-btn small vote-btn voted" disabled>✓ Voted</button>'
 
     if (phase === 'DAY') {
       if (hasVoted) return votedHtml
-      return `<button class="ui-btn small accuse-btn" data-target-index="${index}">ACCUSE</button>`
+      return `<button class="ui-btn small accuse-btn vote-btn" data-target-index="${index}">ACCUSE</button>`
     }
 
     if (phase === 'NIGHT') {
       // Only werewolves (role === 1) can KILL at night
       if (localRole !== 1) return ''
       if (hasVoted) return votedHtml
-      return `<button class="ui-btn small danger kill-btn" data-target-index="${index}">KILL</button>`
+      return `<button class="ui-btn small danger kill-btn vote-btn" data-target-index="${index}">KILL</button>`
     }
 
     return ''
@@ -120,10 +124,20 @@ export class PlayerListManager {
     yesBtn.replaceWith(newYes)
     noBtn.replaceWith(newNo)
 
+    const setLoading = (isLoading: boolean) => {
+      newYes.disabled = isLoading
+      newNo.disabled = isLoading
+      newYes.textContent = isLoading ? 'Submitting…' : 'Confirm'
+    }
+
     newYes.addEventListener('click', async () => {
-      backdrop.classList.add('hidden')
-      backdrop.setAttribute('aria-hidden', 'true')
-      await this.handleVoteConfirmed(targetIndex)
+      setLoading(true)
+      const closed = await this.handleVoteConfirmed(targetIndex)
+      setLoading(false) // always reset so the button is clean if the modal reopens
+      if (closed) {
+        backdrop.classList.add('hidden')
+        backdrop.setAttribute('aria-hidden', 'true')
+      }
     })
 
     newNo.addEventListener('click', () => {
@@ -132,16 +146,22 @@ export class PlayerListManager {
     })
   }
 
-  private async handleVoteConfirmed(targetIndex: number): Promise<void> {
+  /**
+   * Submits the vote. Returns true if the modal should close (success / already voted),
+   * false if the modal should stay open for a retry (error).
+   */
+  private async handleVoteConfirmed(targetIndex: number): Promise<boolean> {
     const bundle = gameState.playerBundle
     if (!bundle) {
       console.error('[PlayerListManager] No player bundle available for vote')
-      return
+      toastManager.error('Vote failed — player bundle missing.')
+      return true
     }
 
     if (gameState.lobbyGameId === null) {
       console.error('[PlayerListManager] No game ID available')
-      return
+      toastManager.error('Vote failed — no game ID.')
+      return true
     }
 
     try {
@@ -153,14 +173,28 @@ export class PlayerListManager {
         gameState.lobbyGameId,
       )
 
-      if (result.success || result.alreadyVoted) {
+      if (result.alreadyVoted) {
         gameState.markVotedThisRound()
-        console.log('[PlayerListManager] Vote submitted, waiting for others...', result)
-      } else {
-        console.error('[PlayerListManager] Vote failed:', result.error)
+        toastManager.info('You already voted this round.')
+        console.log('[PlayerListManager] Already voted:', result)
+        return true
       }
+
+      if (result.success) {
+        gameState.markVotedThisRound()
+        toastManager.success('Your vote has been cast ✓')
+        console.log('[PlayerListManager] Vote submitted, waiting for others...', result)
+        return true
+      }
+
+      // Backend returned a failure
+      toastManager.error(`Failed to submit vote — ${result.error ?? 'try again.'}`)
+      console.error('[PlayerListManager] Vote failed:', result.error)
+      return false
     } catch (err) {
+      toastManager.error('Failed to submit vote — try again.')
       console.error('[PlayerListManager] Vote submission error:', err)
+      return false
     }
   }
 
@@ -177,6 +211,7 @@ export class PlayerListManager {
       phase: gameState.phase,
       round: gameState.round,
       hasVoted: gameState.hasVotedThisRound,
+      allVotesIn: gameState.allVotesIn,
       localRole: gameState.playerBundle?.role,
     })
   }

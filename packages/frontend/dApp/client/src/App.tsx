@@ -528,6 +528,15 @@ function App() {
   // Track which round:phase keys we have already auto-submitted to avoid double submission
   // Using a ref so the polling interval does not need to be recreated on each update
   const autoSubmittedKeysRef = useRef<Set<string>>(new Set());
+  // Progress while the auto-submit loop is sending votes to the contract one-by-one
+  const [submitProgress, setSubmitProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  // Decrypted vote breakdown for the current round (voter → target)
+  const [voteTally, setVoteTally] = useState<{ voter: number; target: number }[]>([]);
+  // Human-readable outcome of the last resolved round
+  const [lastOutcome, setLastOutcome] = useState<string | null>(null);
 
   const runtimeWitnesses = useMemo(
     () => ({
@@ -645,8 +654,11 @@ function App() {
     const phaseStr = game.phase === Phase.Night ? "NIGHT" : "DAY";
     const pollKey = `${game.gameId}:${game.round}:${phaseStr}`;
 
-    // Clear voter list when entering a new round/phase
+    // Clear per-round state when entering a new round/phase
     setVotedPlayerIndices([]);
+    setVoteTally([]);
+    setSubmitProgress(null);
+    setLastOutcome(null);
 
     const poll = async () => {
       try {
@@ -676,7 +688,14 @@ function App() {
         );
 
         const targets: number[] = [];
+        const tallyEntries: { voter: number; target: number }[] = [];
         const batcherClient = getBatcherClient();
+
+        // Determine how many valid votes we'll process for the progress indicator
+        const validVoteCount = votes.filter((v) =>
+          game.players.find((p) => p.id === v.voterIndex && p.alive)
+        ).length;
+        setSubmitProgress({ done: 0, total: validVoteCount });
 
         for (const vote of votes) {
           const player = game.players.find((p) => p.id === vote.voterIndex);
@@ -724,7 +743,12 @@ function App() {
           }
 
           targets.push(targetIdx);
+          tallyEntries.push({ voter: vote.voterIndex, target: targetIdx });
+          setSubmitProgress({ done: tallyEntries.length, total: validVoteCount });
         }
+
+        setVoteTally(tallyEntries);
+        setSubmitProgress(null);
 
         if (game.phase === Phase.Night) {
           setNightVotes(targets);
@@ -736,6 +760,75 @@ function App() {
           setStatus(
             `[Auto] Day votes submitted for ${targets.length} players.`,
           );
+        }
+
+        // Auto-resolve: wait briefly for ledger to settle then resolve the phase
+        if (targets.length > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+
+          const isNight = game.phase === Phase.Night;
+          const result = resolveVotes(targets, game.players, isNight);
+          const hasDeath = result.hasElimination && aliveCount(game.players) > 1;
+          const resolvedTargetIdx = result.targetIdx;
+
+          if (isNight) {
+            await batcherClient.resolveNight(
+              game.gameId,
+              BigInt(game.round + 1),
+              BigInt(resolvedTargetIdx),
+              hasDeath,
+              game.tree.getRoot(),
+            );
+            const nextPlayers = game.players.map((p) =>
+              hasDeath && p.id === resolvedTargetIdx ? { ...p, alive: false } : p
+            );
+            const outcome = getOutcome(nextPlayers);
+            setGame((prev) => {
+              if (!prev || prev.round !== game.round || prev.phase !== game.phase) return prev;
+              return {
+                ...prev,
+                players: nextPlayers,
+                round: prev.round + 1,
+                phase: outcome ? Phase.Finished : Phase.Day,
+              };
+            });
+            setNightVotes([]);
+            setLastOutcome(
+              `Night ${game.round}: Player ${resolvedTargetIdx} ${hasDeath ? "died" : "survived"} — ${result.info}`,
+            );
+            setStatus(
+              outcome
+                ? `[Auto] Night resolved. ${result.info} ${outcome} Game finished.`
+                : `[Auto] Night resolved. ${result.info} Player ${resolvedTargetIdx} ${hasDeath ? "died" : "survived"}.`,
+            );
+          } else {
+            await batcherClient.resolveDay(
+              game.gameId,
+              BigInt(resolvedTargetIdx),
+              hasDeath,
+            );
+            const nextPlayers = game.players.map((p) =>
+              hasDeath && p.id === resolvedTargetIdx ? { ...p, alive: false } : p
+            );
+            const outcome = getOutcome(nextPlayers);
+            setGame((prev) => {
+              if (!prev || prev.round !== game.round || prev.phase !== game.phase) return prev;
+              return {
+                ...prev,
+                players: nextPlayers,
+                phase: outcome ? Phase.Finished : Phase.Night,
+              };
+            });
+            setDayVotes([]);
+            setLastOutcome(
+              `Day ${game.round}: Player ${resolvedTargetIdx} ${hasDeath ? "eliminated" : "survived"} — ${result.info}`,
+            );
+            setStatus(
+              outcome
+                ? `[Auto] Day resolved. ${result.info} ${outcome} Game finished.`
+                : `[Auto] Day resolved. ${result.info} Player ${resolvedTargetIdx} ${hasDeath ? "eliminated" : "survived"}.`,
+            );
+          }
         }
       } catch (err: any) {
         console.error("[autoVote] Failed:", err);
@@ -1631,6 +1724,9 @@ EVM: ✅`,
           phase: outcome ? Phase.Finished : Phase.Day,
         });
         setNightVotes([]);
+        setLastOutcome(
+          `Night ${game.round}: Player ${targetIdx} ${hasDeath ? "died" : "survived"} — Trusted node override.`,
+        );
         setStatus(
           outcome
             ? `Night resolved. Trusted node eliminated P${targetIdx}. ${outcome}`
@@ -1697,6 +1793,9 @@ EVM: ✅`,
         phase: outcome ? Phase.Finished : Phase.Day,
       });
       setNightVotes([]);
+      setLastOutcome(
+        `Night ${game.round}: Player ${targetIdx} ${hasDeath ? "died" : "survived"} — ${result.info}`,
+      );
       setStatus(
         outcome
           ? `Night resolved. ${result.info} ${outcome} Game finished.`
@@ -1899,6 +1998,9 @@ EVM: ✅`,
           phase: outcome ? Phase.Finished : Phase.Night,
         });
         setDayVotes([]);
+        setLastOutcome(
+          `Day ${game.round}: Player ${targetIdx} ${hasElimination ? "eliminated" : "survived"} — Trusted node override.`,
+        );
         setStatus(
           outcome
             ? `Day resolved. Trusted node eliminated P${targetIdx}. ${outcome}`
@@ -1959,6 +2061,9 @@ EVM: ✅`,
         phase: outcome ? Phase.Finished : Phase.Night,
       });
       setDayVotes([]);
+      setLastOutcome(
+        `Day ${game.round}: Player ${targetIdx} ${hasElimination ? "eliminated" : "survived"} — ${result.info}`,
+      );
       setStatus(
         outcome
           ? `Day resolved. ${result.info} ${outcome} Game finished.`
@@ -2255,7 +2360,7 @@ EVM: ✅`,
                   type="button"
                   className="btn"
                   onClick={handleResolveNight}
-                  disabled={loading || game.phase !== Phase.Night}
+                  disabled={loading || game.phase !== Phase.Night || submitProgress !== null}
                 >
                   Resolve night
                 </button>
@@ -2282,7 +2387,7 @@ EVM: ✅`,
                   type="button"
                   className="btn"
                   onClick={handleResolveDay}
-                  disabled={loading || game.phase !== Phase.Day}
+                  disabled={loading || game.phase !== Phase.Day || submitProgress !== null}
                 >
                   Resolve day
                 </button>
@@ -2446,6 +2551,65 @@ EVM: ✅`,
                 );
               })}
             </div>
+
+            {/* Submission progress bar */}
+            {submitProgress !== null && (
+              <div className="submit-progress">
+                <div className="submit-progress-label">
+                  Submitting votes to chain: {submitProgress.done} / {submitProgress.total}
+                </div>
+                <div className="submit-progress-track">
+                  <div
+                    className="submit-progress-fill"
+                    style={{
+                      width: `${submitProgress.total > 0
+                        ? Math.round((submitProgress.done / submitProgress.total) * 100)
+                        : 0}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Vote tally breakdown */}
+            {voteTally.length > 0 && (() => {
+              const counts = new Map<number, number>();
+              for (const { target } of voteTally) {
+                counts.set(target, (counts.get(target) ?? 0) + 1);
+              }
+              const maxCount = Math.max(...counts.values());
+              const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+              return (
+                <div className="vote-tally">
+                  <div className="vote-tally-title">Vote tally</div>
+                  {sorted.map(([targetIdx, count]) => (
+                    <div key={targetIdx} className="vote-tally-row">
+                      <span className="vote-tally-player">P{targetIdx}</span>
+                      <span className="vote-tally-bar-wrap">
+                        <span
+                          className={`vote-tally-bar${count === maxCount ? " vote-tally-bar-winner" : ""}`}
+                          style={{ width: `${Math.round((count / voteTally.length) * 100)}%` }}
+                        />
+                      </span>
+                      <span className="vote-tally-count">{count}</span>
+                    </div>
+                  ))}
+                  <div className="vote-tally-breakdown">
+                    {voteTally.map(({ voter, target }) => `P${voter}→P${target}`).join("  ")}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {/* Last resolution outcome panel */}
+        {lastOutcome && (
+          <div className={`outcome-panel${lastOutcome.includes("survived") || lastOutcome.includes("No valid") ? " outcome-panel-safe" : " outcome-panel-death"}`}>
+            <span className="outcome-panel-icon">
+              {lastOutcome.includes("died") || lastOutcome.includes("eliminated") ? "💀" : "🛡️"}
+            </span>
+            <span className="outcome-panel-text">{lastOutcome}</span>
           </div>
         )}
 

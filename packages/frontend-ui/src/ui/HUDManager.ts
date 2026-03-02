@@ -15,6 +15,8 @@ export class HUDManager {
   private endVoteBtn: HTMLButtonElement;
   private roleRevealTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribe: () => void;
+  /** Tracks previous vote count to detect increments for the bump animation */
+  private lastVoteCount: number = 0;
 
   constructor() {
     this.roundLabel = document.querySelector<HTMLDivElement>("#roundLabel")!;
@@ -77,8 +79,27 @@ export class HUDManager {
         gameState.aliveCount > 0;
       voteBar.classList.toggle("hidden", !showBar);
       if (showBar) {
-        voteLabel.textContent =
-          `${gameState.voteCount}/${gameState.aliveCount} voted`;
+        if (gameState.allVotesIn) {
+          // All votes collected — show pulsing waiting state
+          if (!voteLabel.classList.contains("waiting-label")) {
+            voteLabel.classList.add("waiting-label");
+            voteLabel.textContent = "⏳ Waiting for results…";
+          }
+        } else {
+          voteLabel.classList.remove("waiting-label");
+          const prevCount = this.lastVoteCount;
+          const newCount = gameState.voteCount;
+          if (newCount !== prevCount) {
+            // Trigger bump animation when count increases
+            voteLabel.classList.remove("vote-count-bump");
+            void voteLabel.offsetWidth; // force reflow to restart animation
+            voteLabel.classList.add("vote-count-bump");
+            setTimeout(() => voteLabel.classList.remove("vote-count-bump"), 400);
+          }
+          this.lastVoteCount = newCount;
+          voteLabel.textContent =
+            `${gameState.voteCount}/${gameState.aliveCount} voted`;
+        }
       }
     }
   }

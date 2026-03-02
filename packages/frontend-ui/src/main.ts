@@ -22,6 +22,25 @@ import { evmWallet } from './services/evmWallet'
 import { fetchGameView, fetchGamePlayers } from './services/lobbyApi'
 import { GameViewPoller, VoteStatusPoller } from './services/gameViewPoller'
 
+/** Shows a full-screen announcement overlay for 4 seconds then fades out */
+function showAnnouncement(message: string): void {
+  const overlay = document.querySelector<HTMLDivElement>('#announcementOverlay')
+  const textEl = document.querySelector<HTMLDivElement>('#announcementText')
+  if (!overlay || !textEl) return
+
+  textEl.textContent = message
+  overlay.classList.remove('hidden', 'announcement-hiding')
+  overlay.classList.add('announcement-visible')
+
+  setTimeout(() => {
+    overlay.classList.add('announcement-hiding')
+    overlay.addEventListener('animationend', () => {
+      overlay.classList.add('hidden')
+      overlay.classList.remove('announcement-visible', 'announcement-hiding')
+    }, { once: true })
+  }, 4000)
+}
+
 interface GameManagers {
   hudManager: HUDManager
   chatManager: ChatManager
@@ -59,7 +78,7 @@ async function bootGame(): Promise<GameManagers> {
   try {
     const playersResponse = await fetchGamePlayers(gameId)
     playersResponse.players.forEach((p, index) => {
-      gameState.playerNicknames.set(index, p.nickname)
+      gameState.playerNicknames.set(p.playerId ?? index, p.nickname)
     })
   } catch (err) {
     console.warn('[bootGame] Failed to fetch player nicknames, falling back to generated names:', err)
@@ -93,14 +112,34 @@ async function bootGame(): Promise<GameManagers> {
 
   // Start the game view polling service
   const poller = new GameViewPoller(gameId, (view) => {
+    // Capture alive snapshot BEFORE applying the new view (used for diff below)
+    const prevAlive = [...gameState.previousAlive]
+    const prevPhase = gameState.phase
+
     gameState.applyGameView(view)
+
+    // Detect alive → dead transitions and show elimination announcement
+    const newAlive = gameState.playerAlive
+    for (let i = 0; i < newAlive.length; i++) {
+      if (prevAlive[i] === true && newAlive[i] === false) {
+        const nickname = gameState.playerNicknames.get(i) ?? `Player ${i}`
+        const isNightTransition = prevPhase === 'NIGHT' && gameState.phase === 'DAY'
+        const message = isNightTransition
+          ? `A player was killed in the night…`
+          : `${nickname} was eliminated by vote!`
+        showAnnouncement(message)
+        break // one announcement per poll cycle is enough
+      }
+    }
+
     // Re-fetch nicknames whenever we have fewer names than expected players
     if (gameState.playerNicknames.size < view.playerCount) {
       fetchGamePlayers(gameId).then((r) => {
         let changed = false
         r.players.forEach((p, index) => {
-          if (gameState.playerNicknames.get(index) !== p.nickname) {
-            gameState.playerNicknames.set(index, p.nickname)
+          const mapKey = p.playerId ?? index
+          if (gameState.playerNicknames.get(mapKey) !== p.nickname) {
+            gameState.playerNicknames.set(mapKey, p.nickname)
             changed = true
           }
         })

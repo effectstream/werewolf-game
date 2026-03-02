@@ -70,8 +70,18 @@ class GameState {
   voteCount: number = 0
   /** Internal key to detect round/phase changes for auto-reset */
   private votedRoundPhaseKey: string = ''
+  /**
+   * Snapshot of playerAlive from the previous game-view poll.
+   * Used to detect alive→dead transitions for elimination announcements.
+   */
+  previousAlive: boolean[] = []
 
   private listeners: (() => void)[] = []
+
+  /** True when all alive players have voted — voting is closed for this round. */
+  get allVotesIn(): boolean {
+    return this.aliveCount > 0 && this.voteCount >= this.aliveCount
+  }
 
   subscribe(listener: () => void) {
     this.listeners.push(listener)
@@ -129,12 +139,16 @@ class GameState {
         this.targetEnvironmentMix = 0
       }
       // FINISHED keeps current lighting
+      // Reset voteCount so allVotesIn doesn't carry over from the previous phase
+      this.voteCount = 0
       changed = true
       console.log('[gameState] Phase changed to:', mappedPhase)
     }
 
     if (view.round !== this.round) {
       this.round = view.round
+      // Reset voteCount for the new round
+      this.voteCount = 0
       changed = true
       console.log('[gameState] Round changed to:', view.round)
     }
@@ -158,6 +172,8 @@ class GameState {
       console.log('[gameState] playerAlive changed!')
       console.log('[gameState]   Previous:', this.playerAlive)
       console.log('[gameState]   New:', newAlive)
+      // Snapshot previous state before overwriting (used for elimination announcements)
+      this.previousAlive = [...this.playerAlive]
       this.playerAlive = newAlive
       changed = true
     }

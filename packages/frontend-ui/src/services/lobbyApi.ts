@@ -14,6 +14,7 @@ export interface PlayerInfo {
   evmAddress: string;
   midnightAddressHash: string;
   nickname: string;
+  playerId?: number;
 }
 
 export interface GamePlayersResponse {
