@@ -13,9 +13,11 @@ export {
 export {
   closeLobby,
   getLobby,
+  getLobbyPlayerBundle,
   getLobbyPlayers,
   incrementLobbyPlayerCount,
   insertLobbyPlayer,
+  setLobbyPlayerBundle,
   setLobbyTimeout,
   upsertLobby,
 } from "./sql/werewolf_lobby.queries.ts";
@@ -79,6 +81,12 @@ export type {
   IGetLobbyPlayersParams,
   IGetLobbyPlayersResult,
   IGetLobbyPlayersQuery,
+  IGetLobbyPlayerBundleParams,
+  IGetLobbyPlayerBundleResult,
+  IGetLobbyPlayerBundleQuery,
+  ISetLobbyPlayerBundleParams,
+  ISetLobbyPlayerBundleResult,
+  ISetLobbyPlayerBundleQuery,
 } from "./sql/werewolf_lobby.queries.ts";
 
 export type {

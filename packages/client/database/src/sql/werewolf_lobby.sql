@@ -27,6 +27,14 @@ VALUES (:game_id!, :midnight_address_hash!, :nickname!, :joined_block!)
 ON CONFLICT (game_id, midnight_address_hash) DO NOTHING;
 
 /* @name getLobbyPlayers */
-SELECT midnight_address_hash, nickname FROM werewolf_lobby_players
+SELECT midnight_address_hash, nickname,
+  (bundle::json->>'playerId')::integer AS player_id
+FROM werewolf_lobby_players
 WHERE game_id = :game_id!
 ORDER BY joined_block ASC;
+
+/* @name getLobbyPlayerBundle */
+SELECT bundle FROM werewolf_lobby_players WHERE game_id = :game_id! AND midnight_address_hash = :midnight_address_hash!;
+
+/* @name setLobbyPlayerBundle */
+UPDATE werewolf_lobby_players SET bundle = :bundle! WHERE game_id = :game_id! AND midnight_address_hash = :midnight_address_hash!;

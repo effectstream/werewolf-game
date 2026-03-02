@@ -5,6 +5,7 @@ import werewolfLobbySql from "./migrations/werewolf_lobby.sql" with { type: "tex
 import werewolfGameViewSql from "./migrations/werewolf_game_view.sql" with { type: "text" };
 import werewolfLobbyBundlesSql from "./migrations/werewolf_lobby_bundles.sql" with { type: "text" };
 import werewolfPlayerVotesSql from "./migrations/werewolf_player_votes.sql" with { type: "text" };
+import werewolfLobbyPlayerBundleSql from "./migrations/werewolf_lobby_player_bundle.sql" with { type: "text" };
 
 export const migrationTable: DBMigrations[] = [
   {
@@ -30,5 +31,9 @@ export const migrationTable: DBMigrations[] = [
   {
     name: "werewolf_player_votes.sql",
     sql: werewolfPlayerVotesSql,
+  },
+  {
+    name: "werewolf_lobby_player_bundle.sql",
+    sql: werewolfLobbyPlayerBundleSql,
   },
 ];

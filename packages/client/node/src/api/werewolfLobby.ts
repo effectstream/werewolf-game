@@ -6,6 +6,7 @@ import {
   countVotesForRound,
   getGameView,
   getLobby,
+  getLobbyPlayerBundle,
   getLobbyPlayers,
   getVotesForRound,
   insertBundle,
@@ -14,6 +15,7 @@ import {
   insertPlayerVote,
   popBundle,
   getRoundState,
+  setLobbyPlayerBundle,
   updateRoundVoteCount,
   upsertLobby,
 } from "@werewolf-game/database";
@@ -75,8 +77,41 @@ export async function joinGameHandler(
   midnightAddressHash: string,
   nickname: string,
 ) {
-  // Guard: game must have bundles remaining (i.e. createGame was called and
-  // slots are still open). Using the DB count survives node restarts.
+  // Check if this player is already registered (either via a prior API call or
+  // because the state machine STF processed the batcher transaction first and
+  // called insertLobbyPlayer before this HTTP request arrived).
+  const existingPlayers = await runPreparedQuery(
+    getLobbyPlayers.run({ game_id: gameId }, dbConn),
+    "getLobbyPlayers",
+  );
+  const alreadyJoined = existingPlayers.some(
+    (p) => p.midnight_address_hash === midnightAddressHash,
+  );
+
+  if (alreadyJoined) {
+    // The player is in the lobby. Check whether they already have a bundle
+    // assigned (idempotent re-join / page-refresh case).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const bundleRows = await runPreparedQuery(
+      (getLobbyPlayerBundle as any).run({ game_id: gameId, midnight_address_hash: midnightAddressHash }, dbConn),
+      "getLobbyPlayerBundle",
+    ) as { bundle: string | null }[];
+    const storedBundle = bundleRows[0]?.bundle
+      ? JSON.parse(bundleRows[0].bundle) as PlayerBundle
+      : undefined;
+
+    if (storedBundle) {
+      // Bundle already assigned — just return it (idempotent).
+      console.log(`[lobby] Player ${midnightAddressHash} re-joined game ${gameId}, returning existing bundle.`);
+      return { success: true, bundle: storedBundle };
+    }
+
+    // The state machine pre-registered this player but no bundle was assigned
+    // yet. Pop one now (same as the new-player path below).
+    console.log(`[lobby] Player ${midnightAddressHash} already in lobby but has no bundle — assigning one now.`);
+  }
+
+  // Check that there are still bundles left (slots open).
   const countRows = await runPreparedQuery(
     countBundles.run({ game_id: gameId }, dbConn),
     "countBundles",
@@ -89,32 +124,24 @@ export async function joinGameHandler(
     );
   }
 
-  // Guard: prevent double-join consuming a second bundle.
-  const existingPlayers = await runPreparedQuery(
-    getLobbyPlayers.run({ game_id: gameId }, dbConn),
-    "getLobbyPlayers",
-  );
-  const alreadyJoined = existingPlayers.some(
-    (p) => p.midnight_address_hash === midnightAddressHash,
-  );
-  if (alreadyJoined) {
-    return { success: true, message: "Already joined." };
+  if (!alreadyJoined) {
+    // First time joining via this API — insert the player and increment count.
+    // (When the state machine fires later it will hit ON CONFLICT DO NOTHING.)
+    await runPreparedQuery(
+      insertLobbyPlayer.run({ game_id: gameId, midnight_address_hash: midnightAddressHash, nickname, joined_block: 0 }, dbConn),
+      "insertLobbyPlayer",
+    );
+    await runPreparedQuery(
+      incrementLobbyPlayerCount.run({ game_id: gameId }, dbConn),
+      "incrementLobbyPlayerCount",
+    );
+
+    // Invite the player to the chat room immediately so they can connect to the
+    // WebSocket without waiting for the STF to process the batcher transaction.
+    chatPost("/invite", { gameId, midnightAddressHash, nickname });
   }
 
-  await runPreparedQuery(
-    insertLobbyPlayer.run({ game_id: gameId, midnight_address_hash: midnightAddressHash, nickname, joined_block: 0 }, dbConn),
-    "insertLobbyPlayer",
-  );
-  await runPreparedQuery(
-    incrementLobbyPlayerCount.run({ game_id: gameId }, dbConn),
-    "incrementLobbyPlayerCount",
-  );
-
-  // Invite the player to the chat room immediately so they can connect to the
-  // WebSocket without waiting for the STF to process the batcher transaction.
-  chatPost("/invite", { gameId, midnightAddressHash, nickname });
-
-  // Atomically pop one bundle from the DB.
+  // Pop one bundle from the pool.
   const popRows = await runPreparedQuery(
     popBundle.run({ game_id: gameId }, dbConn),
     "popBundle",
@@ -122,6 +149,19 @@ export async function joinGameHandler(
   const bundle: PlayerBundle | undefined = popRows[0]
     ? JSON.parse(popRows[0].bundle)
     : undefined;
+
+  // Persist the assigned bundle so we can return it on re-join/page-refresh.
+  if (bundle) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await runPreparedQuery(
+      (setLobbyPlayerBundle as any).run({
+        game_id: gameId,
+        midnight_address_hash: midnightAddressHash,
+        bundle: JSON.stringify(bundle),
+      }, dbConn),
+      "setLobbyPlayerBundle",
+    );
+  }
 
   let gameStarted = false;
 
@@ -179,6 +219,9 @@ export async function getPlayersHandler(dbConn: Pool, gameId: number) {
       evmAddress: "",
       midnightAddressHash: p.midnight_address_hash,
       nickname: p.nickname,
+      playerId: p.player_id !== null && p.player_id !== undefined
+        ? (typeof p.player_id === 'string' ? Number(p.player_id) : p.player_id)
+        : undefined,
     })),
   };
 }
@@ -189,26 +232,23 @@ async function triggerMidnightVoteSubmission(
   round: number,
   phase: string,
 ): Promise<void> {
-  console.log(
-    `[votes] All votes in for game=${gameId} round=${round} phase=${phase}. Triggering resolution.`,
-  );
-
   const votes = await runPreparedQuery(
     getVotesForRound.run({ game_id: gameId, round, phase }, dbConn),
     "getVotesForRound",
   );
 
-  console.log(`[votes] Collected ${votes.length} votes:`, votes.map((v) => ({
-    voterIndex: v.voter_index,
-    encryptedVote: v.encrypted_vote,
-  })));
+  console.log(
+    `[votes] All ${votes.length} votes collected for game=${gameId} round=${round} phase=${phase}.` +
+    ` The dApp (trusted node) will decrypt, submit to chain, and resolve the phase via its polling loop.`,
+  );
 
-  // TODO: Admin node decrypts each vote using admin private vote key, tallies,
-  // then calls resolveDayPhase / resolveNightPhase via Midnight SDK.
-
+  // Notify all players in chat that voting has closed.
+  // Chain submission and phase resolution are handled by the dApp's auto-vote polling loop,
+  // which decrypts votes using the admin keypair and calls nightAction()/voteDay() + resolve
+  // on the Midnight contract.
   chatPost("/broadcast", {
     gameId,
-    text: `All votes received for round ${round} (${phase}). Processing results.`,
+    text: `All votes received for round ${round} (${phase}). Processing results…`,
   });
 }
 
