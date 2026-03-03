@@ -2654,10 +2654,18 @@ EVM: ✅`,
       </div>
         </div>
         {game && midnightAddress && chatRoomReady && (
-          <GameChat
-            gameId={game.gameId}
-            midnightAddressHash={midnightAddress}
-          />
+          <>
+            <GameChat
+              gameId={game.gameId}
+              midnightAddressHash={midnightAddress}
+            />
+            <GameChat
+              gameId={game.gameId}
+              midnightAddressHash={midnightAddress}
+              channel="werewolf"
+              label="Werewolf Chat"
+            />
+          </>
         )}
       </div>
     </div>

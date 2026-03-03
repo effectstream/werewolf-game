@@ -2,6 +2,18 @@ import { gameState } from '../state/gameState'
 
 const RECONNECT_DELAY_MS = 3000
 
+interface ChatManagerIds {
+  messagesBox: string
+  chatForm: string
+  chatInput: string
+}
+
+const DEFAULT_IDS: ChatManagerIds = {
+  messagesBox: '#messagesBox',
+  chatForm: '#chatForm',
+  chatInput: '#chatInput',
+}
+
 export class ChatManager {
   private messagesBoxEl: HTMLDivElement
   private chatFormEl: HTMLFormElement
@@ -10,20 +22,21 @@ export class ChatManager {
   private playerHash: string | null = null
   private playerNickname: string | null = null
   private connectedGameId: number | null = null
+  private connectedChannel: string | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private destroyed = false
 
   public onMessage?: (nickname: string, text: string) => void
 
-  constructor() {
-    this.messagesBoxEl = document.querySelector<HTMLDivElement>('#messagesBox')!
-    this.chatFormEl = document.querySelector<HTMLFormElement>('#chatForm')!
-    this.chatInputEl = document.querySelector<HTMLInputElement>('#chatInput')!
+  constructor(ids: ChatManagerIds = DEFAULT_IDS) {
+    this.messagesBoxEl = document.querySelector<HTMLDivElement>(ids.messagesBox)!
+    this.chatFormEl = document.querySelector<HTMLFormElement>(ids.chatForm)!
+    this.chatInputEl = document.querySelector<HTMLInputElement>(ids.chatInput)!
 
     this.initEventListeners()
   }
 
-  public connect(gameId: number, midnightAddressHash: string, nickname: string): void {
+  public connect(gameId: number, midnightAddressHash: string, nickname: string, channel = 'general'): void {
     // Close any existing connection before opening a new one
     if (this.ws) {
       this.ws.onclose = null
@@ -38,11 +51,12 @@ export class ChatManager {
     this.playerHash = midnightAddressHash
     this.playerNickname = nickname
     this.connectedGameId = gameId
+    this.connectedChannel = channel
     this.destroyed = false
 
     const base = (import.meta.env.VITE_CHAT_SERVER_URL as string | undefined)
       ?? 'ws://localhost:3001'
-    this.ws = new WebSocket(`${base}/chat/${gameId}`)
+    this.ws = new WebSocket(`${base}/chat/${gameId}/${channel}`)
 
     this.ws.onopen = () => {
       this.ws!.send(JSON.stringify({ type: 'identify', midnightAddressHash, nickname }))
@@ -72,8 +86,14 @@ export class ChatManager {
       if (this.destroyed) return
       this.addMessageLine('System', 'Disconnected from chat. Reconnecting...')
       this.reconnectTimer = setTimeout(() => {
-        if (!this.destroyed && this.connectedGameId !== null && this.playerHash !== null && this.playerNickname !== null) {
-          this.connect(this.connectedGameId, this.playerHash, this.playerNickname)
+        if (
+          !this.destroyed &&
+          this.connectedGameId !== null &&
+          this.playerHash !== null &&
+          this.playerNickname !== null &&
+          this.connectedChannel !== null
+        ) {
+          this.connect(this.connectedGameId, this.playerHash, this.playerNickname, this.connectedChannel)
         }
       }, RECONNECT_DELAY_MS)
     }
@@ -113,12 +133,12 @@ export class ChatManager {
     line.className = 'message-line'
     line.textContent = `[${speaker.toUpperCase()}]: ${message}`
     this.messagesBoxEl.appendChild(line)
-    
+
     while (this.messagesBoxEl.childElementCount > 80) {
       const first = this.messagesBoxEl.firstElementChild
       if (first) this.messagesBoxEl.removeChild(first)
     }
-    
+
     this.messagesBoxEl.scrollTop = this.messagesBoxEl.scrollHeight
   }
 }

@@ -1,10 +1,13 @@
 import { evmWallet } from '../services/evmWallet'
-import { getGameState, deriveMidnightAddressHash, type GameInfo } from '../services/lobbyContract'
+import { midnightWallet } from '../services/midnightWallet'
+import { getGameState, hashShieldedAddress, type GameInfo } from '../services/lobbyContract'
 import { BatcherService } from '../services/batcherService'
 import { gameState, type PlayerBundle } from '../state/gameState'
 import { decodeGamePhrase, isGamePhrase } from '../services/werewolfIdCodec'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:9999'
+const MIDNIGHT_NETWORK_ID =
+  (import.meta.env.VITE_MIDNIGHT_NETWORK_ID as string | undefined) ?? 'undeployed'
 
 export class LobbyScreen {
   onJoined: (gameId: number, gameStarted: boolean, midnightAddressHash: string, nickname: string) => void = () => {}
@@ -12,7 +15,8 @@ export class LobbyScreen {
   private container: HTMLDivElement
   private statusEl!: HTMLParagraphElement
   private walletBtn!: HTMLButtonElement
-  private walletAddressEl!: HTMLSpanElement
+  private evmAddressEl!: HTMLSpanElement
+  private midnightAddressEl!: HTMLSpanElement
   private gameSection!: HTMLDivElement
   private gameIdInput!: HTMLInputElement
   private nicknameInput!: HTMLInputElement
@@ -21,6 +25,8 @@ export class LobbyScreen {
   private joinBtn!: HTMLButtonElement
 
   private currentGame: GameInfo | null = null
+  /** Computed once during wallet connection; used by handleJoinGame(). */
+  private _midnightAddressHash: `0x${string}` | null = null
 
   constructor() {
     this.container = document.createElement('div')
@@ -31,8 +37,12 @@ export class LobbyScreen {
         <p class="lobby-subtitle">Midnight &times; EVM</p>
 
         <section class="lobby-wallet-section">
-          <button id="lobbyWalletBtn" class="ui-btn lobby-btn">Connect MetaMask</button>
-          <span id="lobbyWalletAddress" class="lobby-address"></span>
+          <button id="lobbyWalletBtn" class="ui-btn lobby-btn">Connect Browser Wallets</button>
+          <div id="lobbyWalletInfo" class="lobby-wallet-info" hidden>
+            <span id="lobbyEvmAddress" class="lobby-address lobby-address--evm"></span>
+            <br />
+            <span id="lobbyMidnightAddress" class="lobby-address lobby-address--midnight"></span>
+          </div>
         </section>
 
         <section id="lobbyGameSection" class="lobby-game-section" hidden>
@@ -50,7 +60,8 @@ export class LobbyScreen {
     `
 
     this.walletBtn = this.container.querySelector<HTMLButtonElement>('#lobbyWalletBtn')!
-    this.walletAddressEl = this.container.querySelector<HTMLSpanElement>('#lobbyWalletAddress')!
+    this.evmAddressEl = this.container.querySelector<HTMLSpanElement>('#lobbyEvmAddress')!
+    this.midnightAddressEl = this.container.querySelector<HTMLSpanElement>('#lobbyMidnightAddress')!
     this.gameSection = this.container.querySelector<HTMLDivElement>('#lobbyGameSection')!
     this.gameIdInput = this.container.querySelector<HTMLInputElement>('#lobbyGameIdInput')!
     this.nicknameInput = this.container.querySelector<HTMLInputElement>('#lobbyNicknameInput')!
@@ -84,26 +95,65 @@ export class LobbyScreen {
     btn.textContent = loading ? '...' : label
   }
 
+  /**
+   * Connects both the EVM wallet (MetaMask / any EIP-1193 provider) and the
+   * Midnight wallet (Lace browser extension). Both are required — if either
+   * fails the flow stops with an error.
+   */
   private async handleConnectWallet(): Promise<void> {
     if (!evmWallet.isAvailable()) {
-      this.setStatus('MetaMask not found. Please install it and reload.', true)
+      this.setStatus('No EVM wallet detected. Please install MetaMask and reload.', true)
       return
     }
 
-    this.setLoading(this.walletBtn, true, 'Connect MetaMask')
-    this.setStatus('')
+    this.setLoading(this.walletBtn, true, 'Connect Browser Wallets')
+    this.setStatus('Connecting EVM wallet…')
+
+    // ── 1. EVM wallet ─────────────────────────────────────────────────────────
+    let evmAddress: `0x${string}`
+    try {
+      const evmState = await evmWallet.connect()
+      evmAddress = evmState.address!
+      this.evmAddressEl.textContent = `EVM: ${evmAddress}`
+      console.log('[LobbyScreen] EVM wallet connected:', evmAddress)
+    } catch (err) {
+      this.setLoading(this.walletBtn, false, 'Connect Browser Wallets')
+      this.setStatus(`EVM wallet connection failed: ${(err as Error).message}`, true)
+      return
+    }
+
+    // ── 2. Midnight wallet (Lace) ─────────────────────────────────────────────
+    this.setStatus('Connecting Midnight wallet…')
+
+    if (!midnightWallet.isAvailable()) {
+      this.setLoading(this.walletBtn, false, 'Connect Browser Wallets')
+      this.setStatus('Midnight wallet not found. Please install the Lace extension and reload.', true)
+      return
+    }
 
     try {
-      const state = await evmWallet.connect()
-      this.walletBtn.textContent = 'Connected'
-      this.walletBtn.disabled = true
-      this.walletAddressEl.textContent = state.address ?? ''
-      this.gameSection.hidden = false
-      this.setStatus('Wallet connected. Enter a Game ID to join.')
+      const midnightState = await midnightWallet.connect(MIDNIGHT_NETWORK_ID)
+      const shielded = midnightState.shieldedAddress!
+      const displayAddr = shielded.length > 24
+        ? `${shielded.slice(0, 12)}…${shielded.slice(-8)}`
+        : shielded
+      this.midnightAddressEl.textContent = `Midnight: ${displayAddr}`
+      this._midnightAddressHash = await hashShieldedAddress(shielded)
+      console.log('[LobbyScreen] Midnight wallet connected:', shielded)
+      console.log('[LobbyScreen] midnightAddressHash:', this._midnightAddressHash)
     } catch (err) {
-      this.setLoading(this.walletBtn, false, 'Connect MetaMask')
-      this.setStatus(`Connection failed: ${(err as Error).message}`, true)
+      this.setLoading(this.walletBtn, false, 'Connect Browser Wallets')
+      this.setStatus(`Midnight wallet connection failed: ${(err as Error).message}`, true)
+      return
     }
+
+    // ── 3. Reveal wallet info and game section ────────────────────────────────
+    const walletInfo = this.container.querySelector<HTMLDivElement>('#lobbyWalletInfo')!
+    walletInfo.hidden = false
+    this.walletBtn.textContent = 'Wallets Connected'
+    this.walletBtn.disabled = true
+    this.gameSection.hidden = false
+    this.setStatus('Both wallets connected. Enter a Game ID to join.')
   }
 
   private async handleFindGame(): Promise<void> {
@@ -172,11 +222,15 @@ export class LobbyScreen {
     const address = evmWallet.getAddress()
     console.log('[LobbyScreen] handleJoinGame address:', address, 'currentGame:', this.currentGame)
     if (!address) {
-      this.setStatus('Wallet not connected. Please connect MetaMask first.', true)
+      this.setStatus('Wallet not connected. Please connect your wallets first.', true)
       return
     }
     if (!this.currentGame) {
       this.setStatus('No game selected. Please find a game first.', true)
+      return
+    }
+    if (!this._midnightAddressHash) {
+      this.setStatus('Midnight address hash not computed. Please reconnect your wallets.', true)
       return
     }
 
@@ -187,18 +241,14 @@ export class LobbyScreen {
     }
 
     this.setLoading(this.joinBtn, true, 'Join Game')
-    this.setStatus('Signing batcher message...')
+    this.setStatus('Signing batcher message…')
 
     try {
       const walletClient = evmWallet.getWalletClient()
-
-      // Derive a bytes32 placeholder from the EVM address.
-      // TODO: Replace with the player's Midnight shielded address hash once
-      // Midnight wallet integration is added to frontend-ui.
-      const midnightAddressHash = await deriveMidnightAddressHash(address)
+      const midnightAddressHash = this._midnightAddressHash
       console.log('[LobbyScreen] midnightAddressHash:', midnightAddressHash)
 
-      this.setStatus('Submitting to batcher...')
+      this.setStatus('Submitting to batcher…')
       console.log('[LobbyScreen] calling BatcherService.joinGame', { address, gameId: this.currentGame.id, midnightAddressHash, nickname })
       const batcherResult = await BatcherService.joinGame(
         address,
@@ -209,7 +259,7 @@ export class LobbyScreen {
       )
       console.log('[LobbyScreen] batcher joinGame result:', batcherResult)
 
-      this.setStatus('Fetching player bundle...')
+      this.setStatus('Fetching player bundle…')
       const bundleUrl = `${API_BASE}/api/join_game?gameId=${this.currentGame.id}&midnightAddressHash=${encodeURIComponent(midnightAddressHash)}&nickname=${encodeURIComponent(nickname)}`
       console.log('[LobbyScreen] fetching player bundle:', bundleUrl)
       const bundleRes = await fetch(bundleUrl, { method: 'POST' })
@@ -229,7 +279,7 @@ export class LobbyScreen {
         gameState.setPlayerBundle(bundleData.bundle)
       }
 
-      this.setStatus('Joined successfully! Loading game...')
+      this.setStatus('Joined successfully! Loading game…')
       this.joinBtn.hidden = true
       this.nicknameInput.hidden = true
       this.onJoined(this.currentGame.id, bundleData.gameStarted ?? false, midnightAddressHash, nickname)

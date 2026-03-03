@@ -29,6 +29,14 @@ export function initLayout() {
             <button class="ui-btn" type="submit">Send</button>
           </form>
         </section>
+        <section class="chat-panel werewolf-chat-panel hidden" id="werewolfChatPanel">
+          <div class="werewolf-chat-label">Werewolf Pack</div>
+          <div id="werewolfMessagesBox" class="messages-box"></div>
+          <form id="werewolfChatForm" class="chat-form">
+            <input id="werewolfChatInput" class="chat-input" type="text" maxlength="120" placeholder="Whisper to your pack..." />
+            <button class="ui-btn werewolf-send-btn" type="submit">Send</button>
+          </form>
+        </section>
       </div>
     </div>
     <div id="rolePickerBackdrop" class="role-picker-backdrop hidden" aria-hidden="true">

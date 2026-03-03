@@ -150,6 +150,11 @@ export async function joinGameHandler(
     ? JSON.parse(popRows[0].bundle)
     : undefined;
 
+  // If the player is a werewolf, also invite them to the werewolf-only channel.
+  if (bundle?.role === 1) {
+    chatPost("/invite", { gameId, midnightAddressHash, nickname, channel: "werewolf" });
+  }
+
   // Persist the assigned bundle so we can return it on re-join/page-refresh.
   if (bundle) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -15,12 +15,16 @@ export interface InviteBody {
   gameId: number;
   midnightAddressHash: string;
   nickname: string;
+  /** Chat channel to invite to. Defaults to "general". */
+  channel?: string;
 }
 
 // HTTP body for POST /broadcast
 export interface BroadcastBody {
   gameId: number;
   text: string;
+  /** Chat channel to broadcast to. Defaults to "general". */
+  channel?: string;
 }
 
 // HTTP body for POST /create-room — creates the room and pre-invites the moderator

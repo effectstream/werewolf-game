@@ -4,49 +4,55 @@ interface Room {
   nicknames: Map<string, string>; // hash -> nickname
 }
 
-const rooms = new Map<number, Room>();
+const rooms = new Map<string, Room>();
 
-function ensureRoom(gameId: number): Room {
-  let room = rooms.get(gameId);
+function roomKey(gameId: number, channel = "general"): string {
+  return `${gameId}:${channel}`;
+}
+
+function ensureRoom(gameId: number, channel = "general"): Room {
+  const key = roomKey(gameId, channel);
+  let room = rooms.get(key);
   if (!room) {
     room = { allowedPlayers: new Set(), connections: new Map(), nicknames: new Map() };
-    rooms.set(gameId, room);
+    rooms.set(key, room);
   }
   return room;
 }
 
-export function invitePlayer(gameId: number, midnightAddressHash: string, nickname: string): void {
-  const room = ensureRoom(gameId);
+export function invitePlayer(gameId: number, midnightAddressHash: string, nickname = "", channel = "general"): void {
+  const room = ensureRoom(gameId, channel);
   room.allowedPlayers.add(midnightAddressHash);
-  room.nicknames.set(midnightAddressHash, nickname);
+  if (nickname) room.nicknames.set(midnightAddressHash, nickname);
 }
 
-export function getNickname(gameId: number, midnightAddressHash: string): string {
-  return rooms.get(gameId)?.nicknames.get(midnightAddressHash) ?? midnightAddressHash.slice(0, 10) + "…";
+export function getNickname(gameId: number, midnightAddressHash: string, channel = "general"): string {
+  return rooms.get(roomKey(gameId, channel))?.nicknames.get(midnightAddressHash) ?? midnightAddressHash.slice(0, 10) + "…";
 }
 
-export function isAllowed(gameId: number, midnightAddressHash: string): boolean {
-  return rooms.get(gameId)?.allowedPlayers.has(midnightAddressHash) ?? false;
+export function isAllowed(gameId: number, midnightAddressHash: string, channel = "general"): boolean {
+  return rooms.get(roomKey(gameId, channel))?.allowedPlayers.has(midnightAddressHash) ?? false;
 }
 
-export function isAlreadyConnected(gameId: number, midnightAddressHash: string): boolean {
-  return rooms.get(gameId)?.connections.has(midnightAddressHash) ?? false;
+export function isAlreadyConnected(gameId: number, midnightAddressHash: string, channel = "general"): boolean {
+  return rooms.get(roomKey(gameId, channel))?.connections.has(midnightAddressHash) ?? false;
 }
 
 export function addConnection(
   gameId: number,
   midnightAddressHash: string,
   socket: WebSocket,
+  channel = "general",
 ): void {
-  ensureRoom(gameId).connections.set(midnightAddressHash, socket);
+  ensureRoom(gameId, channel).connections.set(midnightAddressHash, socket);
 }
 
-export function removeConnection(gameId: number, midnightAddressHash: string): void {
-  rooms.get(gameId)?.connections.delete(midnightAddressHash);
+export function removeConnection(gameId: number, midnightAddressHash: string, channel = "general"): void {
+  rooms.get(roomKey(gameId, channel))?.connections.delete(midnightAddressHash);
 }
 
-export function broadcast(gameId: number, payload: string, excludeHash?: string): void {
-  const room = rooms.get(gameId);
+export function broadcast(gameId: number, payload: string, excludeHash?: string, channel = "general"): void {
+  const room = rooms.get(roomKey(gameId, channel));
   if (!room) return;
   for (const [hash, socket] of room.connections) {
     if (hash === excludeHash) continue;
@@ -56,6 +62,6 @@ export function broadcast(gameId: number, payload: string, excludeHash?: string)
   }
 }
 
-export function broadcastAll(gameId: number, payload: string): void {
-  broadcast(gameId, payload);
+export function broadcastAll(gameId: number, payload: string, channel = "general"): void {
+  broadcast(gameId, payload, undefined, channel);
 }

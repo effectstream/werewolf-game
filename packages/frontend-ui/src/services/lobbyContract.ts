@@ -20,11 +20,28 @@ export async function getGameState(gameId: number): Promise<GameInfo> {
 }
 
 /**
- * Derives a deterministic bytes32 value from the player's EVM address using
- * SHA-256 via the browser's native crypto.subtle API.
+ * Derives a deterministic bytes32 identifier from the player's Midnight
+ * shielded address by SHA-256 hashing the address string.
  *
- * TODO: Replace with the player's actual Midnight shielded address hash once
- * Midnight wallet integration is added to this UI.
+ * This is the primary identifier used when a Midnight wallet (e.g. Lace) is
+ * connected and provides a real shielded address.
+ */
+export async function hashShieldedAddress(
+  shieldedAddress: string,
+): Promise<`0x${string}`> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(shieldedAddress)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
+  const hashArray = Array.from(new Uint8Array(hashBuffer))
+  const hex = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+  return `0x${hex}` as `0x${string}`
+}
+
+/**
+ * Fallback: derives a deterministic bytes32 value from the player's EVM
+ * address using SHA-256. Used only when no Midnight wallet is connected.
+ *
+ * @deprecated Prefer hashShieldedAddress() once Midnight wallet is available.
  */
 export async function deriveMidnightAddressHash(
   evmAddress: `0x${string}`,

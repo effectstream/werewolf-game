@@ -32,14 +32,15 @@ function send(socket: WebSocket, msg: ServerMessage): void {
   }
 }
 
-function parseGameId(pathname: string): number | null {
-  const match = pathname.match(/^\/chat\/(\d+)$/);
+function parseChatPath(pathname: string): { gameId: number; channel: string } | null {
+  const match = pathname.match(/^\/chat\/(\d+)(?:\/(\w+))?$/);
   if (!match) return null;
   const id = parseInt(match[1], 10);
-  return isNaN(id) ? null : id;
+  if (isNaN(id)) return null;
+  return { gameId: id, channel: match[2] ?? "general" };
 }
 
-function handleWebSocket(req: Request, gameId: number): Response {
+function handleWebSocket(req: Request, gameId: number, channel: string): Response {
   const { socket, response } = Deno.upgradeWebSocket(req);
 
   let identified = false;
@@ -77,7 +78,7 @@ function handleWebSocket(req: Request, gameId: number): Response {
 
       const hash = msg.midnightAddressHash;
 
-      if (!isAllowed(gameId, hash)) {
+      if (!isAllowed(gameId, hash, channel)) {
         send(socket, {
           type: "error",
           code: "NOT_ALLOWED",
@@ -87,7 +88,7 @@ function handleWebSocket(req: Request, gameId: number): Response {
         return;
       }
 
-      if (isAlreadyConnected(gameId, hash)) {
+      if (isAlreadyConnected(gameId, hash, channel)) {
         send(socket, {
           type: "error",
           code: "ALREADY_CONNECTED",
@@ -100,7 +101,7 @@ function handleWebSocket(req: Request, gameId: number): Response {
       clearTimeout(identifyTimer);
       identified = true;
       playerHash = hash;
-      addConnection(gameId, hash, socket);
+      addConnection(gameId, hash, socket, channel);
       send(socket, { type: "identified", midnightAddressHash: hash });
       return;
     }
@@ -122,7 +123,7 @@ function handleWebSocket(req: Request, gameId: number): Response {
 
     const outbound: ServerMessage = {
       type: "message",
-      from: getNickname(gameId, playerHash!),
+      from: getNickname(gameId, playerHash!, channel),
       text,
       timestamp: Date.now(),
     };
@@ -130,18 +131,18 @@ function handleWebSocket(req: Request, gameId: number): Response {
 
     // Echo back to sender and broadcast to all others
     send(socket, outbound);
-    broadcast(gameId, serialized, playerHash!);
+    broadcast(gameId, serialized, playerHash!, channel);
   };
 
   socket.onclose = () => {
     clearTimeout(identifyTimer);
-    if (playerHash) removeConnection(gameId, playerHash);
+    if (playerHash) removeConnection(gameId, playerHash, channel);
   };
 
   socket.onerror = (err) => {
-    console.error(`[chat] WebSocket error game=${gameId} player=${playerHash}:`, err);
+    console.error(`[chat] WebSocket error game=${gameId} channel=${channel} player=${playerHash}:`, err);
     clearTimeout(identifyTimer);
-    if (playerHash) removeConnection(gameId, playerHash);
+    if (playerHash) removeConnection(gameId, playerHash, channel);
   };
 
   return response;
@@ -160,6 +161,7 @@ async function handleInvite(req: Request): Promise<Response> {
     ? body.midnightAddressHash.trim()
     : null;
   const nickname = typeof body.nickname === "string" ? body.nickname.trim() : null;
+  const channel = typeof body.channel === "string" ? body.channel.trim() : "general";
 
   if (!gameId || !hash || !nickname) {
     return corsJson(
@@ -168,8 +170,8 @@ async function handleInvite(req: Request): Promise<Response> {
     );
   }
 
-  invitePlayer(gameId, hash, nickname);
-  console.log(`[chat] Invited player=${hash} nickname=${nickname} to game=${gameId}`);
+  invitePlayer(gameId, hash, nickname, channel);
+  console.log(`[chat] Invited player=${hash} nickname=${nickname} to game=${gameId} channel=${channel}`);
   return corsJson({ ok: true });
 }
 
@@ -191,8 +193,10 @@ async function handleCreateRoom(req: Request): Promise<Response> {
     );
   }
 
-  invitePlayer(gameId, hash);
-  console.log(`[chat] Created room game=${gameId} moderator=${hash}`);
+  // Pre-invite moderator to both channels so they can observe all chat
+  invitePlayer(gameId, hash, "Moderator", "general");
+  invitePlayer(gameId, hash, "Moderator", "werewolf");
+  console.log(`[chat] Created room game=${gameId} moderator=${hash} (invited to general + werewolf)`);
 
   // After 10 s, send a welcome system message to everyone connected in the room.
   setTimeout(() => {
@@ -201,7 +205,7 @@ async function handleCreateRoom(req: Request): Promise<Response> {
       text: "Welcome to the Werewolf Midnight",
       timestamp: Date.now(),
     };
-    broadcastAll(gameId, JSON.stringify(msg));
+    broadcastAll(gameId, JSON.stringify(msg), "general");
     console.log(`[chat] Sent welcome message to game=${gameId}`);
   }, 10_000);
 
@@ -218,6 +222,7 @@ async function handleBroadcast(req: Request): Promise<Response> {
 
   const gameId = typeof body.gameId === "number" ? body.gameId : null;
   const text = typeof body.text === "string" ? body.text.trim() : null;
+  const channel = typeof body.channel === "string" ? body.channel.trim() : "general";
 
   if (!gameId || !text) {
     return corsJson(
@@ -227,8 +232,8 @@ async function handleBroadcast(req: Request): Promise<Response> {
   }
 
   const msg: ServerMessage = { type: "system", text, timestamp: Date.now() };
-  broadcastAll(gameId, JSON.stringify(msg));
-  console.log(`[chat] System broadcast game=${gameId}: ${text}`);
+  broadcastAll(gameId, JSON.stringify(msg), channel);
+  console.log(`[chat] System broadcast game=${gameId} channel=${channel}: ${text}`);
   return corsJson({ ok: true });
 }
 
@@ -254,15 +259,15 @@ export function startChatServer(port: number): void {
     }
 
     if (req.method === "GET" && url.pathname.startsWith("/chat/")) {
-      const gameId = parseGameId(url.pathname);
-      if (gameId === null) {
+      const parsed = parseChatPath(url.pathname);
+      if (parsed === null) {
         return corsJson({ error: "Invalid game ID in path" }, { status: 400 });
       }
       const upgrade = req.headers.get("upgrade");
       if (!upgrade || upgrade.toLowerCase() !== "websocket") {
         return new Response("Expected WebSocket upgrade", { status: 426 });
       }
-      return handleWebSocket(req, gameId);
+      return handleWebSocket(req, parsed.gameId, parsed.channel);
     }
 
     if (req.method === "GET" && url.pathname === "/health") {

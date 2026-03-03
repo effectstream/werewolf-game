@@ -44,6 +44,7 @@ function showAnnouncement(message: string): void {
 interface GameManagers {
   hudManager: HUDManager
   chatManager: ChatManager
+  werewolfChatManager?: ChatManager
   playerListManager: PlayerListManager
   rolePicker: RolePicker
   playerEntities: PlayerEntities
@@ -54,6 +55,7 @@ interface GameManagers {
 function destroyGame(managers: GameManagers): void {
   managers.hudManager.destroy()
   managers.chatManager.destroy()
+  managers.werewolfChatManager?.destroy()
   managers.playerListManager.destroy()
   managers.rolePicker.destroy()
   managers.playerEntities.destroy()
@@ -210,6 +212,20 @@ lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, midnightAddressHas
       const player = gameState.players[bundle.playerId]
       if (player) {
         managers.playerEntities.setPlayerRole(player, roleNumberToRole(bundle.role))
+      }
+
+      // Werewolves get access to the private werewolf channel
+      if (bundle.role === 1) {
+        const werewolfPanel = document.querySelector<HTMLElement>('#werewolfChatPanel')
+        if (werewolfPanel) werewolfPanel.classList.remove('hidden')
+
+        const werewolfChatManager = new ChatManager({
+          messagesBox: '#werewolfMessagesBox',
+          chatForm: '#werewolfChatForm',
+          chatInput: '#werewolfChatInput',
+        })
+        werewolfChatManager.connect(gameId, midnightAddressHash, nickname, 'werewolf')
+        managers.werewolfChatManager = werewolfChatManager
       }
     }
 

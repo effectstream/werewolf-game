@@ -626,3 +626,50 @@ body {
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.7);
   letter-spacing: 0.02em;
 }
+
+/* ============================================================
+   Werewolf Chat Channel
+   ============================================================ */
+
+.werewolf-chat-panel {
+  border-top: 1px solid rgba(180, 40, 40, 0.4);
+  background: rgba(20, 5, 5, 0.95);
+}
+
+.werewolf-chat-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #e05555;
+  padding: 2px 0 4px;
+}
+
+.werewolf-chat-panel .messages-box {
+  border-color: rgba(180, 50, 50, 0.35);
+  background: rgba(15, 4, 4, 0.8);
+}
+
+.werewolf-chat-panel .message-line {
+  color: #f4b8b8;
+}
+
+.werewolf-chat-panel .chat-input {
+  border-color: rgba(180, 60, 60, 0.5);
+  background: rgba(25, 8, 8, 0.92);
+  color: #fde8e8;
+}
+
+.werewolf-chat-panel .chat-input:focus {
+  outline-color: rgba(220, 80, 80, 0.5);
+}
+
+.werewolf-send-btn {
+  background: rgba(140, 30, 30, 0.85) !important;
+  border-color: rgba(200, 60, 60, 0.5) !important;
+  color: #fde8e8 !important;
+}
+
+.werewolf-send-btn:hover {
+  background: rgba(180, 40, 40, 0.9) !important;
+}

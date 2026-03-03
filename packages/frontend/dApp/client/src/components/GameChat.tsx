@@ -13,16 +13,19 @@ type ChatMessage = {
 type Props = {
   gameId: bigint;
   midnightAddressHash: string;
+  /** Chat channel to connect to. Defaults to "general". */
+  channel?: string;
+  /** Header label. Defaults to "Game Chat". */
+  label?: string;
 };
 
-export function GameChat({ gameId, midnightAddressHash }: Props) {
+export function GameChat({ gameId, midnightAddressHash, channel = "general", label = "Game Chat" }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [connected, setConnected] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const url = `${CHAT_SERVER_URL}/chat/${gameId}`;
+    const url = `${CHAT_SERVER_URL}/chat/${gameId}/${channel}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
@@ -93,7 +96,7 @@ export function GameChat({ gameId, midnightAddressHash }: Props) {
     return () => {
       ws.close();
     };
-  }, [gameId, midnightAddressHash]);
+  }, [gameId, midnightAddressHash, channel]);
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -101,9 +104,9 @@ export function GameChat({ gameId, midnightAddressHash }: Props) {
   }, [messages]);
 
   return (
-    <div className="chat-panel">
+    <div className={`chat-panel${channel === "werewolf" ? " werewolf-chat-panel" : ""}`}>
       <div className="chat-header">
-        Game Chat
+        {label}
         <span className={`chat-status ${connected ? "chat-status-connected" : "chat-status-disconnected"}`}>
           {connected ? "connected" : "connecting…"}
         </span>
