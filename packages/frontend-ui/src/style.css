@@ -229,6 +229,10 @@ body {
   outline-offset: 1px;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .role-picker-backdrop {
   position: absolute;
   inset: 0;

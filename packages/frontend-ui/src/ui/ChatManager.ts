@@ -86,14 +86,8 @@ export class ChatManager {
       if (this.destroyed) return
       this.addMessageLine('System', 'Disconnected from chat. Reconnecting...')
       this.reconnectTimer = setTimeout(() => {
-        if (
-          !this.destroyed &&
-          this.connectedGameId !== null &&
-          this.playerHash !== null &&
-          this.playerNickname !== null &&
-          this.connectedChannel !== null
-        ) {
-          this.connect(this.connectedGameId, this.playerHash, this.playerNickname, this.connectedChannel)
+        if (!this.destroyed && this.connectedGameId !== null) {
+          this.connect(this.connectedGameId, this.playerHash!, this.playerNickname!, this.connectedChannel!)
         }
       }, RECONNECT_DELAY_MS)
     }

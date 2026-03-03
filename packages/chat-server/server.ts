@@ -1,14 +1,24 @@
-import type { BroadcastBody, ClientMessage, CreateRoomBody, InviteBody, ServerMessage } from "./types.ts";
+import type {
+  BroadcastBody,
+  ClientMessage,
+  CreateRoomBody,
+  InviteBody,
+  ServerMessage,
+} from "./types.ts";
 import {
   addConnection,
-  broadcastAll,
   broadcast,
+  broadcastAll,
   getNickname,
+  getRoomsSnapshot,
   invitePlayer,
   isAllowed,
   isAlreadyConnected,
   removeConnection,
 } from "./rooms.ts";
+
+const IS_DEV = Deno.env.get("ENV") === "dev" ||
+  Deno.env.get("ENV") === "development";
 
 const MAX_TEXT_LENGTH = 500;
 const IDENTIFY_TIMEOUT_MS = 10_000;
@@ -32,7 +42,9 @@ function send(socket: WebSocket, msg: ServerMessage): void {
   }
 }
 
-function parseChatPath(pathname: string): { gameId: number; channel: string } | null {
+function parseChatPath(
+  pathname: string,
+): { gameId: number; channel: string } | null {
   const match = pathname.match(/^\/chat\/(\d+)(?:\/(\w+))?$/);
   if (!match) return null;
   const id = parseInt(match[1], 10);
@@ -40,7 +52,11 @@ function parseChatPath(pathname: string): { gameId: number; channel: string } | 
   return { gameId: id, channel: match[2] ?? "general" };
 }
 
-function handleWebSocket(req: Request, gameId: number, channel: string): Response {
+function handleWebSocket(
+  req: Request,
+  gameId: number,
+  channel: string,
+): Response {
   const { socket, response } = Deno.upgradeWebSocket(req);
 
   let identified = false;
@@ -62,7 +78,11 @@ function handleWebSocket(req: Request, gameId: number, channel: string): Respons
     try {
       msg = JSON.parse(event.data) as ClientMessage;
     } catch {
-      send(socket, { type: "error", code: "PARSE_ERROR", message: "Invalid JSON." });
+      send(socket, {
+        type: "error",
+        code: "PARSE_ERROR",
+        message: "Invalid JSON.",
+      });
       return;
     }
 
@@ -79,6 +99,14 @@ function handleWebSocket(req: Request, gameId: number, channel: string): Respons
       const hash = msg.midnightAddressHash;
 
       if (!isAllowed(gameId, hash, channel)) {
+        console.warn(
+          `[chat] NOT_ALLOWED game=${gameId} channel=${channel} hash=${hash} — ` +
+            `snapshot: ${
+              JSON.stringify(
+                getRoomsSnapshot().filter((r) => r.gameId === gameId),
+              )
+            }`,
+        );
         send(socket, {
           type: "error",
           code: "NOT_ALLOWED",
@@ -89,6 +117,9 @@ function handleWebSocket(req: Request, gameId: number, channel: string): Respons
       }
 
       if (isAlreadyConnected(gameId, hash, channel)) {
+        console.warn(
+          `[chat] ALREADY_CONNECTED game=${gameId} channel=${channel} hash=${hash}`,
+        );
         send(socket, {
           type: "error",
           code: "ALREADY_CONNECTED",
@@ -102,12 +133,19 @@ function handleWebSocket(req: Request, gameId: number, channel: string): Respons
       identified = true;
       playerHash = hash;
       addConnection(gameId, hash, socket, channel);
+      console.log(
+        `[chat] Identified game=${gameId} channel=${channel} hash=${hash}`,
+      );
       send(socket, { type: "identified", midnightAddressHash: hash });
       return;
     }
 
     if (msg.type !== "message") {
-      send(socket, { type: "error", code: "UNKNOWN_TYPE", message: "Unknown message type." });
+      send(socket, {
+        type: "error",
+        code: "UNKNOWN_TYPE",
+        message: "Unknown message type.",
+      });
       return;
     }
 
@@ -140,7 +178,10 @@ function handleWebSocket(req: Request, gameId: number, channel: string): Respons
   };
 
   socket.onerror = (err) => {
-    console.error(`[chat] WebSocket error game=${gameId} channel=${channel} player=${playerHash}:`, err);
+    console.error(
+      `[chat] WebSocket error game=${gameId} channel=${channel} player=${playerHash}:`,
+      err,
+    );
     clearTimeout(identifyTimer);
     if (playerHash) removeConnection(gameId, playerHash, channel);
   };
@@ -160,18 +201,27 @@ async function handleInvite(req: Request): Promise<Response> {
   const hash = typeof body.midnightAddressHash === "string"
     ? body.midnightAddressHash.trim()
     : null;
-  const nickname = typeof body.nickname === "string" ? body.nickname.trim() : null;
-  const channel = typeof body.channel === "string" ? body.channel.trim() : "general";
+  const nickname = typeof body.nickname === "string"
+    ? body.nickname.trim()
+    : null;
+  const channel = typeof body.channel === "string"
+    ? body.channel.trim()
+    : "general";
 
   if (!gameId || !hash || !nickname) {
     return corsJson(
-      { error: "gameId (number), midnightAddressHash (string), and nickname (string) are required" },
+      {
+        error:
+          "gameId (number), midnightAddressHash (string), and nickname (string) are required",
+      },
       { status: 400 },
     );
   }
 
   invitePlayer(gameId, hash, nickname, channel);
-  console.log(`[chat] Invited player=${hash} nickname=${nickname} to game=${gameId} channel=${channel}`);
+  console.log(
+    `[chat] Invited player=${hash} nickname=${nickname} to game=${gameId} channel=${channel}`,
+  );
   return corsJson({ ok: true });
 }
 
@@ -184,7 +234,9 @@ async function handleCreateRoom(req: Request): Promise<Response> {
   }
 
   const gameId = typeof body.gameId === "number" ? body.gameId : null;
-  const hash = typeof body.moderatorHash === "string" ? body.moderatorHash.trim() : null;
+  const hash = typeof body.moderatorHash === "string"
+    ? body.moderatorHash.trim()
+    : null;
 
   if (!gameId || !hash) {
     return corsJson(
@@ -196,7 +248,9 @@ async function handleCreateRoom(req: Request): Promise<Response> {
   // Pre-invite moderator to both channels so they can observe all chat
   invitePlayer(gameId, hash, "Moderator", "general");
   invitePlayer(gameId, hash, "Moderator", "werewolf");
-  console.log(`[chat] Created room game=${gameId} moderator=${hash} (invited to general + werewolf)`);
+  console.log(
+    `[chat] Created room game=${gameId} moderator=${hash} (invited to general + werewolf)`,
+  );
 
   // After 10 s, send a welcome system message to everyone connected in the room.
   setTimeout(() => {
@@ -222,7 +276,9 @@ async function handleBroadcast(req: Request): Promise<Response> {
 
   const gameId = typeof body.gameId === "number" ? body.gameId : null;
   const text = typeof body.text === "string" ? body.text.trim() : null;
-  const channel = typeof body.channel === "string" ? body.channel.trim() : "general";
+  const channel = typeof body.channel === "string"
+    ? body.channel.trim()
+    : "general";
 
   if (!gameId || !text) {
     return corsJson(
@@ -233,7 +289,9 @@ async function handleBroadcast(req: Request): Promise<Response> {
 
   const msg: ServerMessage = { type: "system", text, timestamp: Date.now() };
   broadcastAll(gameId, JSON.stringify(msg), channel);
-  console.log(`[chat] System broadcast game=${gameId} channel=${channel}: ${text}`);
+  console.log(
+    `[chat] System broadcast game=${gameId} channel=${channel}: ${text}`,
+  );
   return corsJson({ ok: true });
 }
 
@@ -272,6 +330,10 @@ export function startChatServer(port: number): void {
 
     if (req.method === "GET" && url.pathname === "/health") {
       return corsJson({ status: "ok" });
+    }
+
+    if (IS_DEV && req.method === "GET" && url.pathname === "/debug/rooms") {
+      return corsJson(getRoomsSnapshot());
     }
 
     return new Response("Not found", { status: 404 });

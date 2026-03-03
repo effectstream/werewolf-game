@@ -45,6 +45,9 @@ const customProcesses = [
     type: "system-dependency",
     link: "http://localhost:3001/health",
     stopProcessAtPort: [3001],
+    env: {
+      ENV: "development",
+    },
   },
 ];
 

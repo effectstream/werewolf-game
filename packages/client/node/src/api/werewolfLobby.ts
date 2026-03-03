@@ -22,11 +22,13 @@ import {
 
 const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ?? "http://localhost:3001";
 
-function chatPost(path: string, body: unknown): void {
-  void fetch(`${CHAT_SERVER_URL}${path}`, {
+function chatPost(path: string, body: unknown): Promise<void> {
+  return fetch(`${CHAT_SERVER_URL}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+  }).then((res) => {
+    if (!res.ok) console.warn(`[chat] POST ${path} returned HTTP ${res.status}`);
   }).catch((err) => console.warn(`[chat] POST ${path} failed:`, err));
 }
 
@@ -88,6 +90,11 @@ export async function joinGameHandler(
     (p) => p.midnight_address_hash === midnightAddressHash,
   );
 
+  // Always (re-)invite to general chat — invitePlayer is idempotent on the
+  // chat server (Set.add / Map.set), so sending it more than once is safe.
+  // This also covers the case where the STF's fire-and-forget invite failed.
+  await chatPost("/invite", { gameId, midnightAddressHash, nickname });
+
   if (alreadyJoined) {
     // The player is in the lobby. Check whether they already have a bundle
     // assigned (idempotent re-join / page-refresh case).
@@ -101,7 +108,11 @@ export async function joinGameHandler(
       : undefined;
 
     if (storedBundle) {
-      // Bundle already assigned — just return it (idempotent).
+      // Bundle already assigned — re-invite to werewolf channel if applicable
+      // (handles chat-server restarts where in-memory allowlists are cleared).
+      if (storedBundle.role === 1) {
+        await chatPost("/invite", { gameId, midnightAddressHash, nickname, channel: "werewolf" });
+      }
       console.log(`[lobby] Player ${midnightAddressHash} re-joined game ${gameId}, returning existing bundle.`);
       return { success: true, bundle: storedBundle };
     }
@@ -109,6 +120,19 @@ export async function joinGameHandler(
     // The state machine pre-registered this player but no bundle was assigned
     // yet. Pop one now (same as the new-player path below).
     console.log(`[lobby] Player ${midnightAddressHash} already in lobby but has no bundle — assigning one now.`);
+  }
+
+  if (!alreadyJoined) {
+    // First time joining via this API — insert the player and increment count.
+    // (When the state machine fires later it will hit ON CONFLICT DO NOTHING.)
+    await runPreparedQuery(
+      insertLobbyPlayer.run({ game_id: gameId, midnight_address_hash: midnightAddressHash, nickname, joined_block: 0 }, dbConn),
+      "insertLobbyPlayer",
+    );
+    await runPreparedQuery(
+      incrementLobbyPlayerCount.run({ game_id: gameId }, dbConn),
+      "incrementLobbyPlayerCount",
+    );
   }
 
   // Check that there are still bundles left (slots open).
@@ -124,23 +148,6 @@ export async function joinGameHandler(
     );
   }
 
-  if (!alreadyJoined) {
-    // First time joining via this API — insert the player and increment count.
-    // (When the state machine fires later it will hit ON CONFLICT DO NOTHING.)
-    await runPreparedQuery(
-      insertLobbyPlayer.run({ game_id: gameId, midnight_address_hash: midnightAddressHash, nickname, joined_block: 0 }, dbConn),
-      "insertLobbyPlayer",
-    );
-    await runPreparedQuery(
-      incrementLobbyPlayerCount.run({ game_id: gameId }, dbConn),
-      "incrementLobbyPlayerCount",
-    );
-
-    // Invite the player to the chat room immediately so they can connect to the
-    // WebSocket without waiting for the STF to process the batcher transaction.
-    chatPost("/invite", { gameId, midnightAddressHash, nickname });
-  }
-
   // Pop one bundle from the pool.
   const popRows = await runPreparedQuery(
     popBundle.run({ game_id: gameId }, dbConn),
@@ -150,9 +157,12 @@ export async function joinGameHandler(
     ? JSON.parse(popRows[0].bundle)
     : undefined;
 
-  // If the player is a werewolf, also invite them to the werewolf-only channel.
+  // If the player is a werewolf, invite them to the werewolf-only channel.
+  // Must be awaited so the allowlist is populated before this response reaches
+  // the client — the frontend connects to the werewolf WebSocket immediately
+  // after receiving the bundle, so fire-and-forget would cause NOT_ALLOWED.
   if (bundle?.role === 1) {
-    chatPost("/invite", { gameId, midnightAddressHash, nickname, channel: "werewolf" });
+    await chatPost("/invite", { gameId, midnightAddressHash, nickname, channel: "werewolf" });
   }
 
   // Persist the assigned bundle so we can return it on re-join/page-refresh.

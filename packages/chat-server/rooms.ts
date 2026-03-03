@@ -65,3 +65,32 @@ export function broadcast(gameId: number, payload: string, excludeHash?: string,
 export function broadcastAll(gameId: number, payload: string, channel = "general"): void {
   broadcast(gameId, payload, undefined, channel);
 }
+
+// ---------------------------------------------------------------------------
+// Debug snapshot — returns a plain-object view of all rooms (no WebSockets).
+// ---------------------------------------------------------------------------
+export interface RoomSnapshot {
+  key: string;
+  gameId: number;
+  channel: string;
+  allowed: { hash: string; nickname: string }[];
+  connected: { hash: string; nickname: string; readyState: number }[];
+}
+
+export function getRoomsSnapshot(): RoomSnapshot[] {
+  const out: RoomSnapshot[] = [];
+  for (const [key, room] of rooms) {
+    const [gameIdStr, channel] = key.split(":");
+    const allowed = [...room.allowedPlayers].map((hash) => ({
+      hash,
+      nickname: room.nicknames.get(hash) ?? "",
+    }));
+    const connected = [...room.connections.entries()].map(([hash, socket]) => ({
+      hash,
+      nickname: room.nicknames.get(hash) ?? "",
+      readyState: socket.readyState,
+    }));
+    out.push({ key, gameId: Number(gameIdStr), channel, allowed, connected });
+  }
+  return out;
+}

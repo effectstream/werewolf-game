@@ -27,7 +27,6 @@ export function GameChat({ gameId, midnightAddressHash, channel = "general", lab
   useEffect(() => {
     const url = `${CHAT_SERVER_URL}/chat/${gameId}/${channel}`;
     const ws = new WebSocket(url);
-    wsRef.current = ws;
 
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: "identify", midnightAddressHash }));

@@ -137,7 +137,10 @@ export const apiRouter: StartConfigApiRouter = async function (
   }>("/api/join_game", async (request, reply) => {
     const { gameId, midnightAddressHash, nickname } = request.query;
     try {
-      return await joinGameHandler(dbConn, gameId, midnightAddressHash, nickname);
+      // Querystring params arrive as strings without schema coercion; convert
+      // gameId explicitly so chatPost sends a JSON number (not a string) and
+      // the chat server's `typeof body.gameId === "number"` check succeeds.
+      return await joinGameHandler(dbConn, Number(gameId), midnightAddressHash, nickname);
     } catch (err: any) {
       if (err?.statusCode === 409) {
         return reply.status(409).send({ error: err.message });
