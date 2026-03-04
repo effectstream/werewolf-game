@@ -1,4 +1,5 @@
 import { MidnightLedgerParser } from "./paima-utils.ts";
+import { GameView } from "./werewolf-game-view.ts";
 
 /**
  * Plain-object type for a single Werewolf game record as it comes out of the
@@ -181,6 +182,17 @@ export class WerewolfLedger {
       this.payload["Werewolf_movesSubmittedCount"],
     );
     return this.#extractVoteCount(movesMap, gameId, round);
+  }
+
+  // ── GameView factory ─────────────────────────────────────────────────────
+
+  /**
+   * Returns a fully-resolved, ledger-decoupled snapshot of one game's state.
+   * Prefer this over calling individual accessors when multiple fields are
+   * needed, as it resolves everything in a single pass.
+   */
+  getGameView(gameId: number): GameView {
+    return GameView.from(this, gameId);
   }
 
   // ── Private game-logic helpers ───────────────────────────────────────────

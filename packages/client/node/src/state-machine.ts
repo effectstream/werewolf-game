@@ -19,7 +19,6 @@ import {
   snapshotAlivePlayer,
   updateRoundVoteCount,
   upsertGameView,
-  upsertLobby,
   upsertRoundState,
 } from "@werewolf-game/database";
 import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
@@ -73,140 +72,104 @@ stm.addStateTransition(
       const gameId = ledger.parseGameId(rawKey);
       if (isNaN(gameId)) continue;
 
-      const game = ledger.getGame(gameId);
-      if (!game) continue;
+      // Immutable snapshot of this game's state.
+      const gameView = ledger.getGameView(gameId);
 
-      const round = ledger.getRound(gameId);
-      const phase = ledger.getPhase(gameId);
-      const aliveIndices = ledger.aliveIndices(gameId);
-      const aliveCount = aliveIndices.length;
-
-      console.log(
-        `[midnight] game=${gameId} round=${round} phase=${phase} aliveCount=${aliveCount} aliveIndices=[${
-          aliveIndices.join(",")
-        }]`,
-      );
-
-      const phaseRaw = game.phase ?? game.currentPhase;
-      const finished = phaseRaw === "Finished" ||
-        phaseRaw === "finished" ||
-        phaseRaw === 3 ||
-        String(phaseRaw).toLowerCase() === "finished";
-
-      const werewolfCount = Number(game.werewolfCount ?? 0);
-      const villagerCount = Number(game.villagerCount ?? 0);
-
-      // Build alive vector and upsert the denormalized game view.
-      // When aliveCount is 0 but the game is not finished and playerCount > 0,
-      // the ledger snapshot is ambiguous (alive flags not yet propagated).
-      // Default every slot to alive so the frontend never shows all players dead
-      // before the game has actually started.
-      const playerCount = Number(game.playerCount ?? 0);
-      const useAllAlive = !finished && aliveCount === 0 && playerCount > 0;
-      const aliveVector: boolean[] = [];
-      for (let i = 0; i < playerCount; i++) {
-        aliveVector.push(useAllAlive ? true : aliveIndices.includes(i));
-      }
-
-      // Werewolf indices only populated when game is finished
-      const werewolfIndices: number[] = [];
-
-      // Validate derived values before hitting the DB — NaN or non-finite numbers
-      // cause a silent PostgreSQL type error that aborts the transaction, making
-      // every subsequent query fail with 25P02 instead of the real error.
-      if (
-        !Number.isFinite(round) || !Number.isFinite(playerCount) ||
-        !Number.isFinite(aliveCount) || !Number.isFinite(werewolfCount) ||
-        !Number.isFinite(villagerCount)
-      ) {
+      // Validate derived values before hitting the DB — NaN or non-finite
+      // numbers cause a silent PostgreSQL type error that aborts the tx.
+      if (!gameView.isValid()) {
         console.error(
           `[midnight] SKIPPING game=${gameId}: non-finite value detected`,
           {
-            round,
-            playerCount,
-            aliveCount,
-            werewolfCount,
-            villagerCount,
-            phase,
+            round: gameView.round,
+            playerCount: gameView.playerCount,
+            aliveCount: gameView.aliveCount,
+            werewolfCount: gameView.werewolfCount,
+            villagerCount: gameView.villagerCount,
+            phase: gameView.phase,
             rawKey,
           },
         );
         continue;
       }
 
+      console.log(
+        `[midnight] game=${gameId} round=${gameView.round} phase=${gameView.phase}` +
+          ` aliveCount=${gameView.aliveCount} aliveIndices=[${
+            [...gameView.aliveIndices].join(",")
+          }]`,
+      );
+
+      // Upsert the denormalised game view used by the frontend.
+      // werewolf_indices is only populated when the game is finished (future work).
       yield* World.resolve(upsertGameView, {
         game_id: gameId,
-        phase: ledger.phaseString(gameId),
-        round,
-        player_count: playerCount,
-        alive_count: aliveCount,
-        werewolf_count: werewolfCount,
-        villager_count: villagerCount,
-        alive_vector: JSON.stringify(aliveVector),
-        finished,
-        werewolf_indices: JSON.stringify(werewolfIndices),
+        phase: gameView.phase,
+        round: gameView.round,
+        player_count: gameView.playerCount,
+        alive_count: gameView.aliveCount,
+        werewolf_count: gameView.werewolfCount,
+        villager_count: gameView.villagerCount,
+        alive_vector: JSON.stringify([...gameView.aliveVector]),
+        finished: gameView.isFinished,
+        werewolf_indices: JSON.stringify([]),
         updated_block: blockHeight,
       });
 
-      // When the ledger hasn't propagated alive flags yet, treat all player
-      // slots as alive — same reasoning as useAllAlive above.
-      const effectiveAliveCount = useAllAlive ? playerCount : aliveCount;
-      const effectiveAliveIndices = useAllAlive
-        ? Array.from({ length: playerCount }, (_, i) => i)
-        : aliveIndices;
-      const aliveSet = new Set(effectiveAliveIndices);
-
-      // Skip round-state logic for games with no alive players
-      if (effectiveAliveCount === 0) {
+      // Skip round-state logic for games with no alive players.
+      if (gameView.aliveCount === 0) {
         console.log(
-          `[midnight] game=${gameId} skipping round-state logic (effectiveAliveCount=0, playerCount=${playerCount})`,
+          `[midnight] game=${gameId} skipping round-state logic` +
+            ` (aliveCount=0, playerCount=${gameView.playerCount})`,
         );
         continue;
       }
 
       const existingRows = (yield* World.resolve(getWerewolfRoundState, {
         game_id: gameId,
-        round,
-        phase,
+        round: gameView.round,
+        phase: gameView.phase,
       })) as IGetRoundStateResult[];
 
       if (existingRows.length > 0) {
-        // Round already initialised — sync vote count if it changed
-        const currentVotes = ledger.voteCount(gameId, round);
+        // Round already initialised — sync vote count if it changed.
+        const currentVotes = ledger.voteCount(gameId, gameView.round);
         const dbVotes = Number(existingRows[0].votes_submitted);
 
         if (currentVotes !== dbVotes) {
           yield* World.resolve(updateRoundVoteCount, {
             game_id: gameId,
-            round,
-            phase,
+            round: gameView.round,
+            phase: gameView.phase,
             votes_submitted: currentVotes,
           });
           console.log(
-            `[midnight] game=${gameId} round=${round} phase=${phase} votes=${currentVotes}/${effectiveAliveCount}`,
+            `[midnight] game=${gameId} round=${gameView.round}` +
+              ` phase=${gameView.phase} votes=${currentVotes}/${gameView.aliveCount}`,
           );
         }
         continue;
       }
 
-      // New round — persist state, snapshot alive players, schedule timeout
+      // New round — persist state, snapshot alive players, schedule timeout.
       console.log(
-        `[midnight] New round detected game=${gameId} round=${round} phase=${phase} alive=${effectiveAliveCount} (ledgerAlive=${aliveCount})`,
+        `[midnight] New round detected game=${gameId} round=${gameView.round}` +
+          ` phase=${gameView.phase} alive=${gameView.aliveCount}`,
       );
 
       yield* World.resolve(upsertRoundState, {
         game_id: gameId,
-        round,
-        phase,
-        alive_count: effectiveAliveCount,
+        round: gameView.round,
+        phase: gameView.phase,
+        alive_count: gameView.aliveCount,
         round_started_block: blockHeight,
       });
 
-      for (const playerIdx of effectiveAliveIndices) {
+      for (const playerIdx of gameView.aliveIndices) {
         yield* World.resolve(snapshotAlivePlayer, {
           game_id: gameId,
-          round,
-          phase,
+          round: gameView.round,
+          phase: gameView.phase,
           player_idx: playerIdx,
         });
       }
@@ -215,17 +178,19 @@ stm.addStateTransition(
 
       yield* World.resolve(setRoundTimeout, {
         game_id: gameId,
-        round,
-        phase,
+        round: gameView.round,
+        phase: gameView.phase,
         timeout_block: timeoutBlock,
       });
 
-      // Schedule the timeout STF to fire at timeoutBlock
+      // Schedule the timeout STF to fire at timeoutBlock.
+      // Phase is stored as the normalised string so werewolfRoundTimeout
+      // receives "NIGHT"/"DAY" and can query the DB without conversion.
       const scheduledInput = JSON.stringify([
         "werewolfRoundTimeout",
         gameId,
-        round,
-        phase,
+        gameView.round,
+        gameView.phase,
       ]);
       yield* createScheduledData(
         scheduledInput,
@@ -234,42 +199,40 @@ stm.addStateTransition(
       );
 
       console.log(
-        `[midnight] Scheduled timeout game=${gameId} round=${round} phase=${phase} at block=${timeoutBlock}`,
+        `[midnight] Scheduled timeout game=${gameId} round=${gameView.round}` +
+          ` phase=${gameView.phase} at block=${timeoutBlock}`,
       );
 
       // Purge in-memory votes for the phase that just ended now that the new
-      // round/phase is confirmed on-chain. Votes are never re-needed after they
-      // are picked up by the dApp polling loop and submitted to the contract.
-      const { round: prevRound, phase: prevPhaseStr } = ledger
-        .previousRoundPhase(gameId);
-      if (prevRound >= 1) {
-        purgeVotes(gameId, prevRound, prevPhaseStr);
+      // round/phase is confirmed on-chain.
+      if (gameView.prevRound >= 1) {
+        purgeVotes(gameId, gameView.prevRound, gameView.prevPhase);
       }
 
-      // Detect and announce player deaths by comparing previous phase's snapshot.
-      // previousRoundPhase() returns the canonical "NIGHT"/"DAY" string form.
-      // Map to the numeric codes used by the DB snapshot queries ("1"=NIGHT, "2"=DAY).
-      const prevPhase = prevPhaseStr === "NIGHT" ? "1" : "2";
-
+      // Detect and announce player deaths by comparing the previous phase's
+      // alive snapshot against the current effective alive set.
+      // prevPhase is already "NIGHT"/"DAY" — no numeric-code conversion needed.
       console.log(
-        `[midnight] Death detection game=${gameId} checking prev round=${prevRound} phase=${prevPhase} (current round=${round} phase=${phase})`,
+        `[midnight] Death detection game=${gameId}` +
+          ` checking prev round=${gameView.prevRound} phase=${gameView.prevPhase}` +
+          ` (current round=${gameView.round} phase=${gameView.phase})`,
       );
 
-      if (prevRound >= 1) {
+      if (gameView.prevRound >= 1) {
         const prevAliveSnapshots = (yield* World.resolve(getAliveSnapshots, {
           game_id: gameId,
-          round: prevRound,
-          phase: prevPhase,
+          round: gameView.prevRound,
+          phase: gameView.prevPhase,
         })) as IGetAliveSnapshotsResult[];
 
         console.log(
           `[midnight] Death detection game=${gameId} prevAlive=[${
             prevAliveSnapshots.map((r) => r.player_idx).join(",")
-          }] currentAlive=[${[...aliveSet].join(",")}]`,
+          }] currentAlive=[${[...gameView.aliveSet].join(",")}]`,
         );
 
         const deadPlayers = prevAliveSnapshots.filter(
-          (r) => !aliveSet.has(r.player_idx),
+          (r) => !gameView.aliveSet.has(r.player_idx),
         );
 
         console.log(
@@ -281,20 +244,21 @@ stm.addStateTransition(
         for (const dead of deadPlayers) {
           chatPost("/broadcast", {
             gameId,
-            text:
-              `Player ${dead.player_idx} was eliminated during the ${prevPhase} phase of round ${prevRound}.`,
+            text: `Player ${dead.player_idx} was eliminated during the` +
+              ` ${gameView.prevPhase} phase of round ${gameView.prevRound}.`,
           });
         }
       } else {
         console.log(
-          `[midnight] Death detection game=${gameId} skipped (prevRound=${prevRound} < 1, first night)`,
+          `[midnight] Death detection game=${gameId}` +
+            ` skipped (prevRound=${gameView.prevRound} < 1, first night)`,
         );
       }
 
       chatPost("/broadcast", {
         gameId,
-        text:
-          `Round ${round} started (${phase} phase). Alive: ${aliveCount} players.`,
+        text: `Round ${gameView.round} started (${gameView.phase} phase).` +
+          ` Alive: ${gameView.aliveCount} players.`,
       });
     }
   },
