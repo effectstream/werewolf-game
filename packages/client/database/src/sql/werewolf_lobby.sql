@@ -1,7 +1,10 @@
 /* @name upsertLobby */
-INSERT INTO werewolf_lobby (game_id, max_players, created_block)
-VALUES (:game_id!, :max_players!, :created_block!)
+INSERT INTO werewolf_lobby (game_id, max_players, created_block, admin_sign_public_key)
+VALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key!)
 ON CONFLICT (game_id) DO NOTHING;
+
+/* @name getAdminSignKey */
+SELECT admin_sign_public_key FROM werewolf_lobby WHERE game_id = :game_id!;
 
 /* @name getLobby */
 SELECT * FROM werewolf_lobby WHERE game_id = :game_id!;
@@ -24,17 +27,12 @@ WHERE game_id = :game_id!;
 /* @name insertLobbyPlayer */
 INSERT INTO werewolf_lobby_players (game_id, midnight_address_hash, nickname, joined_block)
 VALUES (:game_id!, :midnight_address_hash!, :nickname!, :joined_block!)
-ON CONFLICT (game_id, midnight_address_hash) DO NOTHING;
+ON CONFLICT (game_id, midnight_address_hash) DO NOTHING
+RETURNING game_id;
 
 /* @name getLobbyPlayers */
-SELECT midnight_address_hash, nickname,
-  (bundle::json->>'playerId')::integer AS player_id
+SELECT midnight_address_hash, nickname
 FROM werewolf_lobby_players
 WHERE game_id = :game_id!
 ORDER BY joined_block ASC;
 
-/* @name getLobbyPlayerBundle */
-SELECT bundle FROM werewolf_lobby_players WHERE game_id = :game_id! AND midnight_address_hash = :midnight_address_hash!;
-
-/* @name setLobbyPlayerBundle */
-UPDATE werewolf_lobby_players SET bundle = :bundle! WHERE game_id = :game_id! AND midnight_address_hash = :midnight_address_hash!;

@@ -47,6 +47,8 @@ class GameState {
   playerEvmAddress: string | null = null
   playerNickname: string | null = null
   playerBundle: PlayerBundle | null = null
+  /** leafSecret from the delivered bundle, kept for re-retrieval via /api/get_bundle */
+  leafSecret: string | null = null
   /** Maps player index → nickname, populated from /api/game_players at boot */
   playerNicknames: Map<number, string> = new Map()
 

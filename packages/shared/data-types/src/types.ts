@@ -22,6 +22,7 @@ export const CreateGameQuerystringSchema = Type.Object({
 export const CreateGameBodySchema = Type.Object({
   gameId: Type.String(),
   maxPlayers: Type.Number(),
+  adminSignPublicKeyHex: Type.String(),
   playerBundles: Type.Array(PlayerBundleSchema),
 });
 
@@ -48,6 +49,7 @@ export const JoinGameResponseSchema = Type.Object({
   message: Type.Optional(Type.String()),
   bundle: Type.Optional(PlayerBundleSchema),
   gameStarted: Type.Optional(Type.Boolean()),
+  requiresSignature: Type.Optional(Type.Boolean()),
 });
 
 export const CloseGameQuerystringSchema = Type.Object({
@@ -78,9 +80,10 @@ export const GetPlayersQuerystringSchema = Type.Object({
 });
 
 export const PlayerInfoSchema = Type.Object({
-  evmAddress: Type.String(),
+  evmAddress: Type.Optional(Type.String()),
   midnightAddressHash: Type.String(),
   nickname: Type.String(),
+  playerId: Type.Optional(Type.Number()),
 });
 
 export const GetPlayersResponseSchema = Type.Object({
@@ -145,6 +148,20 @@ export const GetVotesForRoundQuerystringSchema = Type.Object({
   gameId: Type.Number(),
   round: Type.Number(),
   phase: Type.String(),
+  timestamp: Type.Integer(),
+  signature: Type.String(),
+});
+
+export const GetBundleQuerystringSchema = Type.Object({
+  gameId: Type.Number(),
+  playerHash: Type.String(),
+  timestamp: Type.Integer(),
+  signature: Type.String(),
+});
+
+export const GetBundleResponseSchema = Type.Object({
+  success: Type.Boolean(),
+  bundle: Type.Optional(PlayerBundleSchema),
 });
 
 export const PlayerVoteSchema = Type.Object({

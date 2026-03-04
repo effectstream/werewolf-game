@@ -6,7 +6,7 @@ import {
   closeLobby,
   getAliveSnapshots,
   getLobby,
-  getRoundState,
+  getWerewolfRoundState,
   type IGetAliveSnapshotsResult,
   type IGetLobbyResult,
   type IGetRoundStateResult,
@@ -22,9 +22,11 @@ import {
   upsertLobby,
   upsertRoundState,
 } from "@werewolf-game/database";
+import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
 import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
+import { purgeVotes } from "./store.ts";
 
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
@@ -80,7 +82,9 @@ stm.addStateTransition(
       const aliveCount = aliveIndices.length;
 
       console.log(
-        `[midnight] game=${gameId} round=${round} phase=${phase} aliveCount=${aliveCount} aliveIndices=[${aliveIndices.join(",")}]`,
+        `[midnight] game=${gameId} round=${round} phase=${phase} aliveCount=${aliveCount} aliveIndices=[${
+          aliveIndices.join(",")
+        }]`,
       );
 
       const phaseRaw = game.phase ?? game.currentPhase;
@@ -132,7 +136,7 @@ stm.addStateTransition(
 
       yield* World.resolve(upsertGameView, {
         game_id: gameId,
-        phase: String(phase),
+        phase: ledger.phaseString(gameId),
         round,
         player_count: playerCount,
         alive_count: aliveCount,
@@ -160,7 +164,7 @@ stm.addStateTransition(
         continue;
       }
 
-      const existingRows = (yield* World.resolve(getRoundState, {
+      const existingRows = (yield* World.resolve(getWerewolfRoundState, {
         game_id: gameId,
         round,
         phase,
@@ -233,14 +237,19 @@ stm.addStateTransition(
         `[midnight] Scheduled timeout game=${gameId} round=${round} phase=${phase} at block=${timeoutBlock}`,
       );
 
+      // Purge in-memory votes for the phase that just ended now that the new
+      // round/phase is confirmed on-chain. Votes are never re-needed after they
+      // are picked up by the dApp polling loop and submitted to the contract.
+      const { round: prevRound, phase: prevPhaseStr } = ledger
+        .previousRoundPhase(gameId);
+      if (prevRound >= 1) {
+        purgeVotes(gameId, prevRound, prevPhaseStr);
+      }
+
       // Detect and announce player deaths by comparing previous phase's snapshot.
-      // Phase comes from the contract as a numeric string: "1"=Night, "2"=Day.
-      // Round increments on day->night, so:
-      //   current=day (2) → previous=night (1), same round (night just ended)
-      //   current=night (1) → previous=day (2), round-1 (round just incremented from day->night)
-      const isDay = phase === "2";
-      const prevPhase = isDay ? "1" : "2";
-      const prevRound = isDay ? round : round - 1;
+      // previousRoundPhase() returns the canonical "NIGHT"/"DAY" string form.
+      // Map to the numeric codes used by the DB snapshot queries ("1"=NIGHT, "2"=DAY).
+      const prevPhase = prevPhaseStr === "NIGHT" ? "1" : "2";
 
       console.log(
         `[midnight] Death detection game=${gameId} checking prev round=${prevRound} phase=${prevPhase} (current round=${round} phase=${phase})`,
@@ -254,7 +263,9 @@ stm.addStateTransition(
         })) as IGetAliveSnapshotsResult[];
 
         console.log(
-          `[midnight] Death detection game=${gameId} prevAlive=[${prevAliveSnapshots.map((r) => r.player_idx).join(",")}] currentAlive=[${[...aliveSet].join(",")}]`,
+          `[midnight] Death detection game=${gameId} prevAlive=[${
+            prevAliveSnapshots.map((r) => r.player_idx).join(",")
+          }] currentAlive=[${[...aliveSet].join(",")}]`,
         );
 
         const deadPlayers = prevAliveSnapshots.filter(
@@ -262,7 +273,9 @@ stm.addStateTransition(
         );
 
         console.log(
-          `[midnight] Death detection game=${gameId} dead=[${deadPlayers.map((r) => r.player_idx).join(",")}]`,
+          `[midnight] Death detection game=${gameId} dead=[${
+            deadPlayers.map((r) => r.player_idx).join(",")
+          }]`,
         );
 
         for (const dead of deadPlayers) {
@@ -308,7 +321,7 @@ stm.addStateTransition(
       `[timeout] Fired for game=${gameId} round=${round} phase=${phase} at block=${blockHeight}`,
     );
 
-    const roundRows = (yield* World.resolve(getRoundState, {
+    const roundRows = (yield* World.resolve(getWerewolfRoundState, {
       game_id: gameId,
       round,
       phase,
@@ -394,11 +407,8 @@ stm.addStateTransition(
       `[lobby] create_game game=${gameId} maxPlayers=${maxPlayers} at block=${blockHeight}`,
     );
 
-    yield* World.resolve(upsertLobby, {
-      game_id: gameId,
-      max_players: maxPlayers,
-      created_block: blockHeight,
-    });
+    // The API handler already created the lobby with upsertLobby (including admin_sign_public_key).
+    // This STF only handles scheduling the lobby timeout via Paima scheduled data.
 
     const timeoutBlock = blockHeight + LOBBY_TIMEOUT_BLOCKS;
 
@@ -448,16 +458,20 @@ stm.addStateTransition(
       `[lobby] join_game game=${gameId} player=${midnightAddressHash} nickname=${nickname} at block=${blockHeight}`,
     );
 
-    yield* World.resolve(insertLobbyPlayer, {
+    const insertResult = (yield* World.resolve(insertLobbyPlayer, {
       game_id: gameId,
       midnight_address_hash: midnightAddressHash,
       nickname,
       joined_block: blockHeight,
-    });
+    })) as unknown as IInsertLobbyPlayerResult[];
 
-    yield* World.resolve(incrementLobbyPlayerCount, {
-      game_id: gameId,
-    });
+    // Only increment player count if the insert actually happened (RETURNING game_id exists)
+    // This prevents double-increment when the HTTP handler has already inserted the player.
+    if (insertResult.length > 0) {
+      yield* World.resolve(incrementLobbyPlayerCount, {
+        game_id: gameId,
+      });
+    }
 
     chatPost("/invite", { gameId, midnightAddressHash, nickname });
     chatPost("/broadcast", {

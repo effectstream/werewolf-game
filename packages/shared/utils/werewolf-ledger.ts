@@ -110,6 +110,43 @@ export class WerewolfLedger {
     return typeof p === "string" ? p : String(p);
   }
 
+  // ── Phase / round transition helpers ─────────────────────────────────────
+
+  /**
+   * Canonical phase string for a game.
+   * Normalises whatever the contract emits ("1", "2", "3", "night", "day", …)
+   * into one of three stable values used throughout the codebase.
+   */
+  phaseString(gameId: number): "NIGHT" | "DAY" | "FINISHED" {
+    const raw = String(this.getPhase(gameId)).toLowerCase();
+    if (raw === "1" || raw === "night") return "NIGHT";
+    if (raw === "2" || raw === "day") return "DAY";
+    return "FINISHED";
+  }
+
+  /**
+   * The (round, phase) pair that immediately preceded the current on-chain
+   * state. Used for death-detection comparisons and vote-purge triggers.
+   *
+   * Transition model on-chain:
+   *   Night → Day  : round stays the same, phase goes 1→2
+   *   Day → Night  : round increments, phase goes 2→1
+   *
+   * Therefore:
+   *   current="Night" (1) → previous was Day of (round - 1)
+   *   current="Day"   (2) → previous was Night of the same round
+   */
+  previousRoundPhase(
+    gameId: number,
+  ): { round: number; phase: "NIGHT" | "DAY" } {
+    const round = this.getRound(gameId);
+    const phase = this.phaseString(gameId);
+    if (phase === "NIGHT") {
+      return { round: round - 1, phase: "DAY" };
+    }
+    return { round, phase: "NIGHT" };
+  }
+
   // ── Player / vote accessors ──────────────────────────────────────────────
 
   /**

@@ -1,11 +1,12 @@
 -- Tracks EVM lobby state for timeout enforcement
 CREATE TABLE werewolf_lobby (
-  game_id       BIGINT NOT NULL PRIMARY KEY,
-  max_players   BIGINT NOT NULL,
-  player_count  BIGINT NOT NULL DEFAULT 0,
-  created_block BIGINT NOT NULL,
-  timeout_block BIGINT,
-  closed        BOOLEAN NOT NULL DEFAULT FALSE
+  game_id                BIGINT  NOT NULL PRIMARY KEY,
+  max_players            BIGINT  NOT NULL,
+  player_count           BIGINT  NOT NULL DEFAULT 0,
+  created_block          BIGINT  NOT NULL,
+  timeout_block          BIGINT,
+  closed                 BOOLEAN NOT NULL DEFAULT FALSE,
+  admin_sign_public_key  TEXT             -- Ed25519 public key (hex) for votes_for_round auth
 );
 
 -- Lobby player list populated on join_game state transitions

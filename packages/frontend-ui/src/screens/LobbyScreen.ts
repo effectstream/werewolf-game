@@ -3,6 +3,7 @@ import { midnightWallet } from '../services/midnightWallet'
 import { getGameState, hashShieldedAddress, type GameInfo } from '../services/lobbyContract'
 import { BatcherService } from '../services/batcherService'
 import { gameState, type PlayerBundle } from '../state/gameState'
+import { fetchBundle } from '../services/lobbyApi'
 import { decodeGamePhrase, isGamePhrase } from '../services/werewolfIdCodec'
 
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:9999'
@@ -272,11 +273,26 @@ export class LobbyScreen {
         success: boolean
         message?: string
         bundle?: PlayerBundle
+        requiresSignature?: boolean
         gameStarted?: boolean
       }
       console.log('[LobbyScreen] bundle data:', bundleData)
-      if (bundleData.bundle) {
-        gameState.setPlayerBundle(bundleData.bundle)
+
+      let bundle: PlayerBundle | undefined = bundleData.bundle
+
+      if (bundleData.requiresSignature) {
+        // Server has the bundle in memory but requires signature-based re-authentication.
+        if (!gameState.leafSecret) {
+          throw new Error('Bundle requires re-authentication but no leafSecret is stored. Please rejoin from a fresh session.')
+        }
+        console.log('[LobbyScreen] requiresSignature=true — re-fetching bundle via /api/get_bundle')
+        bundle = await fetchBundle(this.currentGame!.id, midnightAddressHash, gameState.leafSecret)
+      }
+
+      if (bundle) {
+        // Store leafSecret for future re-retrieval (e.g. page navigations within same session).
+        gameState.leafSecret = bundle.leafSecret
+        gameState.setPlayerBundle(bundle)
       }
 
       this.setStatus('Joined successfully! Loading game…')

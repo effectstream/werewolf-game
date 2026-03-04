@@ -5,11 +5,12 @@ import type fastify from "fastify";
 import {
   closeGameHandler,
   createGameHandler,
+  getBundleHandler,
   getGameStateHandler,
   getGameViewHandler,
   getPlayersHandler,
-  getVoteStatusHandler,
   getVotesForRoundHandler,
+  getVoteStatusHandler,
   joinGameHandler,
   submitVoteHandler,
 } from "./api/werewolfLobby.ts";
@@ -19,16 +20,18 @@ import {
   CreateGameBodySchema,
   CreateGameResponseSchema,
   GenericErrorResponseSchema,
+  GetBundleQuerystringSchema,
+  GetBundleResponseSchema,
   GetGameStateQuerystringSchema,
   GetGameStateResponseSchema,
   GetGameViewQuerystringSchema,
   GetGameViewResponseSchema,
   GetPlayersQuerystringSchema,
   GetPlayersResponseSchema,
-  GetVoteStatusQuerystringSchema,
-  GetVoteStatusResponseSchema,
   GetVotesForRoundQuerystringSchema,
   GetVotesForRoundResponseSchema,
+  GetVoteStatusQuerystringSchema,
+  GetVoteStatusResponseSchema,
   JoinGameQuerystringSchema,
   JoinGameResponseSchema,
   SubmitVoteBodySchema,
@@ -112,12 +115,14 @@ export const apiRouter: StartConfigApiRouter = async function (
     "/api/create_game",
     { schema: { body: CreateGameBodySchema } },
     async (request, reply) => {
-      const { gameId, maxPlayers, playerBundles } = request.body;
+      const { gameId, maxPlayers, adminSignPublicKeyHex, playerBundles } =
+        request.body;
       try {
         return await createGameHandler(
           dbConn,
           Number(gameId),
           maxPlayers,
+          adminSignPublicKeyHex,
           playerBundles,
         );
       } catch (err: any) {
@@ -140,10 +145,40 @@ export const apiRouter: StartConfigApiRouter = async function (
       // Querystring params arrive as strings without schema coercion; convert
       // gameId explicitly so chatPost sends a JSON number (not a string) and
       // the chat server's `typeof body.gameId === "number"` check succeeds.
-      return await joinGameHandler(dbConn, Number(gameId), midnightAddressHash, nickname);
+      return await joinGameHandler(
+        dbConn,
+        Number(gameId),
+        midnightAddressHash,
+        nickname,
+      );
     } catch (err: any) {
       if (err?.statusCode === 409) {
         return reply.status(409).send({ error: err.message });
+      }
+      throw err;
+    }
+  });
+
+  server.get<{
+    Querystring: Static<typeof GetBundleQuerystringSchema>;
+    Reply: Static<
+      typeof GetBundleResponseSchema | typeof GenericErrorResponseSchema
+    >;
+  }>("/api/get_bundle", async (request, reply) => {
+    const { gameId, playerHash, timestamp, signature } = request.query;
+    try {
+      return await getBundleHandler(
+        Number(gameId),
+        playerHash,
+        timestamp,
+        signature,
+      );
+    } catch (err: any) {
+      if (err?.statusCode === 403) {
+        return reply.status(403).send({ error: err.message });
+      }
+      if (err?.statusCode === 404) {
+        return reply.status(404).send({ error: err.message });
       }
       throw err;
     }
@@ -183,13 +218,22 @@ export const apiRouter: StartConfigApiRouter = async function (
 
   server.post<{
     Body: Static<typeof SubmitVoteBodySchema>;
-    Reply: Static<typeof SubmitVoteResponseSchema | typeof GenericErrorResponseSchema>;
+    Reply: Static<
+      typeof SubmitVoteResponseSchema | typeof GenericErrorResponseSchema
+    >;
   }>(
     "/api/submit_vote",
     { schema: { body: SubmitVoteBodySchema } },
     async (request, reply) => {
-      const { gameId, round, phase, voterIndex, targetIndex, encryptedVoteHex, merklePathJson } =
-        request.body;
+      const {
+        gameId,
+        round,
+        phase,
+        voterIndex,
+        targetIndex,
+        encryptedVoteHex,
+        merklePathJson,
+      } = request.body;
       try {
         return await submitVoteHandler(
           dbConn,
@@ -217,9 +261,28 @@ export const apiRouter: StartConfigApiRouter = async function (
 
   server.get<{
     Querystring: Static<typeof GetVotesForRoundQuerystringSchema>;
-    Reply: Static<typeof GetVotesForRoundResponseSchema>;
-  }>("/api/votes_for_round", async (request) => {
-    const { gameId, round, phase } = request.query;
-    return await getVotesForRoundHandler(dbConn, Number(gameId), round, phase);
+    Reply: Static<
+      typeof GetVotesForRoundResponseSchema | typeof GenericErrorResponseSchema
+    >;
+  }>("/api/votes_for_round", async (request, reply) => {
+    const { gameId, round, phase, timestamp, signature } = request.query;
+    try {
+      return await getVotesForRoundHandler(
+        dbConn,
+        Number(gameId),
+        Number(round),
+        phase,
+        timestamp,
+        signature,
+      );
+    } catch (err: any) {
+      if (err?.statusCode === 400) {
+        return reply.status(400).send({ error: err.message });
+      }
+      if (err?.statusCode === 403) {
+        return reply.status(403).send({ error: err.message });
+      }
+      throw err;
+    }
   });
 };

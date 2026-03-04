@@ -1,7 +1,21 @@
 // Read-only backend queries. The API server lives in packages/client/node.
 // Set VITE_API_URL in a .env file to override (e.g. http://localhost:9999).
+import nacl from 'tweetnacl'
+
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ??
   "http://localhost:9999";
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2)
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
+  }
+  return bytes
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
+}
 
 export interface GameStateResponse {
   id: number;
@@ -109,4 +123,34 @@ export async function fetchVoteStatus(
     throw new Error(`Failed to fetch vote status: ${res.status} ${text}`);
   }
   return res.json() as Promise<VoteStatusResponse>;
+}
+
+/**
+ * Re-retrieve a player bundle that was already delivered in a previous join.
+ * Derives an Ed25519 keypair from the player's leafSecret (used as the seed)
+ * and signs the retrieve request so the server can authenticate the caller.
+ */
+export async function fetchBundle(
+  gameId: number,
+  playerHash: string,
+  leafSecret: string,
+): Promise<PlayerBundle> {
+  const seed = hexToBytes(leafSecret)
+  const keypair = nacl.sign.keyPair.fromSeed(seed)
+  const timestamp = Math.floor(Date.now() / 1000)
+  const msg = new TextEncoder().encode(`retrieve:${gameId}:${playerHash}:${timestamp}`)
+  const sig = nacl.sign.detached(msg, keypair.secretKey)
+  const url =
+    `${API_BASE}/api/get_bundle?gameId=${gameId}` +
+    `&playerHash=${encodeURIComponent(playerHash)}` +
+    `&timestamp=${timestamp}` +
+    `&signature=${bytesToHex(sig)}`
+  const res = await fetch(url)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`get_bundle failed: ${res.status} ${text}`)
+  }
+  const data = await res.json() as { success: boolean; bundle?: PlayerBundle }
+  if (!data.bundle) throw new Error('get_bundle: no bundle in response')
+  return data.bundle
 }

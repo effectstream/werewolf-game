@@ -18,8 +18,9 @@ import { createWalletClient, custom } from "viem";
 import { hardhat } from "viem/chains";
 
 const NODE_API_URL = "http://localhost:9999";
-const CHAT_SERVER_HTTP_URL = (import.meta.env.VITE_CHAT_SERVER_URL as string | undefined)
-  ?.replace(/^ws/, "http") ?? "http://localhost:3001";
+const CHAT_SERVER_HTTP_URL =
+  (import.meta.env.VITE_CHAT_SERVER_URL as string | undefined)
+    ?.replace(/^ws/, "http") ?? "http://localhost:3001";
 
 // Component to display game ID with human-readable name and hover tooltip
 function GameIdDisplay({ gameId }: { gameId: bigint | number }) {
@@ -179,10 +180,13 @@ type GameState = {
   gameId: bigint;
   masterSecret: Uint8Array;
   masterSecretCommitment: Uint8Array;
-  /** Nacl box secret key for admin vote decryption */
+  /** Nacl box secret key for admin vote decryption (Curve25519) */
   adminVoteSecretKey: Uint8Array;
   adminVotePublicKeyHex: string;
   adminVotePublicKeyBytes: Uint8Array;
+  /** Nacl sign secret key for votes_for_round request signing (Ed25519) */
+  adminSignSecretKey: Uint8Array;
+  adminSignPublicKeyHex: string;
   players: PlayerLocalState[];
   tree: RuntimeMerkleTree;
   round: number;
@@ -275,13 +279,13 @@ const roleName = (role: number) => {
 const phaseName = (phase: number) => {
   switch (phase) {
     case Phase.Lobby:
-      return "Lobby";
+      return "LOBBY";
     case Phase.Night:
-      return "Night";
+      return "NIGHT";
     case Phase.Day:
-      return "Day";
+      return "DAY";
     case Phase.Finished:
-      return "Finished";
+      return "FINISHED";
     default:
       return `Unknown(${phase})`;
   }
@@ -530,18 +534,26 @@ function App() {
   // Using a ref so the polling interval does not need to be recreated on each update
   const autoSubmittedKeysRef = useRef<Set<string>>(new Set());
   // Progress while the auto-submit loop is sending votes to the contract one-by-one
-  const [submitProgress, setSubmitProgress] = useState<{
-    done: number;
-    total: number;
-  } | null>(null);
+  const [submitProgress, setSubmitProgress] = useState<
+    {
+      done: number;
+      total: number;
+    } | null
+  >(null);
   // Decrypted vote breakdown for the current round (voter → target)
-  const [voteTally, setVoteTally] = useState<{ voter: number; target: number }[]>([]);
+  const [voteTally, setVoteTally] = useState<
+    { voter: number; target: number }[]
+  >([]);
   // Human-readable outcome of the last resolved round
   const [lastOutcome, setLastOutcome] = useState<string | null>(null);
   // Store player nicknames from the API
-  const [playerNicknames, setPlayerNicknames] = useState<Map<number, string>>(new Map());
+  const [playerNicknames, setPlayerNicknames] = useState<Map<number, string>>(
+    new Map(),
+  );
   // Track received votes for display (voter index -> target index)
-  const [receivedVotes, setReceivedVotes] = useState<Map<number, number>>(new Map());
+  const [receivedVotes, setReceivedVotes] = useState<Map<number, number>>(
+    new Map(),
+  );
 
   // Helper function to get player display name (nickname or "Player X")
   const getPlayerName = (playerId: number): string => {
@@ -654,9 +666,13 @@ function App() {
 
   const fetchPlayerNicknames = async (gameId: bigint) => {
     try {
-      const res = await fetch(`${NODE_API_URL}/api/game_players?gameId=${gameId}`);
+      const res = await fetch(
+        `${NODE_API_URL}/api/game_players?gameId=${gameId}`,
+      );
       if (!res.ok) return;
-      const data = await res.json() as { players: { playerId: number; nickname: string }[] };
+      const data = await res.json() as {
+        players: { playerId: number; nickname: string }[];
+      };
       const nicknameMap = new Map<number, string>();
       for (const p of data.players) {
         if (p.playerId !== undefined && p.nickname) {
@@ -675,7 +691,10 @@ function App() {
   // voteDay). This mirrors handleSubmitNightActions / handleSubmitDayVotes but uses
   // the player-submitted targets from the DB instead of manual UI inputs.
   useEffect(() => {
-    if (!game || game.phase === Phase.Finished || !midnightWallet?.contract?.werewolf) {
+    if (
+      !game || game.phase === Phase.Finished ||
+      !midnightWallet?.contract?.werewolf
+    ) {
       return;
     }
 
@@ -694,13 +713,34 @@ function App() {
 
     const poll = async () => {
       try {
-        // Always fetch current votes so the UI stays up to date
-        const votesRes = await fetch(
-          `${NODE_API_URL}/api/votes_for_round?gameId=${game.gameId}&round=${game.round}&phase=${encodeURIComponent(phaseStr)}`,
+        // Always fetch current votes so the UI stays up to date.
+        // Sign the request with the admin Ed25519 signing key so the server can
+        // authenticate the moderator before returning sensitive vote data.
+        const pollTimestamp = Math.floor(Date.now() / 1000);
+        const pollMsg = new TextEncoder().encode(
+          `${game.round}:${phaseStr}:${pollTimestamp}`,
         );
-        if (!votesRes.ok) return;
+        const pollSig = nacl.sign.detached(pollMsg, game.adminSignSecretKey);
+        const pollSigHex = bytesToHex(pollSig);
+        const votesRes = await fetch(
+          `${NODE_API_URL}/api/votes_for_round?gameId=${game.gameId}&round=${game.round}&phase=${
+            encodeURIComponent(phaseStr)
+          }&timestamp=${pollTimestamp}&signature=${pollSigHex}`,
+        );
+        if (!votesRes.ok) {
+          if (votesRes.status === 403) {
+            console.warn(
+              "[poll] votes_for_round returned 403 — signature invalid or timestamp expired.",
+            );
+          }
+          return;
+        }
         const { votes } = await votesRes.json() as {
-          votes: { voterIndex: number; encryptedVoteHex: string; merklePathJson: string }[];
+          votes: {
+            voterIndex: number;
+            encryptedVoteHex: string;
+            merklePathJson: string;
+          }[];
         };
 
         // Update which players have voted so the UI can show it
@@ -755,7 +795,9 @@ function App() {
 
         // Determine how many valid votes we'll process for the progress indicator
         const validVoteCount = votes.filter((v) =>
-          game.players.find((p) => p.id === v.voterIndex && p.alive)
+          game.players.find((p) =>
+            p.id === v.voterIndex && p.alive
+          )
         ).length;
         setSubmitProgress({ done: 0, total: validVoteCount });
 
@@ -809,7 +851,10 @@ function App() {
 
           targets.push(targetIdx);
           tallyEntries.push({ voter: vote.voterIndex, target: targetIdx });
-          setSubmitProgress({ done: tallyEntries.length, total: validVoteCount });
+          setSubmitProgress({
+            done: tallyEntries.length,
+            total: validVoteCount,
+          });
         }
 
         setVoteTally(tallyEntries);
@@ -833,7 +878,8 @@ function App() {
 
           const isNight = game.phase === Phase.Night;
           const result = resolveVotes(targets, game.players, isNight);
-          const hasDeath = result.hasElimination && aliveCount(game.players) > 1;
+          const hasDeath = result.hasElimination &&
+            aliveCount(game.players) > 1;
           const resolvedTargetIdx = result.targetIdx;
 
           if (isNight) {
@@ -845,11 +891,15 @@ function App() {
               game.tree.getRoot(),
             );
             const nextPlayers = game.players.map((p) =>
-              hasDeath && p.id === resolvedTargetIdx ? { ...p, alive: false } : p
+              hasDeath && p.id === resolvedTargetIdx
+                ? { ...p, alive: false }
+                : p
             );
             const outcome = getOutcome(nextPlayers);
             setGame((prev) => {
-              if (!prev || prev.round !== game.round || prev.phase !== game.phase) return prev;
+              if (
+                !prev || prev.round !== game.round || prev.phase !== game.phase
+              ) return prev;
               return {
                 ...prev,
                 players: nextPlayers,
@@ -858,12 +908,16 @@ function App() {
             });
             setNightVotes([]);
             setLastOutcome(
-              `Night ${game.round}: ${getPlayerName(resolvedTargetIdx)} ${hasDeath ? "died" : "survived"} — ${result.info}`,
+              `Night ${game.round}: ${getPlayerName(resolvedTargetIdx)} ${
+                hasDeath ? "died" : "survived"
+              } — ${result.info}`,
             );
             setStatus(
               outcome
                 ? `[Auto] Night resolved. ${result.info} ${outcome} Game finished.`
-                : `[Auto] Night resolved. ${result.info} ${getPlayerName(resolvedTargetIdx)} ${hasDeath ? "died" : "survived"}.`,
+                : `[Auto] Night resolved. ${result.info} ${
+                  getPlayerName(resolvedTargetIdx)
+                } ${hasDeath ? "died" : "survived"}.`,
             );
           } else {
             await batcherClient.resolveDay(
@@ -872,11 +926,15 @@ function App() {
               hasDeath,
             );
             const nextPlayers = game.players.map((p) =>
-              hasDeath && p.id === resolvedTargetIdx ? { ...p, alive: false } : p
+              hasDeath && p.id === resolvedTargetIdx
+                ? { ...p, alive: false }
+                : p
             );
             const outcome = getOutcome(nextPlayers);
             setGame((prev) => {
-              if (!prev || prev.round !== game.round || prev.phase !== game.phase) return prev;
+              if (
+                !prev || prev.round !== game.round || prev.phase !== game.phase
+              ) return prev;
               return {
                 ...prev,
                 players: nextPlayers,
@@ -886,12 +944,16 @@ function App() {
             });
             setDayVotes([]);
             setLastOutcome(
-              `Day ${game.round}: ${getPlayerName(resolvedTargetIdx)} ${hasDeath ? "eliminated" : "survived"} — ${result.info}`,
+              `Day ${game.round}: ${getPlayerName(resolvedTargetIdx)} ${
+                hasDeath ? "eliminated" : "survived"
+              } — ${result.info}`,
             );
             setStatus(
               outcome
                 ? `[Auto] Day resolved. ${result.info} ${outcome} Game finished.`
-                : `[Auto] Day resolved. ${result.info} ${getPlayerName(resolvedTargetIdx)} ${hasDeath ? "eliminated" : "survived"}.`,
+                : `[Auto] Day resolved. ${result.info} ${
+                  getPlayerName(resolvedTargetIdx)
+                } ${hasDeath ? "eliminated" : "survived"}.`,
             );
           }
         }
@@ -902,7 +964,12 @@ function App() {
 
     const intervalId = globalThis.setInterval(poll, 6000);
     return () => globalThis.clearInterval(intervalId);
-  }, [game?.gameId, game?.round, game?.phase, midnightWallet?.contract?.werewolf]);
+  }, [
+    game?.gameId,
+    game?.round,
+    game?.phase,
+    midnightWallet?.contract?.werewolf,
+  ]);
 
   const parseBytes32 = (value: string, label: string) => {
     const trimmed = value.trim();
@@ -1436,6 +1503,10 @@ function App() {
       const adminVotePublicKeyBytes = new Uint8Array(33);
       adminVotePublicKeyBytes.set(adminVoteKeypair.publicKey);
       const adminVotePublicKeyHex = bytesToHex(adminVotePublicKeyBytes);
+      // Separate Ed25519 signing keypair for authenticating votes_for_round requests.
+      // Must NOT use adminVoteKeypair (Curve25519) with nacl.sign — incompatible key types.
+      const adminSignKeypair = nacl.sign.keyPair();
+      const adminSignPublicKeyHex = bytesToHex(adminSignKeypair.publicKey);
       const masterSecret = randomBytes32();
       const masterSecretCommitment = new Uint8Array(
         pureCircuits.testComputeHash(masterSecret),
@@ -1549,8 +1620,11 @@ function App() {
       );
 
       // Create an EIP-1193 compatible wrapper for the Paima wallet provider.
-      const providerConnection = evmWallet?.provider.getConnection() as
-        { api: { request: (args: { method: string; params?: any[] }) => Promise<any> } } | undefined;
+      const providerConnection = evmWallet?.provider.getConnection() as {
+        api: {
+          request: (args: { method: string; params?: any[] }) => Promise<any>;
+        };
+      } | undefined;
       console.log("Provider connection:", providerConnection);
 
       if (!providerConnection) {
@@ -1560,12 +1634,14 @@ function App() {
       }
 
       const evmProvider = {
-        request: async ({ method, params }: { method: string; params?: any[] }) => {
+        request: async (
+          { method, params }: { method: string; params?: any[] },
+        ) => {
           console.log("EIP-1193 request:", method, params);
           return await providerConnection.api.request({ method, params });
         },
       };
-      
+
       const walletApiClient = createWalletClient({
         account: evmAddress as `0x${string}`,
         chain: hardhat,
@@ -1581,6 +1657,7 @@ function App() {
           body: JSON.stringify({
             gameId: gameId.toString(),
             maxPlayers: playerCount,
+            adminSignPublicKeyHex,
             playerBundles: bundlesToSend,
           }),
         },
@@ -1603,7 +1680,8 @@ function App() {
         evmAddress,
         gameId,
         playerCount,
-        ({ message }) => walletApiClient.signMessage({ message: message as any }),
+        ({ message }) =>
+          walletApiClient.signMessage({ message: message as any }),
       );
 
       console.log("Game created on EVM chain via batcher");
@@ -1614,10 +1692,15 @@ function App() {
       const chatRes = await fetch(`${CHAT_SERVER_HTTP_URL}/create-room`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ gameId: Number(gameId), moderatorHash: midnightAddress }),
+        body: JSON.stringify({
+          gameId: Number(gameId),
+          moderatorHash: midnightAddress,
+        }),
       });
       if (!chatRes.ok) {
-        throw new Error(`Chat server error: ${chatRes.status} ${await chatRes.text()}`);
+        throw new Error(
+          `Chat server error: ${chatRes.status} ${await chatRes.text()}`,
+        );
       }
       setChatRoomReady(true);
 
@@ -1628,6 +1711,8 @@ function App() {
         adminVoteSecretKey: adminVoteKeypair.secretKey,
         adminVotePublicKeyHex,
         adminVotePublicKeyBytes,
+        adminSignSecretKey: adminSignKeypair.secretKey,
+        adminSignPublicKeyHex,
         players,
         tree,
         round: 1,
@@ -1789,12 +1874,18 @@ EVM: ✅`,
         });
         setNightVotes([]);
         setLastOutcome(
-          `Night ${game.round}: ${getPlayerName(targetIdx)} ${hasDeath ? "died" : "survived"} — Trusted node override.`,
+          `Night ${game.round}: ${getPlayerName(targetIdx)} ${
+            hasDeath ? "died" : "survived"
+          } — Trusted node override.`,
         );
         setStatus(
           outcome
-            ? `Night resolved. Trusted node eliminated ${getPlayerName(targetIdx)}. ${outcome}`
-            : `Night resolved. Trusted node eliminated ${getPlayerName(targetIdx)}.`,
+            ? `Night resolved. Trusted node eliminated ${
+              getPlayerName(targetIdx)
+            }. ${outcome}`
+            : `Night resolved. Trusted node eliminated ${
+              getPlayerName(targetIdx)
+            }.`,
         );
         return;
       }
@@ -1857,7 +1948,9 @@ EVM: ✅`,
       });
       setNightVotes([]);
       setLastOutcome(
-        `Night ${game.round}: ${getPlayerName(targetIdx)} ${hasDeath ? "died" : "survived"} — ${result.info}`,
+        `Night ${game.round}: ${getPlayerName(targetIdx)} ${
+          hasDeath ? "died" : "survived"
+        } — ${result.info}`,
       );
       setStatus(
         outcome
@@ -2063,12 +2156,18 @@ EVM: ✅`,
         });
         setDayVotes([]);
         setLastOutcome(
-          `Day ${game.round}: ${getPlayerName(targetIdx)} ${hasElimination ? "eliminated" : "survived"} — Trusted node override.`,
+          `Day ${game.round}: ${getPlayerName(targetIdx)} ${
+            hasElimination ? "eliminated" : "survived"
+          } — Trusted node override.`,
         );
         setStatus(
           outcome
-            ? `Day resolved. Trusted node eliminated ${getPlayerName(targetIdx)}. ${outcome}`
-            : `Day resolved. Trusted node eliminated ${getPlayerName(targetIdx)}.`,
+            ? `Day resolved. Trusted node eliminated ${
+              getPlayerName(targetIdx)
+            }. ${outcome}`
+            : `Day resolved. Trusted node eliminated ${
+              getPlayerName(targetIdx)
+            }.`,
         );
         return;
       }
@@ -2127,7 +2226,9 @@ EVM: ✅`,
       });
       setDayVotes([]);
       setLastOutcome(
-        `Day ${game.round}: ${getPlayerName(targetIdx)} ${hasElimination ? "eliminated" : "survived"} — ${result.info}`,
+        `Day ${game.round}: ${getPlayerName(targetIdx)} ${
+          hasElimination ? "eliminated" : "survived"
+        } — ${result.info}`,
       );
       setStatus(
         outcome
@@ -2274,384 +2375,450 @@ EVM: ✅`,
             <div className="title">Midnight dApp</div>
             <div className="subtitle">Werewolf game (Trusted Node view)</div>
 
-        {game && (
-          <div className="game-code-banner">
-            <div className="game-code-label">Game Code</div>
-            <div className="game-code-container">
-              <span className="game-code-text">
-                {werewolfIdCodec.encode(game.gameId)}
-              </span>
+            {game && (
+              <div className="game-code-banner">
+                <div className="game-code-label">Game Code</div>
+                <div className="game-code-container">
+                  <span className="game-code-text">
+                    {werewolfIdCodec.encode(game.gameId)}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-copy"
+                    onClick={handleCopyGameCode}
+                    disabled={loading}
+                    title="Copy game code to clipboard"
+                  >
+                    {copied ? "✓ Copied!" : "📋 Copy"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="actions">
               <button
                 type="button"
-                className="btn btn-copy"
-                onClick={handleCopyGameCode}
-                disabled={loading}
-                title="Copy game code to clipboard"
+                className="btn"
+                onClick={handleConnectMidnight}
+                disabled={loading || Boolean(midnightAddress)}
+                title={midnightAddress ? "Wallet already connected" : undefined}
               >
-                {copied ? "✓ Copied!" : "📋 Copy"}
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="actions">
-          <button
-            type="button"
-            className="btn"
-            onClick={handleConnectMidnight}
-            disabled={loading || Boolean(midnightAddress)}
-            title={midnightAddress ? "Wallet already connected" : undefined}
-          >
-            {midnightAddress
-              ? "Midnight Wallet Connected"
-              : "Connect Midnight Wallet"}
-          </button>
-
-          <button
-            type="button"
-            className="btn"
-            onClick={openModal}
-            disabled={loading || Boolean(evmAddress)}
-            title={evmAddress ? "Wallet already connected" : undefined}
-          >
-            {evmAddress ? "EVM Wallet Connected" : "Connect EVM Wallet"}
-          </button>
-
-          <button
-            type="button"
-            className="btn"
-            onClick={handleAddFunds}
-            disabled={loading || !midnightAddress}
-            title={!midnightAddress ? "Connect wallet first" : undefined}
-          >
-            Add funds
-          </button>
-
-          <button
-            type="button"
-            className="btn"
-            onClick={handleRefreshLedgerState}
-            disabled={loading || !midnightAddress}
-            title={!midnightAddress ? "Connect wallet first" : undefined}
-          >
-            Refresh ledger
-          </button>
-        </div>
-
-        {game && (
-          <div className="info">
-            <div className="label">Game info</div>
-            <div className="mono">
-              {`GameId: `}
-              <GameIdDisplay gameId={game.gameId} />
-              {"\n"}
-              {`Round: ${game.round}\nPhase: ${
-                phaseName(game.phase)
-              }\nPlayers: ${game.playerCount}\nWerewolves: ${game.werewolfCount}`}
-            </div>
-          </div>
-        )}
-
-        <div className="columns">
-          <div className="column">
-            <div className="column-title">Trusted Node</div>
-            <div className="form">
-              <div className="label">Game setup</div>
-              <div className="field">
-                <div className="label">Players (max {MAX_PLAYERS})</div>
-                <input
-                  className="input"
-                  type="number"
-                  min={2}
-                  max={MAX_PLAYERS}
-                  value={playerCountInput}
-                  onChange={(event) => setPlayerCountInput(event.target.value)}
-                  disabled={loading}
-                />
-              </div>
-              <div className="field">
-                <div className="label">Werewolves</div>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={MAX_PLAYERS - 1}
-                  value={werewolfCountInput}
-                  onChange={(event) =>
-                    setWerewolfCountInput(event.target.value)}
-                  disabled={loading}
-                />
-              </div>
-
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleCreateGame}
-                disabled={loading || !midnightAddress || !evmConnected}
-                title={!midnightAddress || !evmConnected
-                  ? "Connect both wallets first"
-                  : undefined}
-              >
-                Create + setup game
+                {midnightAddress
+                  ? "Midnight Wallet Connected"
+                  : "Connect Midnight Wallet"}
               </button>
 
               <button
                 type="button"
                 className="btn"
-                onClick={handleResetGame}
-                disabled={loading}
+                onClick={openModal}
+                disabled={loading || Boolean(evmAddress)}
+                title={evmAddress ? "Wallet already connected" : undefined}
               >
-                Reset local game state
+                {evmAddress ? "EVM Wallet Connected" : "Connect EVM Wallet"}
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                onClick={handleAddFunds}
+                disabled={loading || !midnightAddress}
+                title={!midnightAddress ? "Connect wallet first" : undefined}
+              >
+                Add funds
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                onClick={handleRefreshLedgerState}
+                disabled={loading || !midnightAddress}
+                title={!midnightAddress ? "Connect wallet first" : undefined}
+              >
+                Refresh ledger
               </button>
             </div>
 
             {game && (
-              <div className="form">
-                <div className="label">Night resolution</div>
-                <div className="field">
-                  <div className="label">Eliminate player index</div>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={game.players.length - 1}
-                    value={nightEliminationInput}
-                    onChange={(event) =>
-                      setNightEliminationInput(event.target.value)}
-                    disabled={loading}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleResolveNight}
-                  disabled={loading || game.phase !== Phase.Night || submitProgress !== null}
-                >
-                  Resolve night
-                </button>
-              </div>
-            )}
-
-            {game && (
-              <div className="form">
-                <div className="label">Day resolution</div>
-                <div className="field">
-                  <div className="label">Eliminate player index</div>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={game.players.length - 1}
-                    value={dayEliminationInput}
-                    onChange={(event) =>
-                      setDayEliminationInput(event.target.value)}
-                    disabled={loading}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleResolveDay}
-                  disabled={loading || game.phase !== Phase.Day || submitProgress !== null}
-                >
-                  Resolve day
-                </button>
-              </div>
-            )}
-
-            {game && (
-              <div className="form">
-                <div className="label">Admin control</div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleForceEndGame}
-                  disabled={loading}
-                >
-                  Force end game
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="column">
-            <div className="column-title">Player Votes</div>
-            {game
-              ? (
-                <>
-                  <div className="form">
-                    <div className="label">{game.phase === Phase.Night ? "Night votes" : "Day votes"}</div>
-                    {game.players.map((player) => {
-                      const voteTarget = receivedVotes.get(player.id);
-                      const hasVoted = votedPlayerIndices.includes(player.id);
-                      return (
-                        <div className="field" key={`vote-${player.id}`}>
-                          <div className="label">
-                            {getPlayerName(player.id)} {player.alive ? "(alive)" : "(dead)"}
-                          </div>
-                          <div className={`vote-display ${!player.alive ? "vote-display-dead" : hasVoted ? "vote-display-received" : "vote-display-waiting"}`}>
-                            {hasVoted && voteTarget !== undefined ? (
-                              <span className="vote-display-text">
-                                Voted for <strong>{getPlayerName(voteTarget)}</strong>
-                              </span>
-                            ) : player.alive ? (
-                              <span className="vote-display-text">Waiting for vote...</span>
-                            ) : (
-                              <span className="vote-display-text vote-display-dead">No vote (dead)</span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {receivedVotes.size > 0 && (
-                      <div className="mono">
-                        {game.phase === Phase.Night ? "Night" : "Day"} votes received: {receivedVotes.size}/{game.players.filter((p) => p.alive).length}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )
-              : <div className="mono">Create a game to enter votes.</div>}
-          </div>
-        </div>
-
-        {game && (
-          <div className="info">
-            <div className="label">Players</div>
-            <div className="mono">
-              {game.players
-                .map(
-                  (player) =>
-                    `P${player.id}: ${roleName(player.role)} (${
-                      player.alive ? "alive" : "dead"
-                    })`,
-                )
-                .join("\n")}
-            </div>
-          </div>
-        )}
-
-        {game && game.phase !== Phase.Finished && (
-          <div className="info">
-            <div className="label">
-              Vote status — {game.phase === Phase.Night ? "Night" : "Day"} round{" "}
-              {game.round} ({votedPlayerIndices.length}/
-              {game.players.filter((p) => p.alive).length} voted)
-            </div>
-            <div className="vote-status-grid">
-              {game.players.map((player) => {
-                const hasVoted = votedPlayerIndices.includes(player.id);
-                return (
-                  <div
-                    key={player.id}
-                    className={`vote-status-cell ${
-                      !player.alive
-                        ? "vote-cell-dead"
-                        : hasVoted
-                        ? "vote-cell-voted"
-                        : "vote-cell-waiting"
-                    }`}
-                    title={`${getPlayerName(player.id)} (${roleName(player.role)}) — ${
-                      !player.alive
-                        ? "dead"
-                        : hasVoted
-                        ? "voted"
-                        : "waiting"
-                    }`}
-                  >
-                    {getPlayerName(player.id)}
-                    {!player.alive ? " ✕" : hasVoted ? " ✓" : " …"}
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Submission progress bar */}
-            {submitProgress !== null && (
-              <div className="submit-progress">
-                <div className="submit-progress-label">
-                  Submitting votes to chain: {submitProgress.done} / {submitProgress.total}
-                </div>
-                <div className="submit-progress-track">
-                  <div
-                    className="submit-progress-fill"
-                    style={{
-                      width: `${submitProgress.total > 0
-                        ? Math.round((submitProgress.done / submitProgress.total) * 100)
-                        : 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {/* Vote tally breakdown */}
-            {voteTally.length > 0 && (() => {
-              const counts = new Map<number, number>();
-              for (const { target } of voteTally) {
-                counts.set(target, (counts.get(target) ?? 0) + 1);
-              }
-              const maxCount = Math.max(...counts.values());
-              const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-              return (
-                <div className="vote-tally">
-                  <div className="vote-tally-title">Vote tally</div>
-                  {sorted.map(([targetIdx, count]) => (
-                    <div key={targetIdx} className="vote-tally-row">
-                      <span className="vote-tally-player">{getPlayerName(targetIdx)}</span>
-                      <span className="vote-tally-bar-wrap">
-                        <span
-                          className={`vote-tally-bar${count === maxCount ? " vote-tally-bar-winner" : ""}`}
-                          style={{ width: `${Math.round((count / voteTally.length) * 100)}%` }}
-                        />
-                      </span>
-                      <span className="vote-tally-count">{count}</span>
-                    </div>
-                  ))}
-                  <div className="vote-tally-breakdown">
-                    {voteTally.map(({ voter, target }) => `${getPlayerName(voter)}→${getPlayerName(target)}`).join("  ")}
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
-        )}
-
-        {/* Last resolution outcome panel */}
-        {lastOutcome && (
-          <div className={`outcome-panel${lastOutcome.includes("survived") || lastOutcome.includes("No valid") ? " outcome-panel-safe" : " outcome-panel-death"}`}>
-            <span className="outcome-panel-icon">
-              {lastOutcome.includes("died") || lastOutcome.includes("eliminated") ? "💀" : "🛡️"}
-            </span>
-            <span className="outcome-panel-text">{lastOutcome}</span>
-          </div>
-        )}
-
-        {midnightAddress && (
-          <div className="info">
-            <div className="label">Connected addresses</div>
-            <div className="mono">Midnight: {midnightAddress}</div>
-            {evmAddress && <div className="mono">EVM: {evmAddress}</div>}
-            {midnightWallet?.contractAddress?.werewolf && (
-              <>
-                <div className="label">Contract address</div>
+              <div className="info">
+                <div className="label">Game info</div>
                 <div className="mono">
-                  {midnightWallet.contractAddress.werewolf}
+                  {`GameId: `}
+                  <GameIdDisplay gameId={game.gameId} />
+                  {"\n"}
+                  {`Round: ${game.round}\nPhase: ${
+                    phaseName(game.phase)
+                  }\nPlayers: ${game.playerCount}\nWerewolves: ${game.werewolfCount}`}
                 </div>
-              </>
+              </div>
             )}
-          </div>
-        )}
 
-        {loading && txTimer.start != null && (
-          <div className="timer-banner">
-            Transaction running… {txTimer.elapsed}s elapsed.
+            <div className="columns">
+              <div className="column">
+                <div className="column-title">Trusted Node</div>
+                <div className="form">
+                  <div className="label">Game setup</div>
+                  <div className="field">
+                    <div className="label">Players (max {MAX_PLAYERS})</div>
+                    <input
+                      className="input"
+                      type="number"
+                      min={2}
+                      max={MAX_PLAYERS}
+                      value={playerCountInput}
+                      onChange={(event) =>
+                        setPlayerCountInput(event.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="label">Werewolves</div>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={MAX_PLAYERS - 1}
+                      value={werewolfCountInput}
+                      onChange={(event) =>
+                        setWerewolfCountInput(event.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleCreateGame}
+                    disabled={loading || !midnightAddress || !evmConnected}
+                    title={!midnightAddress || !evmConnected
+                      ? "Connect both wallets first"
+                      : undefined}
+                  >
+                    Create + setup game
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={handleResetGame}
+                    disabled={loading}
+                  >
+                    Reset local game state
+                  </button>
+                </div>
+
+                {game && (
+                  <div className="form">
+                    <div className="label">Night resolution</div>
+                    <div className="field">
+                      <div className="label">Eliminate player index</div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={game.players.length - 1}
+                        value={nightEliminationInput}
+                        onChange={(event) =>
+                          setNightEliminationInput(event.target.value)}
+                        disabled={loading}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={handleResolveNight}
+                      disabled={loading || game.phase !== Phase.Night ||
+                        submitProgress !== null}
+                    >
+                      Resolve night
+                    </button>
+                  </div>
+                )}
+
+                {game && (
+                  <div className="form">
+                    <div className="label">Day resolution</div>
+                    <div className="field">
+                      <div className="label">Eliminate player index</div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={game.players.length - 1}
+                        value={dayEliminationInput}
+                        onChange={(event) =>
+                          setDayEliminationInput(event.target.value)}
+                        disabled={loading}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={handleResolveDay}
+                      disabled={loading || game.phase !== Phase.Day ||
+                        submitProgress !== null}
+                    >
+                      Resolve day
+                    </button>
+                  </div>
+                )}
+
+                {game && (
+                  <div className="form">
+                    <div className="label">Admin control</div>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={handleForceEndGame}
+                      disabled={loading}
+                    >
+                      Force end game
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="column">
+                <div className="column-title">Player Votes</div>
+                {game
+                  ? (
+                    <>
+                      <div className="form">
+                        <div className="label">
+                          {game.phase === Phase.Night
+                            ? "Night votes"
+                            : "Day votes"}
+                        </div>
+                        {game.players.map((player) => {
+                          const voteTarget = receivedVotes.get(player.id);
+                          const hasVoted = votedPlayerIndices.includes(
+                            player.id,
+                          );
+                          return (
+                            <div className="field" key={`vote-${player.id}`}>
+                              <div className="label">
+                                {getPlayerName(player.id)}{" "}
+                                {player.alive ? "(alive)" : "(dead)"}
+                              </div>
+                              <div
+                                className={`vote-display ${
+                                  !player.alive
+                                    ? "vote-display-dead"
+                                    : hasVoted
+                                    ? "vote-display-received"
+                                    : "vote-display-waiting"
+                                }`}
+                              >
+                                {hasVoted && voteTarget !== undefined
+                                  ? (
+                                    <span className="vote-display-text">
+                                      Voted for{" "}
+                                      <strong>
+                                        {getPlayerName(voteTarget)}
+                                      </strong>
+                                    </span>
+                                  )
+                                  : player.alive
+                                  ? (
+                                    <span className="vote-display-text">
+                                      Waiting for vote...
+                                    </span>
+                                  )
+                                  : (
+                                    <span className="vote-display-text vote-display-dead">
+                                      No vote (dead)
+                                    </span>
+                                  )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {receivedVotes.size > 0 && (
+                          <div className="mono">
+                            {game.phase === Phase.Night ? "NIGHT" : "DAY"}{" "}
+                            votes received:{" "}
+                            {receivedVotes.size}/{game.players.filter((p) =>
+                              p.alive
+                            ).length}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )
+                  : <div className="mono">Create a game to enter votes.</div>}
+              </div>
+            </div>
+
+            {game && (
+              <div className="info">
+                <div className="label">Players</div>
+                <div className="mono">
+                  {game.players
+                    .map(
+                      (player) =>
+                        `P${player.id}: ${roleName(player.role)} (${
+                          player.alive ? "alive" : "dead"
+                        })`,
+                    )
+                    .join("\n")}
+                </div>
+              </div>
+            )}
+
+            {game && game.phase !== Phase.Finished && (
+              <div className="info">
+                <div className="label">
+                  Vote status — {game.phase === Phase.Night ? "NIGHT" : "DAY"}
+                  {" "}
+                  round {game.round} ({votedPlayerIndices.length}/
+                  {game.players.filter((p) => p.alive).length} voted)
+                </div>
+                <div className="vote-status-grid">
+                  {game.players.map((player) => {
+                    const hasVoted = votedPlayerIndices.includes(player.id);
+                    return (
+                      <div
+                        key={player.id}
+                        className={`vote-status-cell ${
+                          !player.alive
+                            ? "vote-cell-dead"
+                            : hasVoted
+                            ? "vote-cell-voted"
+                            : "vote-cell-waiting"
+                        }`}
+                        title={`${getPlayerName(player.id)} (${
+                          roleName(player.role)
+                        }) — ${
+                          !player.alive
+                            ? "dead"
+                            : hasVoted
+                            ? "voted"
+                            : "waiting"
+                        }`}
+                      >
+                        {getPlayerName(player.id)}
+                        {!player.alive ? " ✕" : hasVoted ? " ✓" : " …"}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Submission progress bar */}
+                {submitProgress !== null && (
+                  <div className="submit-progress">
+                    <div className="submit-progress-label">
+                      Submitting votes to chain: {submitProgress.done} /{" "}
+                      {submitProgress.total}
+                    </div>
+                    <div className="submit-progress-track">
+                      <div
+                        className="submit-progress-fill"
+                        style={{
+                          width: `${
+                            submitProgress.total > 0
+                              ? Math.round(
+                                (submitProgress.done / submitProgress.total) *
+                                  100,
+                              )
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Vote tally breakdown */}
+                {voteTally.length > 0 && (() => {
+                  const counts = new Map<number, number>();
+                  for (const { target } of voteTally) {
+                    counts.set(target, (counts.get(target) ?? 0) + 1);
+                  }
+                  const maxCount = Math.max(...counts.values());
+                  const sorted = [...counts.entries()].sort((a, b) =>
+                    b[1] - a[1]
+                  );
+                  return (
+                    <div className="vote-tally">
+                      <div className="vote-tally-title">Vote tally</div>
+                      {sorted.map(([targetIdx, count]) => (
+                        <div key={targetIdx} className="vote-tally-row">
+                          <span className="vote-tally-player">
+                            {getPlayerName(targetIdx)}
+                          </span>
+                          <span className="vote-tally-bar-wrap">
+                            <span
+                              className={`vote-tally-bar${
+                                count === maxCount
+                                  ? " vote-tally-bar-winner"
+                                  : ""
+                              }`}
+                              style={{
+                                width: `${
+                                  Math.round((count / voteTally.length) * 100)
+                                }%`,
+                              }}
+                            />
+                          </span>
+                          <span className="vote-tally-count">{count}</span>
+                        </div>
+                      ))}
+                      <div className="vote-tally-breakdown">
+                        {voteTally.map(({ voter, target }) =>
+                          `${getPlayerName(voter)}→${getPlayerName(target)}`
+                        ).join("  ")}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Last resolution outcome panel */}
+            {lastOutcome && (
+              <div
+                className={`outcome-panel${
+                  lastOutcome.includes("survived") ||
+                    lastOutcome.includes("No valid")
+                    ? " outcome-panel-safe"
+                    : " outcome-panel-death"
+                }`}
+              >
+                <span className="outcome-panel-icon">
+                  {lastOutcome.includes("died") ||
+                      lastOutcome.includes("eliminated")
+                    ? "💀"
+                    : "🛡️"}
+                </span>
+                <span className="outcome-panel-text">{lastOutcome}</span>
+              </div>
+            )}
+
+            {midnightAddress && (
+              <div className="info">
+                <div className="label">Connected addresses</div>
+                <div className="mono">Midnight: {midnightAddress}</div>
+                {evmAddress && <div className="mono">EVM: {evmAddress}</div>}
+                {midnightWallet?.contractAddress?.werewolf && (
+                  <>
+                    <div className="label">Contract address</div>
+                    <div className="mono">
+                      {midnightWallet.contractAddress.werewolf}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {loading && txTimer.start != null && (
+              <div className="timer-banner">
+                Transaction running… {txTimer.elapsed}s elapsed.
+              </div>
+            )}
+            {error && <pre className="message message-error">{error}</pre>}
+            {status && <pre className="message message-ok">{status}</pre>}
+            {isModalOpen && <WalletModal onClose={closeModal} />}
           </div>
-        )}
-        {error && <pre className="message message-error">{error}</pre>}
-        {status && <pre className="message message-ok">{status}</pre>}
-        {isModalOpen && <WalletModal onClose={closeModal} />}
-      </div>
         </div>
         {game && midnightAddress && chatRoomReady && (
           <>
