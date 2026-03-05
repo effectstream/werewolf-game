@@ -3,7 +3,7 @@ import {
   MidnightBalancingAdapter,
   type MidnightBalancingAdapterConfig,
 } from "@paimaexample/batcher";
-
+import { MidnightBalancingAdapterX } from "./base-adapter.ts";
 export type ValidationResult = {
   valid: boolean;
   error?: string;
@@ -13,7 +13,7 @@ export type ValidationResult = {
  * Werewolf-specific Midnight Balancing Adapter.
  * Inherits from the official MidnightBalancingAdapter and allows for custom game logic.
  */
-export class WerewolfBalancingAdapter extends MidnightBalancingAdapter {
+export class WerewolfBalancingAdapter extends MidnightBalancingAdapterX {
   constructor(walletSeed: string, config: MidnightBalancingAdapterConfig) {
     if (!config.syncProtocolName) {
       config.syncProtocolName = "parallelMidnight";
