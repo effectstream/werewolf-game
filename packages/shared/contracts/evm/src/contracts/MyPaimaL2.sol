@@ -8,10 +8,10 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @dev Game states for lobby management
     enum GameState { Open, Closed }
 
-    /// @dev Player structure storing both EVM and Midnight addresses
+    /// @dev Player structure storing EVM address and Ed25519 public key
     struct Player {
         address evmAddress;
-        bytes32 midnightAddressHash;
+        bytes32 publicKey;
     }
 
     /// @dev Game structure for lobby management
@@ -30,7 +30,7 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     event GameCreated(uint32 indexed gameId, uint256 maxPlayers);
 
     /// @dev Emitted when a player joins a game
-    event PlayerJoined(uint256 indexed gameId, address indexed evmAddress, bytes32 midnightAddressHash);
+    event PlayerJoined(uint256 indexed gameId, address indexed evmAddress, bytes32 publicKey);
 
     /// @dev Emitted when a game is closed
     event GameClosed(uint256 indexed gameId);
@@ -56,25 +56,25 @@ contract MyPaimaL2Contract is PaimaL2Contract {
 
     /// @dev Joins an existing game lobby
     /// @param _gameId ID of the game to join
-    /// @param _midnightAddressHash SHA256 hash of the player's Midnight unshielded address
-    function joinGame(uint256 _gameId, bytes32 _midnightAddressHash) public {
+    /// @param _publicKey Ed25519 public key for bundle retrieval authentication
+    function joinGame(uint256 _gameId, bytes32 _publicKey) public {
         require(games[_gameId].id != 0, "Game not found");
         require(games[_gameId].state == GameState.Open, "Game is closed");
         require(games[_gameId].playerCount < games[_gameId].maxPlayers, "Game is full");
-        
+
         // Check if player already joined
         for (uint256 i = 0; i < games[_gameId].playerCount; i++) {
             require(games[_gameId].players[i].evmAddress != msg.sender, "Player already joined");
         }
-        
+
         // Add player
         games[_gameId].players.push(Player({
             evmAddress: msg.sender,
-            midnightAddressHash: _midnightAddressHash
+            publicKey: _publicKey
         }));
         games[_gameId].playerCount++;
-        
-        emit PlayerJoined(_gameId, msg.sender, _midnightAddressHash);
+
+        emit PlayerJoined(_gameId, msg.sender, _publicKey);
     }
 
     /// @dev Closes a game lobby, preventing new players from joining
@@ -127,12 +127,12 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @param _playerIndex Index of the player to retrieve
     function getPlayer(uint256 _gameId, uint256 _playerIndex) public view returns (
         address evmAddress,
-        bytes32 midnightAddressHash
+        bytes32 publicKey
     ) {
         require(games[_gameId].id != 0, "Game not found");
         require(_playerIndex < games[_gameId].playerCount, "Player index out of bounds");
         Player storage player = games[_gameId].players[_playerIndex];
-        return (player.evmAddress, player.midnightAddressHash);
+        return (player.evmAddress, player.publicKey);
     }
 
     /// @dev Checks if an address has already joined a game

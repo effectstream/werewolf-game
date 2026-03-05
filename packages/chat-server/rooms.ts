@@ -1,5 +1,5 @@
 interface Room {
-  allowedPlayers: Set<string>; // midnightAddressHash values
+  allowedPlayers: Set<string>; // playerKey values
   connections: Map<string, WebSocket>; // hash -> socket
   nicknames: Map<string, string>; // hash -> nickname
 }
@@ -20,35 +20,35 @@ function ensureRoom(gameId: number, channel = "general"): Room {
   return room;
 }
 
-export function invitePlayer(gameId: number, midnightAddressHash: string, nickname = "", channel = "general"): void {
+export function invitePlayer(gameId: number, playerKey: string, nickname = "", channel = "general"): void {
   const room = ensureRoom(gameId, channel);
-  room.allowedPlayers.add(midnightAddressHash);
-  if (nickname) room.nicknames.set(midnightAddressHash, nickname);
+  room.allowedPlayers.add(playerKey);
+  if (nickname) room.nicknames.set(playerKey, nickname);
 }
 
-export function getNickname(gameId: number, midnightAddressHash: string, channel = "general"): string {
-  return rooms.get(roomKey(gameId, channel))?.nicknames.get(midnightAddressHash) ?? midnightAddressHash.slice(0, 10) + "…";
+export function getNickname(gameId: number, playerKey: string, channel = "general"): string {
+  return rooms.get(roomKey(gameId, channel))?.nicknames.get(playerKey) ?? playerKey.slice(0, 10) + "…";
 }
 
-export function isAllowed(gameId: number, midnightAddressHash: string, channel = "general"): boolean {
-  return rooms.get(roomKey(gameId, channel))?.allowedPlayers.has(midnightAddressHash) ?? false;
+export function isAllowed(gameId: number, playerKey: string, channel = "general"): boolean {
+  return rooms.get(roomKey(gameId, channel))?.allowedPlayers.has(playerKey) ?? false;
 }
 
-export function isAlreadyConnected(gameId: number, midnightAddressHash: string, channel = "general"): boolean {
-  return rooms.get(roomKey(gameId, channel))?.connections.has(midnightAddressHash) ?? false;
+export function isAlreadyConnected(gameId: number, playerKey: string, channel = "general"): boolean {
+  return rooms.get(roomKey(gameId, channel))?.connections.has(playerKey) ?? false;
 }
 
 export function addConnection(
   gameId: number,
-  midnightAddressHash: string,
+  playerKey: string,
   socket: WebSocket,
   channel = "general",
 ): void {
-  ensureRoom(gameId, channel).connections.set(midnightAddressHash, socket);
+  ensureRoom(gameId, channel).connections.set(playerKey, socket);
 }
 
-export function removeConnection(gameId: number, midnightAddressHash: string, channel = "general"): void {
-  rooms.get(roomKey(gameId, channel))?.connections.delete(midnightAddressHash);
+export function removeConnection(gameId: number, playerKey: string, channel = "general"): void {
+  rooms.get(roomKey(gameId, channel))?.connections.delete(playerKey);
 }
 
 export function broadcast(gameId: number, payload: string, excludeHash?: string, channel = "general"): void {

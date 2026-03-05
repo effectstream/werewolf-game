@@ -4,7 +4,7 @@ export const MY_PAIMA_L2_ABI = [
   {
     inputs: [
       { internalType: 'uint256', name: '_gameId', type: 'uint256' },
-      { internalType: 'bytes32', name: '_midnightAddressHash', type: 'bytes32' },
+      { internalType: 'bytes32', name: '_publicKey', type: 'bytes32' },
     ],
     name: 'joinGame',
     outputs: [],
@@ -45,7 +45,7 @@ export const MY_PAIMA_L2_ABI = [
     inputs: [
       { indexed: true, internalType: 'uint256', name: 'gameId', type: 'uint256' },
       { indexed: true, internalType: 'address', name: 'evmAddress', type: 'address' },
-      { indexed: false, internalType: 'bytes32', name: 'midnightAddressHash', type: 'bytes32' },
+      { indexed: false, internalType: 'bytes32', name: 'publicKey', type: 'bytes32' },
     ],
     name: 'PlayerJoined',
     type: 'event',

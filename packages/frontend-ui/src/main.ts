@@ -185,7 +185,7 @@ lobbyScreen.show()
 
 let activeManagers: GameManagers | null = null
 
-lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, midnightAddressHash: string, nickname: string) => {
+lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, publicKeyHex: string, nickname: string) => {
   if (activeManagers) {
     destroyGame(activeManagers)
     activeManagers = null
@@ -199,7 +199,7 @@ lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, midnightAddressHas
   bootGame().then((managers) => {
     activeManagers = managers
 
-    managers.chatManager.connect(gameId, midnightAddressHash, nickname)
+    managers.chatManager.connect(gameId, publicKeyHex, nickname)
     managers.chatManager.onMessage = (nick, text) => {
       managers.playerEntities.showMessageForPlayer(nick, text)
     }
@@ -224,7 +224,7 @@ lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, midnightAddressHas
           chatForm: '#werewolfChatForm',
           chatInput: '#werewolfChatInput',
         })
-        werewolfChatManager.connect(gameId, midnightAddressHash, nickname, 'werewolf')
+        werewolfChatManager.connect(gameId, publicKeyHex, nickname, 'werewolf')
         managers.werewolfChatManager = werewolfChatManager
       }
     }

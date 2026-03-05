@@ -13,10 +13,13 @@ export {
 export {
   closeLobby,
   getAdminSignKey,
+  getAndIncrementGameId,
   getLobby,
   getLobbyPlayers,
   incrementLobbyPlayerCount,
   insertLobbyPlayer,
+  markBundlesReady,
+  setAdminSignKeyUpdate,
   setLobbyTimeout,
   upsertLobby,
 } from "./sql/werewolf_lobby.queries.ts";
@@ -83,6 +86,15 @@ export type {
   IGetLobbyPlayersParams,
   IGetLobbyPlayersResult,
   IGetLobbyPlayersQuery,
+  IMarkBundlesReadyParams,
+  IMarkBundlesReadyResult,
+  IMarkBundlesReadyQuery,
+  ISetAdminSignKeyUpdateParams,
+  ISetAdminSignKeyUpdateResult,
+  ISetAdminSignKeyUpdateQuery,
+  IGetAndIncrementGameIdParams,
+  IGetAndIncrementGameIdResult,
+  IGetAndIncrementGameIdQuery,
 } from "./sql/werewolf_lobby.queries.ts";
 
 export type {

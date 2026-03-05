@@ -96,7 +96,7 @@ function handleWebSocket(
         return;
       }
 
-      const hash = msg.midnightAddressHash;
+      const hash = msg.publicKeyHex;
 
       if (!isAllowed(gameId, hash, channel)) {
         console.warn(
@@ -136,7 +136,7 @@ function handleWebSocket(
       console.log(
         `[chat] Identified game=${gameId} channel=${channel} hash=${hash}`,
       );
-      send(socket, { type: "identified", midnightAddressHash: hash });
+      send(socket, { type: "identified", publicKeyHex: hash });
       return;
     }
 
@@ -198,8 +198,8 @@ async function handleInvite(req: Request): Promise<Response> {
   }
 
   const gameId = typeof body.gameId === "number" ? body.gameId : null;
-  const hash = typeof body.midnightAddressHash === "string"
-    ? body.midnightAddressHash.trim()
+  const hash = typeof body.publicKeyHex === "string"
+    ? body.publicKeyHex.trim()
     : null;
   const nickname = typeof body.nickname === "string"
     ? body.nickname.trim()
@@ -212,7 +212,7 @@ async function handleInvite(req: Request): Promise<Response> {
     return corsJson(
       {
         error:
-          "gameId (number), midnightAddressHash (string), and nickname (string) are required",
+          "gameId (number), publicKeyHex (string), and nickname (string) are required",
       },
       { status: 400 },
     );

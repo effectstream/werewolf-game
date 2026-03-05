@@ -26,7 +26,7 @@ export const paimaL2Grammar = {
   ],
   "join_game": [
     ["gameId", Type.Number()],
-    ["midnightAddressHash", Type.String()],
+    ["publicKey", Type.String()],
     ["nickname", Type.String()],
   ],
   "close_game": [
@@ -60,6 +60,8 @@ export const grammar = {
       }),
     ],
   ],
+  // Scheduled input: auto-creates a new lobby after the previous one closes.
+  "autoCreateLobby": [],
   // Scheduled input: fires at a future block when a voting round times out.
   // Produced by createScheduledData() in the midnightContractState STF.
   "werewolfRoundTimeout": [

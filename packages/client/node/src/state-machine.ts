@@ -5,9 +5,11 @@ import { createScheduledData } from "@paimaexample/db";
 import {
   closeLobby,
   getAliveSnapshots,
+  getAndIncrementGameId,
   getLobby,
   getWerewolfRoundState,
   type IGetAliveSnapshotsResult,
+  type IGetAndIncrementGameIdResult,
   type IGetLobbyResult,
   type IGetRoundStateResult,
   incrementLobbyPlayerCount,
@@ -19,13 +21,15 @@ import {
   snapshotAlivePlayer,
   updateRoundVoteCount,
   upsertGameView,
+  upsertLobby,
   upsertRoundState,
 } from "@werewolf-game/database";
 import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
 import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
-import { purgeVotes } from "./store.ts";
+import { purgeVotes, storePlayerPublicKey } from "./store.ts";
+import { handleLobbyClosed } from "./lobby-closer.ts";
 
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
@@ -402,29 +406,20 @@ stm.addStateTransition(
 stm.addStateTransition(
   "join_game",
   function* (data) {
-    console.log(
-      "[join_game] RAW data.parsedInput:",
-      JSON.stringify(data.parsedInput),
-    );
-    console.log(
-      "[join_game] RAW data keys:",
-      JSON.stringify(Object.keys(data)),
-    );
-
-    const { gameId, midnightAddressHash, nickname } = data.parsedInput as {
+    const { gameId, publicKey, nickname } = data.parsedInput as {
       gameId: number;
-      midnightAddressHash: string;
+      publicKey: string;
       nickname: string;
     };
     const blockHeight = data.blockHeight;
 
     console.log(
-      `[lobby] join_game game=${gameId} player=${midnightAddressHash} nickname=${nickname} at block=${blockHeight}`,
+      `[lobby] join_game game=${gameId} publicKey=${publicKey.slice(0, 12)}… nickname=${nickname} at block=${blockHeight}`,
     );
 
     const insertResult = (yield* World.resolve(insertLobbyPlayer, {
       game_id: gameId,
-      midnight_address_hash: midnightAddressHash,
+      public_key_hex: publicKey,
       nickname,
       joined_block: blockHeight,
     })) as unknown as IInsertLobbyPlayerResult[];
@@ -435,13 +430,44 @@ stm.addStateTransition(
       yield* World.resolve(incrementLobbyPlayerCount, {
         game_id: gameId,
       });
+
+      // Store public key for later signature verification.
+      storePlayerPublicKey(gameId, publicKey);
     }
 
-    chatPost("/invite", { gameId, midnightAddressHash, nickname });
+    chatPost("/invite", { gameId, publicKey, nickname });
     chatPost("/broadcast", {
       gameId,
       text: `${nickname} joined the game.`,
     });
+
+    // Check if lobby is full — auto-close and trigger bundle generation.
+    const lobbyRows = (yield* World.resolve(getLobby, {
+      game_id: gameId,
+    })) as IGetLobbyResult[];
+    if (lobbyRows.length > 0) {
+      const lobby = lobbyRows[0];
+      if (
+        !lobby.closed &&
+        Number(lobby.player_count) >= Number(lobby.max_players)
+      ) {
+        console.log(
+          `[lobby] game=${gameId} full (${lobby.player_count}/${lobby.max_players}) — auto-closing`,
+        );
+        yield* World.resolve(closeLobby, { game_id: gameId });
+        chatPost("/broadcast", {
+          gameId,
+          text: "Lobby full — generating bundles and starting game.",
+        });
+        // Fire-and-forget: generate bundles + create Midnight game + create next lobby.
+        void handleLobbyClosed(gameId).catch((err) =>
+          console.error(
+            `[lobby-closer] Failed for game ${gameId}:`,
+            err,
+          )
+        );
+      }
+    }
   },
 );
 
@@ -506,22 +532,85 @@ stm.addStateTransition(
         `[lobby-timeout] game=${gameId} has ${lobby.player_count}/${LOBBY_MIN_PLAYERS} players — force-closing lobby`,
       );
       yield* World.resolve(closeLobby, { game_id: gameId });
-      console.log(
-        `[lobby-timeout] ADMIN ACTION REQUIRED: close EVM game ${gameId} on-chain (insufficient players)`,
-      );
       chatPost("/broadcast", {
         gameId,
         text: "Lobby timed out — not enough players. Game cancelled.",
       });
+      // Create next lobby immediately even on cancellation.
+      void handleLobbyClosed(gameId, { cancelled: true }).catch((err) =>
+        console.error(`[lobby-closer] Failed creating next lobby:`, err)
+      );
     } else {
       console.log(
-        `[lobby-timeout] game=${gameId} has ${lobby.player_count} players — lobby timeout reached, game may proceed`,
+        `[lobby-timeout] game=${gameId} has ${lobby.player_count} players — closing and generating bundles`,
       );
+      yield* World.resolve(closeLobby, { game_id: gameId });
       chatPost("/broadcast", {
         gameId,
-        text: "Lobby timeout reached — the game will now begin.",
+        text: "Lobby timeout reached — generating bundles and starting game.",
       });
+      // Fire-and-forget: generate bundles + create Midnight game + create next lobby.
+      void handleLobbyClosed(gameId).catch((err) =>
+        console.error(
+          `[lobby-closer] Failed for game ${gameId}:`,
+          err,
+        )
+      );
     }
+  },
+);
+
+// ---------------------------------------------------------------------------
+// STF: autoCreateLobby
+// Scheduled by the lobby-closer after a lobby closes. Creates a new lobby
+// and schedules its timeout.
+// ---------------------------------------------------------------------------
+
+stm.addStateTransition(
+  "autoCreateLobby",
+  function* (data) {
+    const blockHeight = data.blockHeight;
+
+    const idRows = (yield* World.resolve(
+      getAndIncrementGameId,
+      undefined,
+    )) as unknown as IGetAndIncrementGameIdResult[];
+
+    if (idRows.length === 0) {
+      console.error("[autoCreateLobby] Failed to get next game ID");
+      return;
+    }
+
+    const gameId = Number(idRows[0].last_game_id);
+    const maxPlayers = 16;
+
+    console.log(
+      `[autoCreateLobby] Creating lobby game=${gameId} at block=${blockHeight}`,
+    );
+
+    yield* World.resolve(upsertLobby, {
+      game_id: gameId,
+      max_players: maxPlayers,
+      created_block: blockHeight,
+      admin_sign_public_key: null,
+    });
+
+    const timeoutBlock = blockHeight + LOBBY_TIMEOUT_BLOCKS;
+
+    yield* World.resolve(setLobbyTimeout, {
+      game_id: gameId,
+      timeout_block: timeoutBlock,
+    });
+
+    yield* createScheduledData(
+      JSON.stringify(["werewolfLobbyTimeout", gameId]),
+      { blockHeight: timeoutBlock },
+      { precompile: "system_generated" },
+    );
+
+    console.log(
+      `[autoCreateLobby] Lobby game=${gameId} created, timeout at block=${timeoutBlock}`,
+    );
   },
 );
 

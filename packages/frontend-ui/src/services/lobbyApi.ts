@@ -25,8 +25,8 @@ export interface GameStateResponse {
 }
 
 export interface PlayerInfo {
-  evmAddress: string;
-  midnightAddressHash: string;
+  evmAddress?: string;
+  publicKey: string;
   nickname: string;
   playerId?: number;
 }
@@ -126,23 +126,20 @@ export async function fetchVoteStatus(
 }
 
 /**
- * Re-retrieve a player bundle that was already delivered in a previous join.
- * Derives an Ed25519 keypair from the player's leafSecret (used as the seed)
- * and signs the retrieve request so the server can authenticate the caller.
+ * Request the player's bundle from the server using Ed25519 signature authentication.
+ * Signs "werewolf:{gameId}:{timestamp}" with the player's Ed25519 secret key.
  */
 export async function fetchBundle(
   gameId: number,
-  playerHash: string,
-  leafSecret: string,
+  publicKeyHex: string,
+  secretKey: Uint8Array,
 ): Promise<PlayerBundle> {
-  const seed = hexToBytes(leafSecret)
-  const keypair = nacl.sign.keyPair.fromSeed(seed)
   const timestamp = Math.floor(Date.now() / 1000)
-  const msg = new TextEncoder().encode(`retrieve:${gameId}:${playerHash}:${timestamp}`)
-  const sig = nacl.sign.detached(msg, keypair.secretKey)
+  const msg = new TextEncoder().encode(`werewolf:${gameId}:${timestamp}`)
+  const sig = nacl.sign.detached(msg, secretKey)
   const url =
     `${API_BASE}/api/get_bundle?gameId=${gameId}` +
-    `&playerHash=${encodeURIComponent(playerHash)}` +
+    `&publicKeyHex=${encodeURIComponent(publicKeyHex)}` +
     `&timestamp=${timestamp}` +
     `&signature=${bytesToHex(sig)}`
   const res = await fetch(url)
@@ -153,4 +150,39 @@ export async function fetchBundle(
   const data = await res.json() as { success: boolean; bundle?: PlayerBundle }
   if (!data.bundle) throw new Error('get_bundle: no bundle in response')
   return data.bundle
+}
+
+export interface LobbyStatusResponse {
+  state: 'open' | 'closed' | 'bundles_ready'
+  playerCount: number
+  maxPlayers: number
+  bundlesReady: boolean
+  timeoutBlock?: number
+}
+
+export interface OpenLobbyResponse {
+  gameId: number;
+  playerCount: number;
+  maxPlayers: number;
+}
+
+export async function fetchOpenLobby(): Promise<OpenLobbyResponse | null> {
+  const res = await fetch(`${API_BASE}/api/open_lobby`);
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`open_lobby failed: ${res.status}`);
+  return res.json() as Promise<OpenLobbyResponse>;
+}
+
+/**
+ * Poll the lobby status to check if bundles are ready.
+ */
+export async function fetchLobbyStatus(
+  gameId: number,
+): Promise<LobbyStatusResponse> {
+  const res = await fetch(`${API_BASE}/api/lobby_status?gameId=${gameId}`)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`lobby_status failed: ${res.status} ${text}`)
+  }
+  return res.json() as Promise<LobbyStatusResponse>
 }

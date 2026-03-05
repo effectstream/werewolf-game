@@ -98,11 +98,11 @@ export class BatcherService {
   static async joinGame(
     address: string,
     gameId: number,
-    midnightAddressHash: `0x${string}`,
+    publicKey: string,
     nickname: string,
     signMessage: (args: { message: string }) => Promise<`0x${string}`>,
   ): Promise<unknown> {
-    console.log('[BatcherService] joinGame', { gameId, midnightAddressHash, nickname })
-    return this.sendToBatcher(address, ['join_game', gameId, midnightAddressHash, nickname], signMessage)
+    console.log('[BatcherService] joinGame', { gameId, publicKey, nickname })
+    return this.sendToBatcher(address, ['join_game', gameId, publicKey, nickname], signMessage)
   }
 }
