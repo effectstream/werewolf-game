@@ -60,6 +60,15 @@ const ENCRYPTION_LIMITS = {
 // =============================================================================
 // CRYPTO (used only by Player for vote encryption)
 // =============================================================================
+function unpackData(
+  bytes: Uint8Array,
+): { target: number; round: number; random: number } {
+  const packed = (bytes[0] << 16) | (bytes[1] << 8) | bytes[2];
+  const target = (packed >> 17) & 0x7f;
+  const round = (packed >> 10) & 0x7f;
+  const random = packed & 0x3ff;
+  return { target, round, random };
+}
 
 function packData(number: number, round: number, random: number): Uint8Array {
   if (
@@ -124,6 +133,13 @@ export class Player {
     this.encKeypair = nacl.box.keyPair();
   }
 
+  async preGameSetup(
+    computeHash: (secret: Uint8Array) => Promise<Uint8Array>,
+  ): Promise<Uint8Array> {
+    this.leafHash = await computeHash(this.leafSecret);
+    return this.leafHash;
+  }
+
   receiveGameConfig(
     role: number,
     adminEncKey: Uint8Array,
@@ -152,8 +168,9 @@ export class Player {
     );
     const encryptedBuffer = xorPayload(payload, sessionKey);
 
-    // Privacy: do not log role or target; on-chain only ciphertext is visible
-    console.log(`    P${this.id} submitted encrypted vote`);
+    console.log(
+      `${this.role}    P${this.id} submitted encrypted vote ${targetIdx}`,
+    );
 
     return {
       encryptedAction: encryptedBuffer,

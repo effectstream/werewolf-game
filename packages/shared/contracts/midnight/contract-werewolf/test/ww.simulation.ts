@@ -8,8 +8,6 @@ import {
 import { Contract } from "../src/managed/contract/index.js";
 import { Player, Role, type WitnessSet } from "./simulation-player.ts";
 import {
-  buildAliveTree,
-  buildInitialTree,
   type MerkleCircuitRunner,
   TrustedNode,
 } from "./simulation-trusted-node.ts";
@@ -131,38 +129,40 @@ class Simulation {
     const commitments: Uint8Array[] = [];
     const leafHashes: Uint8Array[] = [];
 
+    // Player execution pre-game
     for (const p of this.players) {
-      const hash = await this.runCircuit(() =>
-        circuits.testComputeHash(this.context, p.leafSecret)
+      const hash = await p.preGameSetup((secret) =>
+        this.runCircuit(() => circuits.testComputeHash(this.context, secret))
       );
-      p.leafHash = hash;
       leafHashes.push(hash);
-
-      const salt = await this.runCircuit(() =>
-        circuits.testComputeSalt(this.context, new Uint8Array(32), BigInt(p.id))
-      );
-      const role = p.id === 0 ? Role.Werewolf : Role.Villager;
-      const comm = await this.runCircuit(() =>
-        circuits.testComputeCommitment(this.context, BigInt(role), salt)
-      );
-      commitments.push(comm);
-
-      this.admin.registerPlayerKeys(p.id, p.encKeypair.publicKey, role);
-      // Give players the Admin's ENCRYPTION Key, not Auth Key
-      p.receiveGameConfig(role, this.admin.adminEncKey, this.players.length);
     }
-    this.admin.setCommitments(commitments);
 
-    console.log("Building Merkle Tree...");
-    const runner: MerkleCircuitRunner<CircuitContext<PrivateState>> = {
+    // Trusted Node execution pre-game
+    const runner = {
       runCircuit: this.runCircuit.bind(this),
       contract: this.contract,
       context: this.context,
     };
-    const tree = await buildInitialTree(runner, leafHashes);
-    const root = tree.getRoot();
-    this.admin.setInitialRoot(root);
 
+    const { roles, tree } = await this.admin.preGameSetup(
+      runner,
+      this.players.map((p) => ({
+        id: p.id,
+        pubKey: p.encKeypair.publicKey,
+        leafHash: p.leafHash!,
+      })),
+    );
+
+    // Distribute roles to players
+    for (const [i, p] of this.players.entries()) {
+      p.receiveGameConfig(
+        roles[i],
+        this.admin.adminEncKey,
+        this.players.length,
+      );
+    }
+
+    // Admin write merkle paths to players
     this.players.forEach((p, i) =>
       p.merklePath = tree.getProof(i, p.leafHash!)
     );
@@ -186,7 +186,7 @@ class Simulation {
         adminVotePubKeyPadded,
         masterCommit,
         BigInt(this.players.length),
-        1n,
+        BigInt(roles.filter((r) => r === Role.Werewolf).length),
       )
     );
     this.witnessRegistry.unsetCurrent();
@@ -242,19 +242,13 @@ class Simulation {
       );
 
       // Consistency: root must reflect alive set after this night (contract verifies proofs against it next round)
-      const aliveAfterNight = new Set(
-        this.players.filter((p) => p.isAlive).map((p) => p.id),
-      );
-      if (nightRes.hasElimination) {
-        aliveAfterNight.delete(nightRes.eliminatedIdx);
-      }
       const contextBeforeTree = this.context;
-      const nightTree = await buildAliveTree(
-        runner,
-        this.players,
-        aliveAfterNight,
-      );
-      const nightRoot = nightTree.getRoot();
+      const { root: nightRoot, tree: nightTree } = await this.admin
+        .processNightElimination(
+          runner,
+          nightRes.eliminatedIdx,
+          nightRes.hasElimination,
+        );
       this.context = contextBeforeTree;
 
       await this.runCircuit(() =>

@@ -34,6 +34,16 @@ export interface MerkleCircuitRunner<Ctx = unknown> {
         left: MerkleTreeDigest,
         right: MerkleTreeDigest,
       ): { context: Ctx; result: MerkleTreeDigest };
+      testComputeSalt?(
+        ctx: Ctx,
+        nonce: Uint8Array,
+        id: bigint,
+      ): { context: Ctx; result: Uint8Array };
+      testComputeCommitment?(
+        ctx: Ctx,
+        role: bigint,
+        salt: Uint8Array,
+      ): { context: Ctx; result: Uint8Array };
     };
   };
   context: Ctx;
@@ -127,6 +137,10 @@ export class TrustedNode implements TrustedNodeActor {
   private playerPublicKeys: Map<number, Uint8Array> = new Map();
   private playerRoles: Map<number, number> = new Map();
 
+  private leafHashes: Uint8Array[] = [];
+  private alivePlayers: Set<number> = new Set();
+  private currentTree: RuntimeMerkleTree<any> | null = null;
+
   constructor() {
     this.masterSecret = new Uint8Array(
       createHash("sha256").update("master").digest(),
@@ -146,6 +160,80 @@ export class TrustedNode implements TrustedNodeActor {
 
   setInitialRoot(root: MerkleTreeDigest): void {
     this.initialRoot = root;
+  }
+
+  async preGameSetup<Ctx>(
+    runner: MerkleCircuitRunner<Ctx>,
+    playersInfo: { id: number; pubKey: Uint8Array; leafHash: Uint8Array }[]
+  ): Promise<{ roles: number[]; tree: RuntimeMerkleTree<Ctx> }> {
+    let numberOfWerewolves: number;
+    if (playersInfo.length > 12) {
+      numberOfWerewolves = 3;
+    } else if (playersInfo.length > 8) {
+      numberOfWerewolves = 2;
+    } else {
+      numberOfWerewolves = 1;
+    }
+    const roles = Array(playersInfo.length).fill(Role.Villager);
+    for (let i = 0; i < numberOfWerewolves; i++) {
+      const index = Math.floor(Math.random() * playersInfo.length);
+      if (roles[index] === Role.Werewolf) {
+        i--; // Retry if the role is already a werewolf
+      } else {
+        roles[index] = Role.Werewolf;
+      }
+    }
+
+    const commitments: Uint8Array[] = [];
+    const leafHashes: Uint8Array[] = [];
+
+    for (const [i, p] of playersInfo.entries()) {
+      leafHashes.push(p.leafHash);
+      if (!runner.contract.circuits.testComputeSalt || !runner.contract.circuits.testComputeCommitment) {
+        throw new Error("MerkleCircuitRunner missing compute salt/commitment circuits");
+      }
+      const salt = await runner.runCircuit(() =>
+        runner.contract.circuits.testComputeSalt!(runner.context, new Uint8Array(32), BigInt(p.id))
+      );
+
+      const comm = await runner.runCircuit(() =>
+        runner.contract.circuits.testComputeCommitment!(runner.context, BigInt(roles[i]), salt)
+      );
+      commitments.push(comm);
+
+      this.registerPlayerKeys(p.id, p.pubKey, roles[i]);
+    }
+    
+    this.setCommitments(commitments);
+
+    console.log("Building Merkle Tree...");
+    const tree = await this.initializeGameTree(runner, leafHashes);
+    return { roles, tree };
+  }
+
+  async initializeGameTree<Ctx>(
+    runner: MerkleCircuitRunner<Ctx>,
+    leafHashes: Uint8Array[]
+  ): Promise<RuntimeMerkleTree<Ctx>> {
+    this.leafHashes = leafHashes;
+    this.alivePlayers = new Set(leafHashes.map((_, i) => i));
+    const tree = await buildInitialTree(runner, leafHashes);
+    this.currentTree = tree;
+    this.initialRoot = tree.getRoot();
+    return tree;
+  }
+
+  async processNightElimination<Ctx>(
+    runner: MerkleCircuitRunner<Ctx>,
+    eliminatedIdx: number,
+    hasElimination: boolean
+  ): Promise<{ root: MerkleTreeDigest, tree: RuntimeMerkleTree<Ctx> }> {
+    if (hasElimination) {
+      this.alivePlayers.delete(eliminatedIdx);
+    }
+    const tree = await buildAliveTree(runner, this.leafHashes, this.alivePlayers);
+    this.currentTree = tree;
+    return { root: tree.getRoot(), tree };
   }
 
   registerPlayerKeys(id: number, pubKey: Uint8Array, role: number): void {
@@ -402,18 +490,17 @@ export async function buildInitialTree<Ctx>(
 /** Build Merkle tree over current alive set (zeros for dead indices). */
 export async function buildAliveTree<Ctx>(
   runner: MerkleCircuitRunner<Ctx>,
-  players: { id: number; leafHash?: Uint8Array }[],
+  leafHashes: Uint8Array[],
   alivePlayerIds: Set<number>,
 ): Promise<RuntimeMerkleTree<Ctx>> {
   const zeroBytes = new Uint8Array(32);
   const leaves: Uint8Array[] = [];
   for (let i = 0; i < TOTAL_LEAVES; i++) {
     if (
-      i < players.length &&
-      alivePlayerIds.has(i) &&
-      players[i].leafHash
+      i < leafHashes.length &&
+      alivePlayerIds.has(i)
     ) {
-      leaves.push(players[i].leafHash!);
+      leaves.push(leafHashes[i]);
     } else {
       leaves.push(zeroBytes);
     }
