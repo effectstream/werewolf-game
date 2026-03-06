@@ -1,10 +1,26 @@
 /* @name upsertLobby */
 INSERT INTO werewolf_lobby (game_id, max_players, created_block, admin_sign_public_key)
-VALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key!)
+VALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key)
 ON CONFLICT (game_id) DO NOTHING;
 
 /* @name getAdminSignKey */
 SELECT admin_sign_public_key FROM werewolf_lobby WHERE game_id = :game_id!;
+
+/* @name setAdminSignKeyUpdate */
+UPDATE werewolf_lobby
+SET admin_sign_public_key = :admin_sign_public_key!
+WHERE game_id = :game_id!;
+
+/* @name markBundlesReady */
+UPDATE werewolf_lobby
+SET bundles_ready = TRUE
+WHERE game_id = :game_id!;
+
+/* @name getAndIncrementGameId */
+UPDATE werewolf_lobby_sequence
+SET last_game_id = last_game_id + 1
+WHERE id = 1
+RETURNING last_game_id;
 
 /* @name getLobby */
 SELECT * FROM werewolf_lobby WHERE game_id = :game_id!;
@@ -25,13 +41,13 @@ SET closed = TRUE
 WHERE game_id = :game_id!;
 
 /* @name insertLobbyPlayer */
-INSERT INTO werewolf_lobby_players (game_id, midnight_address_hash, nickname, joined_block)
-VALUES (:game_id!, :midnight_address_hash!, :nickname!, :joined_block!)
-ON CONFLICT (game_id, midnight_address_hash) DO NOTHING
+INSERT INTO werewolf_lobby_players (game_id, public_key_hex, nickname, joined_block)
+VALUES (:game_id!, :public_key_hex!, :nickname!, :joined_block!)
+ON CONFLICT (game_id, public_key_hex) DO NOTHING
 RETURNING game_id;
 
 /* @name getLobbyPlayers */
-SELECT midnight_address_hash, nickname
+SELECT public_key_hex, nickname
 FROM werewolf_lobby_players
 WHERE game_id = :game_id!
 ORDER BY joined_block ASC;

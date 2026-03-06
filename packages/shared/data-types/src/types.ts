@@ -22,8 +22,6 @@ export const CreateGameQuerystringSchema = Type.Object({
 export const CreateGameBodySchema = Type.Object({
   gameId: Type.String(),
   maxPlayers: Type.Number(),
-  adminSignPublicKeyHex: Type.String(),
-  playerBundles: Type.Array(PlayerBundleSchema),
 });
 
 export const CreateGameResponseSchema = Type.Object({
@@ -40,16 +38,15 @@ export const GenericErrorResponseSchema = Type.Object({
 
 export const JoinGameQuerystringSchema = Type.Object({
   gameId: Type.Number(),
-  midnightAddressHash: Type.String(),
+  publicKey: Type.String(),
   nickname: Type.String(),
 });
 
 export const JoinGameResponseSchema = Type.Object({
   success: Type.Boolean(),
   message: Type.Optional(Type.String()),
-  bundle: Type.Optional(PlayerBundleSchema),
-  gameStarted: Type.Optional(Type.Boolean()),
-  requiresSignature: Type.Optional(Type.Boolean()),
+  playerIndex: Type.Optional(Type.Number()),
+  lobbyState: Type.Optional(Type.String()),
 });
 
 export const CloseGameQuerystringSchema = Type.Object({
@@ -81,7 +78,7 @@ export const GetPlayersQuerystringSchema = Type.Object({
 
 export const PlayerInfoSchema = Type.Object({
   evmAddress: Type.Optional(Type.String()),
-  midnightAddressHash: Type.String(),
+  publicKey: Type.String(),
   nickname: Type.String(),
   playerId: Type.Optional(Type.Number()),
 });
@@ -154,7 +151,7 @@ export const GetVotesForRoundQuerystringSchema = Type.Object({
 
 export const GetBundleQuerystringSchema = Type.Object({
   gameId: Type.Number(),
-  playerHash: Type.String(),
+  publicKeyHex: Type.String(),
   timestamp: Type.Integer(),
   signature: Type.String(),
 });
@@ -162,6 +159,22 @@ export const GetBundleQuerystringSchema = Type.Object({
 export const GetBundleResponseSchema = Type.Object({
   success: Type.Boolean(),
   bundle: Type.Optional(PlayerBundleSchema),
+});
+
+export const LobbyStatusQuerystringSchema = Type.Object({
+  gameId: Type.Number(),
+});
+
+export const LobbyStatusResponseSchema = Type.Object({
+  state: Type.Union([
+    Type.Literal("open"),
+    Type.Literal("closed"),
+    Type.Literal("bundles_ready"),
+  ]),
+  playerCount: Type.Number(),
+  maxPlayers: Type.Number(),
+  bundlesReady: Type.Boolean(),
+  timeoutBlock: Type.Optional(Type.Number()),
 });
 
 export const PlayerVoteSchema = Type.Object({

@@ -1,17 +1,25 @@
+import nacl from 'tweetnacl'
 import { evmWallet } from '../services/evmWallet'
 import { midnightWallet } from '../services/midnightWallet'
-import { getGameState, hashShieldedAddress, type GameInfo } from '../services/lobbyContract'
+import { getGameState, type GameInfo } from '../services/lobbyContract'
 import { BatcherService } from '../services/batcherService'
 import { gameState, type PlayerBundle } from '../state/gameState'
-import { fetchBundle } from '../services/lobbyApi'
+import { fetchBundle, fetchLobbyStatus, fetchOpenLobby } from '../services/lobbyApi'
 import { decodeGamePhrase, isGamePhrase } from '../services/werewolfIdCodec'
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:9999'
 const MIDNIGHT_NETWORK_ID =
   (import.meta.env.VITE_MIDNIGHT_NETWORK_ID as string | undefined) ?? 'undeployed'
+const LOBBY_POLL_INTERVAL_MS = 4000
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 export class LobbyScreen {
-  onJoined: (gameId: number, gameStarted: boolean, midnightAddressHash: string, nickname: string) => void = () => {}
+  onJoined: (gameId: number, gameStarted: boolean, publicKeyHex: string, nickname: string) => void = () => {}
+
+  private static readonly DISCOVER_POLL_MS = 3_000     // ms between /api/open_lobby retries
+  private static readonly DISCOVER_TIMEOUT_MS = 60_000 // give up after 60 s
 
   private container: HTMLDivElement
   private statusEl!: HTMLParagraphElement
@@ -26,8 +34,7 @@ export class LobbyScreen {
   private joinBtn!: HTMLButtonElement
 
   private currentGame: GameInfo | null = null
-  /** Computed once during wallet connection; used by handleJoinGame(). */
-  private _midnightAddressHash: `0x${string}` | null = null
+  private lobbyPollTimer: ReturnType<typeof setInterval> | null = null
 
   constructor() {
     this.container = document.createElement('div')
@@ -83,6 +90,10 @@ export class LobbyScreen {
   }
 
   hide(): void {
+    if (this.lobbyPollTimer) {
+      clearInterval(this.lobbyPollTimer)
+      this.lobbyPollTimer = null
+    }
     this.container.remove()
   }
 
@@ -139,9 +150,7 @@ export class LobbyScreen {
         ? `${shielded.slice(0, 12)}…${shielded.slice(-8)}`
         : shielded
       this.midnightAddressEl.textContent = `Midnight: ${displayAddr}`
-      this._midnightAddressHash = await hashShieldedAddress(shielded)
       console.log('[LobbyScreen] Midnight wallet connected:', shielded)
-      console.log('[LobbyScreen] midnightAddressHash:', this._midnightAddressHash)
     } catch (err) {
       this.setLoading(this.walletBtn, false, 'Connect Browser Wallets')
       this.setStatus(`Midnight wallet connection failed: ${(err as Error).message}`, true)
@@ -154,7 +163,29 @@ export class LobbyScreen {
     this.walletBtn.textContent = 'Wallets Connected'
     this.walletBtn.disabled = true
     this.gameSection.hidden = false
-    this.setStatus('Both wallets connected. Enter a Game ID to join.')
+    this.setStatus('Searching for open lobby…')
+    void this.autoDiscoverLobby()
+  }
+
+  private async autoDiscoverLobby(): Promise<void> {
+    const deadline = Date.now() + LobbyScreen.DISCOVER_TIMEOUT_MS
+    let attempt = 0
+    while (Date.now() < deadline) {
+      try {
+        const open = await fetchOpenLobby()
+        if (open) {
+          this.gameIdInput.value = String(open.gameId)
+          await this.handleFindGame()
+          return
+        }
+      } catch {
+        // transient network error — keep retrying
+      }
+      attempt++
+      this.setStatus(`Waiting for lobby… (${attempt})`)
+      await new Promise<void>((r) => setTimeout(r, LobbyScreen.DISCOVER_POLL_MS))
+    }
+    this.setStatus('No open lobby found. Enter a Game ID to join.')
   }
 
   private async handleFindGame(): Promise<void> {
@@ -230,10 +261,6 @@ export class LobbyScreen {
       this.setStatus('No game selected. Please find a game first.', true)
       return
     }
-    if (!this._midnightAddressHash) {
-      this.setStatus('Midnight address hash not computed. Please reconnect your wallets.', true)
-      return
-    }
 
     const nickname = this.nicknameInput.value.trim()
     if (nickname.length < 3) {
@@ -242,67 +269,98 @@ export class LobbyScreen {
     }
 
     this.setLoading(this.joinBtn, true, 'Join Game')
-    this.setStatus('Signing batcher message…')
+    this.setStatus('Generating signing keypair…')
 
     try {
-      const walletClient = evmWallet.getWalletClient()
-      const midnightAddressHash = this._midnightAddressHash
-      console.log('[LobbyScreen] midnightAddressHash:', midnightAddressHash)
+      // ── 1. Generate Ed25519 keypair for this session ──────────────────────
+      const keypair = nacl.sign.keyPair()
+      const publicKeyHex = bytesToHex(keypair.publicKey)
+      gameState.playerSignKeypair = keypair
+      gameState.publicKeyHex = publicKeyHex
+      console.log('[LobbyScreen] generated Ed25519 publicKeyHex:', publicKeyHex)
 
-      this.setStatus('Submitting to batcher…')
-      console.log('[LobbyScreen] calling BatcherService.joinGame', { address, gameId: this.currentGame.id, midnightAddressHash, nickname })
+      // ── 2. Submit join via batcher (EVM signature) ────────────────────────
+      this.setStatus('Signing batcher message…')
+      const walletClient = evmWallet.getWalletClient()
+      console.log('[LobbyScreen] calling BatcherService.joinGame', { address, gameId: this.currentGame.id, publicKeyHex, nickname })
       const batcherResult = await BatcherService.joinGame(
         address,
         this.currentGame.id,
-        midnightAddressHash,
+        publicKeyHex,
         nickname,
         ({ message }) => walletClient.signMessage({ account: address, message }),
       )
       console.log('[LobbyScreen] batcher joinGame result:', batcherResult)
 
-      this.setStatus('Fetching player bundle…')
-      const bundleUrl = `${API_BASE}/api/join_game?gameId=${this.currentGame.id}&midnightAddressHash=${encodeURIComponent(midnightAddressHash)}&nickname=${encodeURIComponent(nickname)}`
-      console.log('[LobbyScreen] fetching player bundle:', bundleUrl)
-      const bundleRes = await fetch(bundleUrl, { method: 'POST' })
-      console.log('[LobbyScreen] bundle response status:', bundleRes.status)
-      if (!bundleRes.ok) {
-        const text = await bundleRes.text()
-        throw new Error(`Failed to get player bundle: ${bundleRes.status} ${text}`)
-      }
-      const bundleData = await bundleRes.json() as {
-        success: boolean
-        message?: string
-        bundle?: PlayerBundle
-        requiresSignature?: boolean
-        gameStarted?: boolean
-      }
-      console.log('[LobbyScreen] bundle data:', bundleData)
-
-      let bundle: PlayerBundle | undefined = bundleData.bundle
-
-      if (bundleData.requiresSignature) {
-        // Server has the bundle in memory but requires signature-based re-authentication.
-        if (!gameState.leafSecret) {
-          throw new Error('Bundle requires re-authentication but no leafSecret is stored. Please rejoin from a fresh session.')
-        }
-        console.log('[LobbyScreen] requiresSignature=true — re-fetching bundle via /api/get_bundle')
-        bundle = await fetchBundle(this.currentGame!.id, midnightAddressHash, gameState.leafSecret)
-      }
-
-      if (bundle) {
-        // Store leafSecret for future re-retrieval (e.g. page navigations within same session).
-        gameState.leafSecret = bundle.leafSecret
-        gameState.setPlayerBundle(bundle)
-      }
-
-      this.setStatus('Joined successfully! Loading game…')
+      // ── 3. Wait for lobby to close and bundles to be ready ────────────────
+      this.setStatus('Joined! Waiting for lobby to close…')
       this.joinBtn.hidden = true
       this.nicknameInput.hidden = true
-      this.onJoined(this.currentGame.id, bundleData.gameStarted ?? false, midnightAddressHash, nickname)
+
+      const gameId = this.currentGame.id
+      await this.pollForBundles(gameId, publicKeyHex, keypair.secretKey, nickname)
     } catch (err) {
       console.error('[LobbyScreen] handleJoinGame error:', err)
       this.setLoading(this.joinBtn, false, 'Join Game')
       this.setStatus(`Error: ${(err as Error).message}`, true)
     }
+  }
+
+  /**
+   * Polls /api/lobby_status until bundles are ready, then fetches the bundle
+   * and transitions to the game screen.
+   */
+  private pollForBundles(
+    gameId: number,
+    publicKeyHex: string,
+    secretKey: Uint8Array,
+    nickname: string,
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const poll = async () => {
+        try {
+          const status = await fetchLobbyStatus(gameId)
+          console.log('[LobbyScreen] lobby status:', status)
+
+          // Update the game info display with live player count
+          if (this.gameInfoEl && !this.gameInfoEl.hidden) {
+            const stateLabel = status.state === 'open' ? '🟢 Open' : '🔴 Closed'
+            this.gameInfoEl.innerHTML = `
+              <div class="lobby-game-row"><span>Game ID</span><strong>${gameId}</strong></div>
+              <div class="lobby-game-row"><span>Status</span><strong>${stateLabel}</strong></div>
+              <div class="lobby-game-row"><span>Players</span><strong>${status.playerCount} / ${status.maxPlayers}</strong></div>
+            `
+          }
+
+          if (status.bundlesReady) {
+            // Bundles are ready — fetch ours
+            if (this.lobbyPollTimer) {
+              clearInterval(this.lobbyPollTimer)
+              this.lobbyPollTimer = null
+            }
+            this.setStatus('Bundles ready! Fetching your bundle…')
+
+            const bundle = await fetchBundle(gameId, publicKeyHex, secretKey)
+            gameState.leafSecret = bundle.leafSecret
+            gameState.setPlayerBundle(bundle)
+
+            this.setStatus('Bundle received! Loading game…')
+            this.onJoined(gameId, true, publicKeyHex, nickname)
+            resolve()
+          } else if (status.state === 'closed' && !status.bundlesReady) {
+            this.setStatus('Lobby closed. Generating bundles…')
+          } else {
+            this.setStatus(`Waiting for players… (${status.playerCount}/${status.maxPlayers})`)
+          }
+        } catch (err) {
+          console.error('[LobbyScreen] lobby poll error:', err)
+          // Don't reject — keep polling through transient errors
+        }
+      }
+
+      // Initial poll immediately
+      poll()
+      this.lobbyPollTimer = setInterval(poll, LOBBY_POLL_INTERVAL_MS)
+    })
   }
 }

@@ -1,11 +1,11 @@
 // Messages sent from client to server
 export type ClientMessage =
-  | { type: "identify"; midnightAddressHash: string; nickname: string }
+  | { type: "identify"; publicKeyHex: string; nickname: string }
   | { type: "message"; text: string };
 
 // Messages sent from server to client
 export type ServerMessage =
-  | { type: "identified"; midnightAddressHash: string }
+  | { type: "identified"; publicKeyHex: string }
   | { type: "message"; from: string; text: string; timestamp: number }
   | { type: "system"; text: string; timestamp: number }
   | { type: "error"; code: string; message: string };
@@ -13,7 +13,7 @@ export type ServerMessage =
 // HTTP body for POST /invite
 export interface InviteBody {
   gameId: number;
-  midnightAddressHash: string;
+  publicKeyHex: string;
   nickname: string;
   /** Chat channel to invite to. Defaults to "general". */
   channel?: string;

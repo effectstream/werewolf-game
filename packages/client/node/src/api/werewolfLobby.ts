@@ -9,6 +9,7 @@ import {
   getWerewolfRoundState,
   incrementLobbyPlayerCount,
   insertLobbyPlayer,
+  markBundlesReady,
   updateRoundVoteCount,
   upsertLobby,
 } from "@werewolf-game/database";
@@ -54,15 +55,17 @@ export type PlayerBundle = {
 
 // ── Handlers ───────────────────────────────────────────────────────────────
 
+/**
+ * Create a lobby in the database. Bundles are no longer passed in —
+ * they are generated server-side after the lobby closes.
+ */
 export async function createGameHandler(
   dbConn: Pool,
   gameId: number,
   maxPlayers: number,
-  adminSignPublicKeyHex: string,
-  playerBundles: PlayerBundle[],
 ) {
-  if (maxPlayers < 5) {
-    throw Object.assign(new Error("Minimum 5 players required."), {
+  if (maxPlayers < 2) {
+    throw Object.assign(new Error("Minimum 2 players required."), {
       statusCode: 400,
     });
   }
@@ -72,20 +75,12 @@ export async function createGameHandler(
       game_id: gameId,
       max_players: maxPlayers,
       created_block: 0,
-      admin_sign_public_key: adminSignPublicKeyHex,
+      admin_sign_public_key: null,
     }, dbConn),
     "upsertLobby",
   );
 
-  // Store bundles in memory — never written to DB so effectstream cannot expose them.
-  store.storePendingBundles(gameId, playerBundles as store.PlayerBundle[]);
-
-  // Cache the admin signing public key so votes_for_round can verify without a DB lookup.
-  store.setAdminSignKey(gameId, adminSignPublicKeyHex);
-
-  console.log(
-    `[lobby] Game ${gameId} created with ${playerBundles.length} bundles (in-memory only)`,
-  );
+  console.log(`[lobby] Game ${gameId} lobby created (max ${maxPlayers})`);
 
   return {
     gameId,
@@ -93,136 +88,84 @@ export async function createGameHandler(
   };
 }
 
+/**
+ * Join a lobby. The player provides an Ed25519 public key which is stored
+ * for later bundle retrieval authentication. No bundle is delivered on join —
+ * players must wait until bundles are ready and call /api/get_bundle.
+ */
 export async function joinGameHandler(
   dbConn: Pool,
   gameId: number,
-  midnightAddressHash: string,
+  publicKeyHex: string,
   nickname: string,
 ) {
-  // Check if this player is already registered (either via a prior API call or
-  // because the state machine STF processed the batcher transaction first and
-  // called insertLobbyPlayer before this HTTP request arrived).
+  // Check if this player is already registered.
   const existingPlayers = await runPreparedQuery(
     getLobbyPlayers.run({ game_id: gameId }, dbConn),
     "getLobbyPlayers",
   );
   const alreadyJoined = existingPlayers.some(
-    (p) => p.midnight_address_hash === midnightAddressHash,
+    (p) => p.public_key_hex === publicKeyHex,
   );
 
-  // Always (re-)invite to general chat — invitePlayer is idempotent on the
-  // chat server (Set.add / Map.set), so sending it more than once is safe.
-  await chatPost("/invite", { gameId, midnightAddressHash, nickname });
+  // Always (re-)invite to general chat — idempotent.
+  await chatPost("/invite", { gameId, publicKeyHex, nickname });
+
+  let playerIndex: number | undefined;
 
   if (alreadyJoined) {
-    // Check if the bundle has already been delivered to this player
-    const existing = store.getDeliveredBundle(gameId, midnightAddressHash);
-    if (existing) {
-      // Bundle already delivered — client must use /api/get_bundle with a
-      // leafSecret-derived signature to re-retrieve it. This prevents any caller
-      // without the leafSecret from fetching sensitive role/merkle data.
-      if (existing.bundle.role === 1) {
-        await chatPost("/invite", {
-          gameId,
-          midnightAddressHash,
-          nickname,
-          channel: "werewolf",
-        });
-      }
-      console.log(
-        `[lobby] Player ${midnightAddressHash} re-joined game ${gameId} — bundle requires signature.`,
-      );
-      return { success: false, requiresSignature: true };
-    }
-
-    // Player is in DB but no bundle delivered yet — this happens when the
-    // STF processed the batcher transaction before this HTTP request arrived.
-    // Skip DB insert/increment (already done by STF) and proceed to deliver bundle.
+    playerIndex = existingPlayers.findIndex(
+      (p) => p.public_key_hex === publicKeyHex,
+    );
     console.log(
-      `[lobby] Player ${midnightAddressHash} found in DB but bundle not delivered yet — first-time delivery (STF raced ahead).`,
+      `[lobby] Player ${publicKeyHex.slice(0, 12)}… already in game ${gameId}.`,
     );
   } else {
-    // First time joining via this API — insert the player and increment count.
-    // (When the state machine fires later it will hit ON CONFLICT DO NOTHING.)
+    // First time joining — insert the player and increment count.
     const insertResult = await runPreparedQuery(
       insertLobbyPlayer.run({
         game_id: gameId,
-        midnight_address_hash: midnightAddressHash,
+        public_key_hex: publicKeyHex,
         nickname,
         joined_block: 0,
       }, dbConn),
       "insertLobbyPlayer",
     ) as unknown as IInsertLobbyPlayerResult[];
-    // Only increment player count if the insert actually happened (RETURNING game_id exists)
-    // This prevents double-increment when the STF has already inserted the player.
+
     if (insertResult.length > 0) {
       await runPreparedQuery(
         incrementLobbyPlayerCount.run({ game_id: gameId }, dbConn),
         "incrementLobbyPlayerCount",
       );
     }
+
+    // Store public key for later signature verification.
+    store.storePlayerPublicKey(gameId, publicKeyHex);
+    playerIndex = existingPlayers.length; // 0-indexed position
   }
 
-  // Check that there are still bundles left (slots open).
-  const remaining = store.countPendingBundles(gameId);
-  if (remaining === 0) {
-    throw Object.assign(
-      new Error("Game not found or already started."),
-      { statusCode: 409 },
-    );
-  }
-
-  // Pop one bundle from the in-memory pool.
-  const bundle = store.popPendingBundle(gameId) as PlayerBundle | undefined;
-  if (!bundle) {
-    throw Object.assign(new Error("Bundle pool unexpectedly empty."), {
-      statusCode: 500,
-    });
-  }
-
-  // Store delivered bundle in memory so it can be re-retrieved with signature.
-  store.storeDeliveredBundle(
-    gameId,
-    midnightAddressHash,
-    bundle as store.PlayerBundle,
+  // Determine lobby state for the response.
+  const lobbyRows = await runPreparedQuery(
+    getLobby.run({ game_id: gameId }, dbConn),
+    "getLobby",
   );
+  const lobby = lobbyRows[0];
+  let lobbyState = "open";
+  if (lobby?.bundles_ready) lobbyState = "bundles_ready";
+  else if (lobby?.closed) lobbyState = "closed";
 
-  // If the player is a werewolf, invite them to the werewolf-only channel.
-  // Must be awaited so the allowlist is populated before this response reaches
-  // the client — the frontend connects to the werewolf WebSocket immediately
-  // after receiving the bundle, so fire-and-forget would cause NOT_ALLOWED.
-  if (bundle.role === 1) {
-    await chatPost("/invite", {
-      gameId,
-      midnightAddressHash,
-      nickname,
-      channel: "werewolf",
-    });
-  }
-
-  let gameStarted = false;
-
-  // remaining was the count before the pop, so after the pop there are remaining-1 left.
-  if (remaining - 1 === 0) {
-    // Last slot filled — start the game.
-    await runPreparedQuery(
-      closeLobby.run({ game_id: gameId }, dbConn),
-      "closeLobby",
-    );
-    chatPost("/broadcast", {
-      gameId,
-      text: "GAME_STARTED: All players have joined. The game begins now.",
-    });
-    gameStarted = true;
-    console.log(`[lobby] Game ${gameId} started — all slots filled.`);
-  }
-
-  return { success: true, bundle, gameStarted };
+  return { success: true, playerIndex, lobbyState };
 }
 
+/**
+ * Retrieve a bundle after the lobby has closed and bundles are ready.
+ * The player proves identity by signing "werewolf:{gameId}:{timestamp}"
+ * with the Ed25519 private key corresponding to their registered public key.
+ */
 export async function getBundleHandler(
+  dbConn: Pool,
   gameId: number,
-  playerHash: string,
+  publicKeyHex: string,
   timestamp: number,
   signature: string,
 ): Promise<{ success: boolean; bundle?: PlayerBundle }> {
@@ -235,32 +178,62 @@ export async function getBundleHandler(
     );
   }
 
-  const entry = store.getDeliveredBundle(gameId, playerHash);
-  if (!entry) {
+  // Check if bundles are ready.
+  const lobbyRows = await runPreparedQuery(
+    getLobby.run({ game_id: gameId }, dbConn),
+    "getLobby",
+  );
+  if (lobbyRows.length === 0) {
+    throw Object.assign(new Error("Game not found."), { statusCode: 404 });
+  }
+  if (!lobbyRows[0].bundles_ready) {
+    throw Object.assign(
+      new Error("Bundles are not ready yet. Please wait for the lobby to close."),
+      { statusCode: 425 },
+    );
+  }
+
+  // Look up the player's public key for verification.
+  let pubKeyBytes = store.getPlayerPublicKey(gameId, publicKeyHex);
+  if (!pubKeyBytes) {
+    // Try to reload from DB (e.g., after server restart).
+    const players = await runPreparedQuery(
+      getLobbyPlayers.run({ game_id: gameId }, dbConn),
+      "getLobbyPlayers",
+    );
+    const found = players.find((p) => p.public_key_hex === publicKeyHex);
+    if (!found) {
+      throw Object.assign(
+        new Error("Player not found in this lobby."),
+        { statusCode: 404 },
+      );
+    }
+    store.storePlayerPublicKey(gameId, publicKeyHex);
+    pubKeyBytes = store.getPlayerPublicKey(gameId, publicKeyHex)!;
+  }
+
+  // Verify Ed25519 signature over "werewolf:{gameId}:{timestamp}".
+  const message = new TextEncoder().encode(
+    `werewolf:${gameId}:${timestamp}`,
+  );
+  const sigBytes = hexToBytes(signature);
+  const isValid = nacl.sign.detached.verify(message, sigBytes, pubKeyBytes);
+  if (!isValid) {
+    throw Object.assign(new Error("Invalid signature."), { statusCode: 403 });
+  }
+
+  // Look up the bundle assigned to this public key.
+  const bundle = store.getBundleByPublicKey(gameId, publicKeyHex);
+  if (!bundle) {
     throw Object.assign(
       new Error(
-        "Bundle not found. Player may not have joined yet, or server was restarted.",
+        "Bundle not found. Server may have been restarted after bundle generation.",
       ),
       { statusCode: 404 },
     );
   }
 
-  // Verify signature: the player proves ownership of their leafSecret by signing
-  // a canonical message with the Ed25519 key derived from it.
-  const message = new TextEncoder().encode(
-    `retrieve:${gameId}:${playerHash}:${timestamp}`,
-  );
-  const sigBytes = hexToBytes(signature);
-  const isValid = nacl.sign.detached.verify(
-    message,
-    sigBytes,
-    entry.sigPublicKey,
-  );
-  if (!isValid) {
-    throw Object.assign(new Error("Invalid signature."), { statusCode: 403 });
-  }
-
-  return { success: true, bundle: entry.bundle as PlayerBundle };
+  return { success: true, bundle: bundle as PlayerBundle };
 }
 
 export async function closeGameHandler(dbConn: Pool, gameId: number) {
@@ -269,6 +242,34 @@ export async function closeGameHandler(dbConn: Pool, gameId: number) {
     "closeLobby",
   );
   return { success: true };
+}
+
+/**
+ * Lobby status endpoint for frontend polling.
+ */
+export async function lobbyStatusHandler(dbConn: Pool, gameId: number) {
+  const lobbyRows = await runPreparedQuery(
+    getLobby.run({ game_id: gameId }, dbConn),
+    "getLobby",
+  );
+  if (lobbyRows.length === 0) {
+    throw Object.assign(new Error(`Game ${gameId} not found`), {
+      statusCode: 404,
+    });
+  }
+  const lobby = lobbyRows[0];
+
+  let state: "open" | "closed" | "bundles_ready" = "open";
+  if (lobby.bundles_ready) state = "bundles_ready";
+  else if (lobby.closed) state = "closed";
+
+  return {
+    state,
+    playerCount: Number(lobby.player_count),
+    maxPlayers: Number(lobby.max_players),
+    bundlesReady: lobby.bundles_ready,
+    timeoutBlock: lobby.timeout_block ? Number(lobby.timeout_block) : undefined,
+  };
 }
 
 export async function getGameStateHandler(dbConn: Pool, gameId: number) {
@@ -301,15 +302,12 @@ export async function getPlayersHandler(dbConn: Pool, gameId: number) {
   );
   return {
     gameId,
-    players: players.map((p) => {
-      // Enrich each DB row with the playerId from the in-memory delivered bundle.
-      // Returns null after a server restart (the bundle pool is lost), but the
-      // player can re-retrieve their bundle via /api/get_bundle.
-      const entry = store.getDeliveredBundle(gameId, p.midnight_address_hash);
+    players: players.map((p, index) => {
+      const bundle = store.getBundleByPublicKey(gameId, p.public_key_hex);
       return {
-        midnightAddressHash: p.midnight_address_hash,
+        publicKey: p.public_key_hex,
         nickname: p.nickname,
-        playerId: entry?.bundle.playerId ?? undefined,
+        playerId: bundle?.playerId ?? index,
       };
     }),
   };
@@ -523,5 +521,20 @@ export async function getGameViewHandler(dbConn: Pool, gameId: number) {
     updatedBlock: typeof row.updated_block === "string"
       ? Number(row.updated_block)
       : row.updated_block,
+  };
+}
+
+export async function openLobbyHandler(dbConn: Pool) {
+  const res = await dbConn.query(
+    "SELECT game_id, player_count, max_players FROM werewolf_lobby WHERE closed = FALSE ORDER BY game_id DESC LIMIT 1",
+  );
+  if (res.rows.length === 0) {
+    throw Object.assign(new Error("No open lobby"), { statusCode: 404 });
+  }
+  const row = res.rows[0];
+  return {
+    gameId: Number(row.game_id),
+    playerCount: Number(row.player_count),
+    maxPlayers: Number(row.max_players),
   };
 }

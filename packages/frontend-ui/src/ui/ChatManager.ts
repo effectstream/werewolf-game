@@ -36,7 +36,7 @@ export class ChatManager {
     this.initEventListeners()
   }
 
-  public connect(gameId: number, midnightAddressHash: string, nickname: string, channel = 'general'): void {
+  public connect(gameId: number, publicKeyHex: string, nickname: string, channel = 'general'): void {
     // Close any existing connection before opening a new one
     if (this.ws) {
       this.ws.onclose = null
@@ -48,7 +48,7 @@ export class ChatManager {
       this.reconnectTimer = null
     }
 
-    this.playerHash = midnightAddressHash
+    this.playerHash = publicKeyHex
     this.playerNickname = nickname
     this.connectedGameId = gameId
     this.connectedChannel = channel
@@ -59,7 +59,7 @@ export class ChatManager {
     this.ws = new WebSocket(`${base}/chat/${gameId}/${channel}`)
 
     this.ws.onopen = () => {
-      this.ws!.send(JSON.stringify({ type: 'identify', midnightAddressHash, nickname }))
+      this.ws!.send(JSON.stringify({ type: 'identify', publicKeyHex, nickname }))
     }
 
     this.ws.onmessage = (event) => {

@@ -2,9 +2,12 @@
  * In-memory store for sensitive game data that must not be persisted to the
  * database (which is auto-exposed by the effectstream SDK).
  *
- * - Pending bundles: pre-shuffled PlayerBundles waiting for first-time delivery.
- * - Delivered bundles: assigned bundles, keyed by (gameId, playerHash). Re-retrieval
- *   requires a signature produced with the Ed25519 key derived from the bundle's leafSecret.
+ * - Player bundles: keyed by (gameId, publicKeyHex) after lobby close.
+ *   Players retrieve their bundle via Ed25519 signature authentication.
+ * - Player public keys: Ed25519 public key bytes for signature verification,
+ *   keyed by (gameId, publicKeyHex).
+ * - Game secrets: master secret and admin keypairs generated during bundle
+ *   creation. Needed for vote decryption and game management.
  * - Phase votes: encrypted votes for the current round/phase. Purged when the
  *   state machine detects a phase transition on-chain.
  * - Admin signing keys: Ed25519 public keys stored per game for votes_for_round
@@ -15,7 +18,7 @@
 import nacl from "tweetnacl";
 
 // ---------------------------------------------------------------------------
-// Types (mirror the PlayerBundle type in werewolfLobby.ts)
+// Types (mirror the PlayerBundle type in bundle-generator.ts)
 // ---------------------------------------------------------------------------
 
 export type PlayerBundle = {
@@ -33,20 +36,24 @@ export type PhaseVote = {
   merklePathJson: string;
 };
 
-type DeliveredEntry = {
-  bundle: PlayerBundle;
-  sigPublicKey: Uint8Array; // Ed25519 public key derived from leafSecret
+export type GameSecrets = {
+  masterSecret: Uint8Array;
+  adminVoteKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
+  adminSignKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
 };
 
 // ---------------------------------------------------------------------------
 // Internal Maps
 // ---------------------------------------------------------------------------
 
-/** Pending bundles awaiting first-time player pickup. Keyed by gameId. */
-const pendingBundles = new Map<number, PlayerBundle[]>();
+/** Bundles keyed by `${gameId}:${publicKeyHex}`. Populated after lobby close. */
+const bundlesByPublicKey = new Map<string, PlayerBundle>();
 
-/** Delivered bundles, keyed by `${gameId}:${playerHash}`. */
-const deliveredBundles = new Map<string, DeliveredEntry>();
+/** Player Ed25519 public key bytes, keyed by `${gameId}:${publicKeyHex}`. */
+const playerPublicKeys = new Map<string, Uint8Array>();
+
+/** Game-level secrets (master secret, admin keypairs). */
+const gameSecrets = new Map<number, GameSecrets>();
 
 /** Phase votes, keyed by `${gameId}:${round}:${phase}`. */
 const phaseVotes = new Map<string, PhaseVote[]>();
@@ -67,8 +74,8 @@ function hexToBytes(hex: string): Uint8Array {
   return arr;
 }
 
-function deliveredKey(gameId: number, playerHash: string): string {
-  return `${gameId}:${playerHash}`;
+function bundleKey(gameId: number, publicKeyHex: string): string {
+  return `${gameId}:${publicKeyHex}`;
 }
 
 function voteKey(gameId: number, round: number, phase: string): string {
@@ -76,66 +83,76 @@ function voteKey(gameId: number, round: number, phase: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Pending Bundles
-// ---------------------------------------------------------------------------
-
-/** Store the full bundle pool for a game on creation. */
-export function storePendingBundles(
-  gameId: number,
-  bundles: PlayerBundle[],
-): void {
-  pendingBundles.set(gameId, [...bundles]);
-  console.log(`[store] Stored ${bundles.length} pending bundles for game=${gameId}`);
-}
-
-/** Pop one bundle from the pool (LIFO). Returns undefined when pool is empty. */
-export function popPendingBundle(gameId: number): PlayerBundle | undefined {
-  const pool = pendingBundles.get(gameId);
-  if (!pool || pool.length === 0) return undefined;
-  return pool.pop();
-}
-
-/** Number of bundles still available in the pool for a game. */
-export function countPendingBundles(gameId: number): number {
-  return pendingBundles.get(gameId)?.length ?? 0;
-}
-
-// ---------------------------------------------------------------------------
-// Delivered Bundles
+// Bundles (keyed by public key, populated after lobby close)
 // ---------------------------------------------------------------------------
 
 /**
- * Record a bundle as delivered to a player.
- * Derives the player's Ed25519 signing public key from their leafSecret so
- * that future re-retrieval requests can be authenticated.
- *
- * Requirement: leafSecret must be a 32-byte value encoded as 64 hex chars.
+ * Store bundles mapped by player public key after bundle generation.
+ * The map keys are the Ed25519 public key hex strings that players
+ * registered with on the EVM contract.
  */
-export function storeDeliveredBundle(
+export function storeBundlesByPublicKey(
   gameId: number,
-  playerHash: string,
-  bundle: PlayerBundle,
+  bundles: Map<string, PlayerBundle>,
 ): void {
-  const seed = hexToBytes(bundle.leafSecret);
-  if (seed.length !== 32) {
-    throw new Error(
-      `[store] leafSecret for player ${playerHash} in game ${gameId} must be 32 bytes (got ${seed.length})`,
-    );
+  for (const [publicKeyHex, bundle] of bundles) {
+    bundlesByPublicKey.set(bundleKey(gameId, publicKeyHex), bundle);
   }
-  const keypair = nacl.sign.keyPair.fromSeed(seed);
-  deliveredBundles.set(deliveredKey(gameId, playerHash), {
-    bundle,
-    sigPublicKey: keypair.publicKey,
-  });
-  console.log(`[store] Stored delivered bundle for game=${gameId} player=${playerHash}`);
+  console.log(
+    `[store] Stored ${bundles.size} bundles by public key for game=${gameId}`,
+  );
 }
 
-/** Retrieve a delivered bundle entry (bundle + signing public key). */
-export function getDeliveredBundle(
+/** Retrieve a bundle assigned to a specific public key. */
+export function getBundleByPublicKey(
   gameId: number,
-  playerHash: string,
-): DeliveredEntry | undefined {
-  return deliveredBundles.get(deliveredKey(gameId, playerHash));
+  publicKeyHex: string,
+): PlayerBundle | undefined {
+  return bundlesByPublicKey.get(bundleKey(gameId, publicKeyHex));
+}
+
+// ---------------------------------------------------------------------------
+// Player Public Keys (for signature verification)
+// ---------------------------------------------------------------------------
+
+/** Store a player's Ed25519 public key bytes for later signature verification. */
+export function storePlayerPublicKey(
+  gameId: number,
+  publicKeyHex: string,
+): void {
+  const keyBytes = hexToBytes(publicKeyHex);
+  if (keyBytes.length !== 32) {
+    throw new Error(
+      `[store] Public key must be 32 bytes (got ${keyBytes.length}) for game=${gameId}`,
+    );
+  }
+  playerPublicKeys.set(bundleKey(gameId, publicKeyHex), keyBytes);
+}
+
+/** Retrieve a player's Ed25519 public key bytes. */
+export function getPlayerPublicKey(
+  gameId: number,
+  publicKeyHex: string,
+): Uint8Array | undefined {
+  return playerPublicKeys.get(bundleKey(gameId, publicKeyHex));
+}
+
+// ---------------------------------------------------------------------------
+// Game Secrets
+// ---------------------------------------------------------------------------
+
+/** Store game-level secrets generated during bundle creation. */
+export function storeGameSecrets(
+  gameId: number,
+  secrets: GameSecrets,
+): void {
+  gameSecrets.set(gameId, secrets);
+  console.log(`[store] Stored game secrets for game=${gameId}`);
+}
+
+/** Retrieve game-level secrets. */
+export function getGameSecrets(gameId: number): GameSecrets | undefined {
+  return gameSecrets.get(gameId);
 }
 
 // ---------------------------------------------------------------------------
@@ -173,7 +190,11 @@ export function getVotes(
 }
 
 /** Vote count for a specific round/phase. */
-export function countVotes(gameId: number, round: number, phase: string): number {
+export function countVotes(
+  gameId: number,
+  round: number,
+  phase: string,
+): number {
   return getVotes(gameId, round, phase).length;
 }
 
@@ -181,11 +202,17 @@ export function countVotes(gameId: number, round: number, phase: string): number
  * Remove all votes for a round/phase. Called by the state machine after
  * detecting that the on-chain state has advanced past this phase.
  */
-export function purgeVotes(gameId: number, round: number, phase: string): void {
+export function purgeVotes(
+  gameId: number,
+  round: number,
+  phase: string,
+): void {
   const key = voteKey(gameId, round, phase);
   const count = phaseVotes.get(key)?.length ?? 0;
   phaseVotes.delete(key);
-  console.log(`[store] Purged ${count} votes for game=${gameId} round=${round} phase=${phase}`);
+  console.log(
+    `[store] Purged ${count} votes for game=${gameId} round=${round} phase=${phase}`,
+  );
 }
 
 // ---------------------------------------------------------------------------

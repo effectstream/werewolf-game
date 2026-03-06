@@ -2,6 +2,8 @@ import { type Static, Type } from "@sinclair/typebox";
 import type { Pool } from "pg";
 import type { StartConfigApiRouter } from "@paimaexample/runtime";
 import type fastify from "fastify";
+import { setDbPool } from "./db-pool.ts";
+import { scheduleNextLobby } from "./lobby-closer.ts";
 import {
   closeGameHandler,
   createGameHandler,
@@ -12,6 +14,8 @@ import {
   getVotesForRoundHandler,
   getVoteStatusHandler,
   joinGameHandler,
+  lobbyStatusHandler,
+  openLobbyHandler,
   submitVoteHandler,
 } from "./api/werewolfLobby.ts";
 import {
@@ -34,6 +38,8 @@ import {
   GetVoteStatusResponseSchema,
   JoinGameQuerystringSchema,
   JoinGameResponseSchema,
+  LobbyStatusQuerystringSchema,
+  LobbyStatusResponseSchema,
   SubmitVoteBodySchema,
   SubmitVoteResponseSchema,
 } from "@werewolf-game/data-types/grammar";
@@ -58,6 +64,9 @@ export const apiRouter: StartConfigApiRouter = async function (
   server: fastify.FastifyInstance,
   dbConn: Pool,
 ): Promise<void> {
+  // Store the database pool for use by lobby-closer and other modules
+  setDbPool(dbConn);
+
   server.get<{
     Querystring: Static<typeof FaucetQueryParamsSchema>;
     Reply: Static<typeof FaucetResponseSchema>;
@@ -115,15 +124,12 @@ export const apiRouter: StartConfigApiRouter = async function (
     "/api/create_game",
     { schema: { body: CreateGameBodySchema } },
     async (request, reply) => {
-      const { gameId, maxPlayers, adminSignPublicKeyHex, playerBundles } =
-        request.body;
+      const { gameId, maxPlayers } = request.body;
       try {
         return await createGameHandler(
           dbConn,
           Number(gameId),
           maxPlayers,
-          adminSignPublicKeyHex,
-          playerBundles,
         );
       } catch (err: any) {
         if (err?.statusCode === 400) {
@@ -140,15 +146,12 @@ export const apiRouter: StartConfigApiRouter = async function (
       typeof JoinGameResponseSchema | typeof GenericErrorResponseSchema
     >;
   }>("/api/join_game", async (request, reply) => {
-    const { gameId, midnightAddressHash, nickname } = request.query;
+    const { gameId, publicKey, nickname } = request.query;
     try {
-      // Querystring params arrive as strings without schema coercion; convert
-      // gameId explicitly so chatPost sends a JSON number (not a string) and
-      // the chat server's `typeof body.gameId === "number"` check succeeds.
       return await joinGameHandler(
         dbConn,
         Number(gameId),
-        midnightAddressHash,
+        publicKey,
         nickname,
       );
     } catch (err: any) {
@@ -165,11 +168,12 @@ export const apiRouter: StartConfigApiRouter = async function (
       typeof GetBundleResponseSchema | typeof GenericErrorResponseSchema
     >;
   }>("/api/get_bundle", async (request, reply) => {
-    const { gameId, playerHash, timestamp, signature } = request.query;
+    const { gameId, publicKeyHex, timestamp, signature } = request.query;
     try {
       return await getBundleHandler(
+        dbConn,
         Number(gameId),
-        playerHash,
+        publicKeyHex,
         timestamp,
         signature,
       );
@@ -177,6 +181,26 @@ export const apiRouter: StartConfigApiRouter = async function (
       if (err?.statusCode === 403) {
         return reply.status(403).send({ error: err.message });
       }
+      if (err?.statusCode === 404) {
+        return reply.status(404).send({ error: err.message });
+      }
+      if (err?.statusCode === 425) {
+        return reply.status(425).send({ error: err.message });
+      }
+      throw err;
+    }
+  });
+
+  server.get<{
+    Querystring: Static<typeof LobbyStatusQuerystringSchema>;
+    Reply: Static<
+      typeof LobbyStatusResponseSchema | typeof GenericErrorResponseSchema
+    >;
+  }>("/api/lobby_status", async (request, reply) => {
+    const { gameId } = request.query;
+    try {
+      return await lobbyStatusHandler(dbConn, Number(gameId));
+    } catch (err: any) {
       if (err?.statusCode === 404) {
         return reply.status(404).send({ error: err.message });
       }
@@ -285,4 +309,61 @@ export const apiRouter: StartConfigApiRouter = async function (
       throw err;
     }
   });
+
+  server.get("/api/open_lobby", async (_request, reply) => {
+    try {
+      return await openLobbyHandler(dbConn);
+    } catch (err: any) {
+      if (err?.statusCode === 404) {
+        return reply.status(404).send({ error: err.message });
+      }
+      throw err;
+    }
+  });
+
+  // -------------------------------------------------------------------------
+  // Bootstrap: ensure at least one open lobby exists on startup.
+  // Retries until werewolf_lobby exists (migrations may not be done yet).
+  // -------------------------------------------------------------------------
+  void (async () => {
+    const RETRY_MS = 2_000;
+    const TIMEOUT_MS = 60_000;
+    const deadline = Date.now() + TIMEOUT_MS;
+
+    while (Date.now() < deadline) {
+      try {
+        const res = await dbConn.query(
+          "SELECT COUNT(*) AS cnt FROM werewolf_lobby WHERE closed = FALSE",
+        );
+        const count = parseInt(res.rows[0]?.cnt ?? "0", 10);
+        if (count === 0) {
+          console.log(
+            "[api] No open lobby found — scheduling initial lobby creation",
+          );
+          await scheduleNextLobby();
+        } else {
+          console.log(
+            `[api] Found ${count} open lobby(ies) — skipping bootstrap`,
+          );
+        }
+        return; // done
+      } catch (err: any) {
+        if (
+          err?.message?.includes("relation") &&
+          err?.message?.includes("does not exist")
+        ) {
+          console.log(
+            "[api] werewolf_lobby not ready yet — retrying bootstrap in 2s…",
+          );
+          await new Promise((r) => setTimeout(r, RETRY_MS));
+        } else {
+          console.warn("[api] Bootstrap lobby check failed:", err);
+          return; // unexpected error — don't retry
+        }
+      }
+    }
+    console.warn(
+      "[api] Bootstrap timed out waiting for werewolf_lobby — no lobby created",
+    );
+  })();
 };

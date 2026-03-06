@@ -49,6 +49,10 @@ class GameState {
   playerBundle: PlayerBundle | null = null
   /** leafSecret from the delivered bundle, kept for re-retrieval via /api/get_bundle */
   leafSecret: string | null = null
+  /** Ed25519 keypair generated at join time, used for bundle request signing */
+  playerSignKeypair: { publicKey: Uint8Array; secretKey: Uint8Array } | null = null
+  /** Hex-encoded Ed25519 public key (0x-prefixed), used as player identifier */
+  publicKeyHex: string | null = null
   /** Maps player index → nickname, populated from /api/game_players at boot */
   playerNicknames: Map<number, string> = new Map()
 

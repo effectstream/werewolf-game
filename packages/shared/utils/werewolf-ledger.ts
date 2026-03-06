@@ -152,19 +152,26 @@ export class WerewolfLedger {
 
   /**
    * Indices of alive players for a game.
-   * Handles both array-of-{key,value} and plain object-keyed-by-index formats.
+   * Iterates the `Werewolf_playerAlive` Map keyed by GamePlayerKey
+   * (serialised as JSON `{"gameId":N,"playerIdx":M}`) and collects
+   * indices where the value is `true`.
    */
   aliveIndices(gameId: number): number[] {
     const aliveMap = this.parser.parseMap(
       this.payload["Werewolf_playerAlive"],
     );
-    // Look up the Vector<16, Boolean> for this gameId.
-    // The key is a Uint<32> serialised as a plain number string.
-    const aliveVec = aliveMap[String(gameId)] ??
-      aliveMap[JSON.stringify(gameId)] ??
-      null;
-    if (aliveVec == null) return [];
-    return this.#extractAliveIndices(aliveVec);
+    const indices: number[] = [];
+    for (const [rawKey, value] of Object.entries(aliveMap)) {
+      try {
+        const keyObj = JSON.parse(rawKey);
+        if (Number(keyObj.gameId) === gameId && value === true) {
+          indices.push(Number(keyObj.playerIdx));
+        }
+      } catch {
+        // not a JSON composite key — skip
+      }
+    }
+    return indices.sort((a, b) => a - b);
   }
 
   /** Number of alive players for a game. */
@@ -173,15 +180,47 @@ export class WerewolfLedger {
   }
 
   /**
-   * Submitted-vote count for a (gameId, round) pair.
-   * Tries multiple GameRoundKey serialisation candidates and falls back to
-   * JSON.parse iteration.
+   * All encrypted votes for a given (gameId, round, phase) tuple.
+   * Iterates the `Werewolf_encryptedVotes` Map keyed by VoteKey
+   * (serialised as JSON `{"gameId":N,"round":N,"phase":N,"nullifier":"..."}`)
+   * and collects matching Bytes<3> values.
    */
-  voteCount(gameId: number, round: number): number {
-    const movesMap = this.parser.parseMap(
-      this.payload["Werewolf_movesSubmittedCount"],
+  getVotesForRoundAndPhase(
+    gameId: number,
+    round: number,
+    phase: number | string,
+  ): unknown[] {
+    const votesMap = this.parser.parseMap(
+      this.payload["Werewolf_encryptedVotes"],
     );
-    return this.#extractVoteCount(movesMap, gameId, round);
+    const phaseNum = typeof phase === "string"
+      ? (phase.toUpperCase() === "NIGHT" || phase === "1" ? 1 : 2)
+      : phase;
+    const votes: unknown[] = [];
+    for (const [rawKey, value] of Object.entries(votesMap)) {
+      try {
+        const keyObj = JSON.parse(rawKey);
+        if (
+          Number(keyObj.gameId) === gameId &&
+          Number(keyObj.round) === round &&
+          Number(keyObj.phase) === phaseNum
+        ) {
+          votes.push(value);
+        }
+      } catch {
+        // not a JSON composite key — skip
+      }
+    }
+    return votes;
+  }
+
+  /**
+   * Submitted-vote count for a (gameId, round) pair.
+   * Derived from the length of matching encryptedVotes entries.
+   */
+  voteCount(gameId: number, round: number, phase?: number | string): number {
+    const p = phase ?? this.getPhase(gameId);
+    return this.getVotesForRoundAndPhase(gameId, round, p).length;
   }
 
   // ── GameView factory ─────────────────────────────────────────────────────
@@ -195,80 +234,4 @@ export class WerewolfLedger {
     return GameView.from(this, gameId);
   }
 
-  // ── Private game-logic helpers ───────────────────────────────────────────
-
-  #extractAliveIndices(aliveVec: unknown): number[] {
-    if (aliveVec == null) return [];
-    const indices: number[] = [];
-
-    if (Array.isArray(aliveVec)) {
-      for (let i = 0; i < aliveVec.length; i++) {
-        const entry = aliveVec[i];
-        // Case 1: Vector<16, Boolean> serialised as a flat boolean array
-        //   [true, true, false, …]  — the most common Midnight wire format
-        if (typeof entry === "boolean") {
-          if (entry) indices.push(i);
-          continue;
-        }
-        // Case 2: array of {key, value} or {playerIdx, alive} objects
-        if (entry && typeof entry === "object") {
-          const e = entry as Record<string, unknown>;
-          const alive = e["value"] ?? e["alive"];
-          if (alive === true) {
-            const idx = e["key"] ?? e["playerIdx"] ?? e["index"];
-            if (typeof idx === "number") indices.push(idx);
-          }
-        }
-      }
-      return indices;
-    }
-
-    // Fallback: plain object keyed by player index string
-    const map = this.parser.parseMap(aliveVec);
-    for (const [k, v] of Object.entries(map)) {
-      if (v === true) {
-        const idx = Number(k);
-        if (!isNaN(idx)) indices.push(idx);
-      }
-    }
-    return indices;
-  }
-
-  #extractVoteCount(
-    map: Record<string, unknown>,
-    gameId: number,
-    round: number,
-  ): number {
-    const candidates = [
-      JSON.stringify({ gameId, round }),
-      JSON.stringify({ game_id: gameId, round }),
-      `GameRoundKey { gameId: ${gameId}, round: ${round} }`,
-      `${gameId}:${round}`,
-      String(gameId * 1000 + round),
-    ];
-
-    for (const key of candidates) {
-      if (key in map) {
-        const val = map[key];
-        return typeof val === "number" ? val : Number(val) || 0;
-      }
-    }
-
-    for (const [k, v] of Object.entries(map)) {
-      try {
-        const parsed = JSON.parse(k);
-        if (
-          parsed &&
-          (parsed.gameId === gameId || parsed.game_id === gameId) &&
-          parsed.round === round
-        ) {
-          return typeof v === "number" ? v : Number(v) || 0;
-        }
-      } catch {
-        // not JSON — skip
-      }
-    }
-
-    return 0;
-  }
 }
