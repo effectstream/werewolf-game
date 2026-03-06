@@ -125,6 +125,7 @@ export class Player {
 
   knownAlivePlayers: number[] = [];
 
+
   constructor(id: number) {
     this.id = id;
     this.leafSecret = new Uint8Array(
@@ -160,7 +161,6 @@ export class Player {
     const random = Math.floor(Math.random() * 1000);
 
     const payload = packData(targetIdx, Number(round), random);
-
     const sessionKey = deriveSessionKey(
       this.encKeypair.secretKey,
       this.adminEncKey,
@@ -168,9 +168,7 @@ export class Player {
     );
     const encryptedBuffer = xorPayload(payload, sessionKey);
 
-    console.log(
-      `${this.role}    P${this.id} submitted encrypted vote ${targetIdx}`,
-    );
+    console.log(`${this.role}    P${this.id} votes for P${targetIdx}`);
 
     return {
       encryptedAction: encryptedBuffer,

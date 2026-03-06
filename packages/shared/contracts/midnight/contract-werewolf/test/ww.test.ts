@@ -376,8 +376,8 @@ async function runTestSuite() {
 
   // 3. CREATE GAME
   try {
-    const roleCommitments = Array(16).fill(new Uint8Array(32));
-    const encryptedRoles = Array(16).fill(new Uint8Array(3));
+    const roleCommitments = Array(32).fill(new Uint8Array(32));
+    const encryptedRoles = Array(32).fill(new Uint8Array(3));
     sim.players.forEach((p) => roleCommitments[p.id] = p.commitment);
     sim.players.forEach((p) => {
       encryptedRoles[p.id] = encryptPayload(

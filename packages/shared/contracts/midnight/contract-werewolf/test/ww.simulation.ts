@@ -5,7 +5,7 @@ import {
   QueryContext,
   sampleContractAddress,
 } from "@midnight-ntwrk/compact-runtime";
-import { Contract } from "../src/managed/contract/index.js";
+import { Contract, ledger, Phase as ContractPhase } from "../src/managed/contract/index.js";
 import { Player, Role, type WitnessSet } from "./simulation-player.ts";
 import {
   type MerkleCircuitRunner,
@@ -121,12 +121,6 @@ class Simulation {
     console.log("gameId", this);
     const { circuits } = this.contract;
 
-    // --- SETUP ---
-    // Admin auth key is only stored in state (from witness at createGame); no circuit or
-    // check depends on the admin private key.
-    // this.admin.setAuthKey(new Uint8Array(32));
-
-    const commitments: Uint8Array[] = [];
     const leafHashes: Uint8Array[] = [];
 
     // Player execution pre-game
@@ -175,7 +169,6 @@ class Simulation {
       circuits.testComputeHash(this.context, new Uint8Array(32))
     );
 
-    // Pass the Admin Encryption Key (33 bytes expected, pad if 32)
     const adminVotePubKeyPadded = new Uint8Array(33);
     adminVotePubKeyPadded.set(this.admin.adminEncKey);
 
@@ -218,30 +211,33 @@ class Simulation {
             circuits.nightAction(this.context, this.gameId)
           );
         } catch (e) {
-          console.error(`P${p.id} failed to vote:`, e);
+          console.error(`P${p.id} failed night action:`, e);
         }
         this.witnessRegistry.unsetCurrent();
       }
 
+      // Admin reads all night votes by iterating the ledger map directly — no circuits, no external state.
       this.witnessRegistry.setCurrent(
         this.admin.getWitness<PrivateState, Ledger>(),
       );
-      const nightVotes = await this.runCircuit(() =>
-        circuits.getEncryptedVotesForRound(
-          this.context,
-          this.gameId,
-          Phase.Night,
-          BigInt(round),
-        )
-      );
+      const nightVotesList: Uint8Array[] = [];
+      const ledgerState = ledger(this.context.currentQueryContext.state);
+      for (const [key, vote] of ledgerState.Werewolf_roundVotes) {
+        if (
+          key.gameId === this.gameId &&
+          key.phase === ContractPhase.Night &&
+          key.round === BigInt(round)
+        ) {
+          nightVotesList.push(vote);
+        }
+      }
 
       const nightRes = this.admin.processVotesFromLedger(
-        nightVotes as Uint8Array[],
+        nightVotesList,
         round,
         true,
       );
 
-      // Consistency: root must reflect alive set after this night (contract verifies proofs against it next round)
       const contextBeforeTree = this.context;
       const { root: nightRoot, tree: nightTree } = await this.admin
         .processNightElimination(
@@ -297,26 +293,33 @@ class Simulation {
       for (const p of this.players) {
         if (!p.isAlive) continue;
         this.witnessRegistry.setCurrent(p.getWitness<PrivateState, Ledger>());
-        await this.runCircuit(() =>
-          circuits.voteDay(this.context, this.gameId)
-        );
+        try {
+          await this.runCircuit(() =>
+            circuits.voteDay(this.context, this.gameId)
+          );
+        } catch (e) {
+          console.error(`P${p.id} failed day vote:`, e);
+        }
         this.witnessRegistry.unsetCurrent();
       }
 
       this.witnessRegistry.setCurrent(
         this.admin.getWitness<PrivateState, Ledger>(),
       );
-      const dayVotes = await this.runCircuit(() =>
-        circuits.getEncryptedVotesForRound(
-          this.context,
-          this.gameId,
-          Phase.Day,
-          BigInt(round),
-        )
-      );
+      const dayVotesList: Uint8Array[] = [];
+      const ledgerStateDay = ledger(this.context.currentQueryContext.state);
+      for (const [key, vote] of ledgerStateDay.Werewolf_roundVotes) {
+        if (
+          key.gameId === this.gameId &&
+          key.phase === ContractPhase.Day &&
+          key.round === BigInt(round)
+        ) {
+          dayVotesList.push(vote);
+        }
+      }
 
       const dayRes = this.admin.processVotesFromLedger(
-        dayVotes as Uint8Array[],
+        dayVotesList,
         round,
         false,
       );

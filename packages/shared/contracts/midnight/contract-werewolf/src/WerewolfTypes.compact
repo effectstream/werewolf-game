@@ -28,6 +28,20 @@ module WerewolfTypes {
         round: Uint<32>
     }
 
+    // Composite key for per-player ledger maps (replaces Vector indexing)
+    export struct PlayerKey {
+        gameId: Uint<32>,
+        playerIdx: Uint<32>
+    }
+
+    // Composite key for per-vote storage; nullifier is unique per player per (game, phase, round)
+    export struct VoteKey {
+        gameId: Uint<32>,
+        phase: Phase,
+        round: Uint<32>,
+        nullifier: Bytes<32>
+    }
+
     export struct GameState {
         adminKey: ZswapCoinPublicKey,
         adminVotePublicKey: Bytes<33>,
