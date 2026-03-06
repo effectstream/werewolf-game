@@ -583,12 +583,6 @@ function App() {
           `Witness not configured in frontend (encrypted role ${n} for ${id}).`,
         );
       },
-      wit_getAdminKey: (_: unknown, gameId: number | bigint) => {
-        const id = String(gameId);
-        throw new Error(
-          `Witness not configured in frontend (admin key for ${id}).`,
-        );
-      },
       wit_getInitialRoot: (_: unknown, gameId: number | bigint) => {
         const id = String(gameId);
         throw new Error(

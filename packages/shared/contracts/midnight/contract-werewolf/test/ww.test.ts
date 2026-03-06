@@ -295,17 +295,14 @@ async function runTestSuite() {
 
   console.log("\n🧪 WEREWOLF CONTRACT TEST SUITE");
 
-  // 1. SETUP KEYS & COMMITMENTS
+  // 1. SETUP KEYS & COMMITMENTS (adminKey in witness is for state only; no auth check)
   try {
-    const r1 = await sim.runCircuit((ctx) =>
-      circuits.getAdminKey(ctx, sim.gameId)
-    );
-    sim.adminKey = r1.bytes;
+    sim.adminKey = new Uint8Array(32);
 
     const r2 = await sim.runCircuit((ctx) =>
       circuits.testComputeHash(ctx, sim.masterSecret)
     );
-    sim.masterSecretCommitment = r2;
+    sim.masterSecretCommitment = r2 as unknown as Uint8Array;
 
     logPass("Keys & Secrets Generated");
   } catch (e) {
@@ -379,8 +376,8 @@ async function runTestSuite() {
 
   // 3. CREATE GAME
   try {
-    const roleCommitments = Array(16).fill(new Uint8Array(32));
-    const encryptedRoles = Array(16).fill(new Uint8Array(3));
+    const roleCommitments = Array(32).fill(new Uint8Array(32));
+    const encryptedRoles = Array(32).fill(new Uint8Array(3));
     sim.players.forEach((p) => roleCommitments[p.id] = p.commitment);
     sim.players.forEach((p) => {
       encryptedRoles[p.id] = encryptPayload(
