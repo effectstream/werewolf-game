@@ -142,10 +142,11 @@ export circuit isPlayerAlive(gameId: Uint<32>, playerIdx: Uint<32>): Boolean {
     return Werewolf_selectBool(aliveVec, disclose(playerIdx));
 }
 
-export circuit getAdminKey(gameId: Uint<32>): ZswapCoinPublicKey {
-    const gid = disclose(gameId);
-    assert(Werewolf_games.member(gid), "Game not found");
-    return std_ownPublicKey();
+// Returns the game's admin public key (Bytes<33>) so players can encrypt
+// votes/actions to the admin. This is the unique keypair created for the
+// game (passed into createGame as adminVotePublicKey), not the Midnight key.
+export circuit getAdminKey(gameId: Uint<32>): Bytes<33> {
+    return Werewolf_getGameAdminPublicKey(gameId);
 }
 
 export circuit getGameAdminPublicKey(gameId: Uint<32>): Bytes<33> {
