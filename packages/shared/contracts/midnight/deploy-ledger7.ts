@@ -612,7 +612,6 @@ async function deployWithLimitedVerifierKeys(
       "isPlayerAlive",
       "getAdminKey",
       "getGameAdminPublicKey",
-      "getEncryptedVotesForRound",
       "revealPlayerRole",
       "verifyFairness",
     ];

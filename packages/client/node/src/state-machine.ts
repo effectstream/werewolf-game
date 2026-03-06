@@ -137,7 +137,7 @@ stm.addStateTransition(
 
       if (existingRows.length > 0) {
         // Round already initialised — sync vote count if it changed.
-        const currentVotes = ledger.voteCount(gameId, gameView.round);
+        const currentVotes = ledger.voteCount(gameId, gameView.round, gameView.phase);
         const dbVotes = Number(existingRows[0].votes_submitted);
 
         if (currentVotes !== dbVotes) {

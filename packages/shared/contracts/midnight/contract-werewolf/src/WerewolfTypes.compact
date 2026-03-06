@@ -28,6 +28,18 @@ module WerewolfTypes {
         round: Uint<32>
     }
 
+    export struct GamePlayerKey {
+        gameId: Uint<32>,
+        playerIdx: Uint<32>
+    }
+
+    export struct VoteKey {
+        gameId: Uint<32>,
+        round: Uint<32>,
+        phase: Phase,
+        nullifier: Bytes<32>
+    }
+
     export struct GameState {
         adminKey: ZswapCoinPublicKey,
         adminVotePublicKey: Bytes<33>,
