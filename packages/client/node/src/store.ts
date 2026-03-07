@@ -40,6 +40,26 @@ export type GameSecrets = {
   masterSecret: Uint8Array;
   adminVoteKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
   adminSignKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
+  /**
+   * Hex seed used to build the admin wallet facade for on-chain admin circuits.
+   * The ZSwap coin public key derived from this seed is stored as `adminKey` in
+   * the Midnight contract's GameState. Must be reused for all admin circuit calls
+   * (resolveNightPhase, resolveDayPhase, adminPunishPlayer, forceEndGame) so that
+   * std_ownPublicKey() matches state.adminKey.
+   *
+   * Optional because it is not available until after createMidnightGame returns.
+   * lobby-closer.ts updates GameSecrets with the seed once createGame succeeds.
+   */
+  adminWalletSeed?: string;
+  /**
+   * The 32-byte game seed decrypted from the on-chain encrypted blob using
+   * WEREWOLF_KEY_SECRET. Stored here for future deterministic key derivation —
+   * any admin keypair can be re-derived from this seed if the node restarts.
+   *
+   * Optional: absent if the node was started before the encrypted seed feature
+   * was deployed, or if decryption failed.
+   */
+  gameSeed?: Uint8Array;
 };
 
 // ---------------------------------------------------------------------------
@@ -60,6 +80,9 @@ const phaseVotes = new Map<string, PhaseVote[]>();
 
 /** Admin Ed25519 signing public keys, keyed by gameId (in-memory cache of DB value). */
 const adminSignKeys = new Map<number, Uint8Array>();
+
+/** Merkle roots per game (needed by resolveNightPhase). */
+const merkleRoots = new Map<number, { field: bigint }>();
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -227,4 +250,36 @@ export function setAdminSignKey(gameId: number, hexKey: string): void {
 /** Retrieve the cached admin signing public key, or undefined on cache miss. */
 export function getAdminSignKey(gameId: number): Uint8Array | undefined {
   return adminSignKeys.get(gameId);
+}
+
+// ---------------------------------------------------------------------------
+// Merkle Roots
+// ---------------------------------------------------------------------------
+
+/** Store the Merkle root for a game (needed by resolveNightPhase). */
+export function storeMerkleRoot(
+  gameId: number,
+  root: { field: bigint },
+): void {
+  merkleRoots.set(gameId, root);
+  console.log(`[store] Stored Merkle root for game=${gameId}`);
+}
+
+/** Retrieve the Merkle root for a game. */
+export function getMerkleRoot(gameId: number): { field: bigint } | undefined {
+  return merkleRoots.get(gameId);
+}
+
+// ---------------------------------------------------------------------------
+// Bundle Enumeration
+// ---------------------------------------------------------------------------
+
+/** Retrieve all bundles for a game (for vote decryption). */
+export function getAllBundlesForGame(gameId: number): PlayerBundle[] {
+  const prefix = `${gameId}:`;
+  const bundles: PlayerBundle[] = [];
+  for (const [key, bundle] of bundlesByPublicKey) {
+    if (key.startsWith(prefix)) bundles.push(bundle);
+  }
+  return bundles;
 }

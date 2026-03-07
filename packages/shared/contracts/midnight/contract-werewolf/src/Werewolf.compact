@@ -92,15 +92,8 @@ export circuit nightAction(
     );
 
     const publicNullifier = disclose(nullifier);
-
-    const vKey = VoteKey {
-        gameId: gameId,
-        round: state.round,
-        phase: Phase.Night,
-        nullifier: publicNullifier
-    };
-    assert(!encryptedVotes.member(vKey), "Action already submitted");
-    encryptedVotes.insert(vKey, encryptedAction);
+    assert(!voteNullifiers.member(publicNullifier), "Action already submitted");
+    voteNullifiers.insert(publicNullifier);
 
     roundVotes.insert(VoteKey { gameId: gameId, phase: Phase.Night, round: state.round, nullifier: publicNullifier }, encryptedAction);
 
@@ -193,15 +186,8 @@ export circuit voteDay(
         Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
     );
     const publicNullifier = disclose(nullifier);
-
-    const vKey = VoteKey {
-        gameId: gameId,
-        round: state.round,
-        phase: Phase.Day,
-        nullifier: publicNullifier
-    };
-    assert(!encryptedVotes.member(vKey), "Double voting detected");
-    encryptedVotes.insert(vKey, encryptedVote);
+    assert(!voteNullifiers.member(publicNullifier), "Double voting detected");
+    voteNullifiers.insert(publicNullifier);
 
     roundVotes.insert(VoteKey { gameId: gameId, phase: Phase.Day, round: state.round, nullifier: publicNullifier }, encryptedVote);
 

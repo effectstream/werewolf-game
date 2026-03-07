@@ -14,6 +14,7 @@ export {
   closeLobby,
   getAdminSignKey,
   getAndIncrementGameId,
+  getEncryptedGameSeed,
   getLobby,
   getLobbyPlayers,
   incrementLobbyPlayerCount,

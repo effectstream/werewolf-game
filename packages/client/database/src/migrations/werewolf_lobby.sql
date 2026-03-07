@@ -7,7 +7,10 @@ CREATE TABLE werewolf_lobby (
   timeout_block          BIGINT,
   closed                 BOOLEAN NOT NULL DEFAULT FALSE,
   bundles_ready          BOOLEAN NOT NULL DEFAULT FALSE,
-  admin_sign_public_key  TEXT             -- Ed25519 public key (hex) for votes_for_round auth
+  admin_sign_public_key  TEXT,            -- Ed25519 public key (hex) for votes_for_round auth
+  -- 128-char hex (64 bytes): 32-byte salt || HKDF(WEREWOLF_KEY_SECRET, salt) XOR game_seed
+  -- Any node with the same WEREWOLF_KEY_SECRET can decrypt the 32-byte game seed.
+  encrypted_game_seed    TEXT
 );
 
 -- Lobby player list populated on join_game state transitions

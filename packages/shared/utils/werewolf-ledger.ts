@@ -191,7 +191,7 @@ export class WerewolfLedger {
     phase: number | string,
   ): unknown[] {
     const votesMap = this.parser.parseMap(
-      this.payload["Werewolf_encryptedVotes"],
+      this.payload["Werewolf_roundVotes"],
     );
     const phaseNum = typeof phase === "string"
       ? (phase.toUpperCase() === "NIGHT" || phase === "1" ? 1 : 2)

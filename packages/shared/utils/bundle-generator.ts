@@ -15,6 +15,11 @@ import {
   pureCircuits,
 } from "../contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 import nacl from "tweetnacl";
+import Prando from "prando";
+
+// Deno's ESM resolution for the 'prando' NPM package sometimes treats it as a module
+// rather than a class. This hack ensures we get the constructable class at runtime.
+const PrandoClass = (Prando as any).default || Prando;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -77,10 +82,12 @@ function bytesToHex(bytes: Uint8Array): string {
   return `0x${toHexString(bytes)}`;
 }
 
-function shuffle<T>(items: T[]): T[] {
+function shuffle<T>(items: T[], prando?: any): T[] {
   const copy = [...items];
   for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = prando
+      ? prando.nextInt(0, i)
+      : Math.floor(Math.random() * (i + 1));
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
@@ -224,6 +231,7 @@ export function generateBundles(
   gameId: bigint | number,
   playerCount: number,
   werewolfCount: number,
+  gameSeed?: Uint8Array,
 ): BundleGenerationResult {
   if (playerCount < 2 || playerCount > MAX_PLAYERS) {
     throw new Error(
@@ -232,12 +240,28 @@ export function generateBundles(
   }
   if (werewolfCount < 1 || werewolfCount >= playerCount) {
     throw new Error(
-      `werewolfCount must be between 1 and ${playerCount - 1} (got ${werewolfCount})`,
+      `werewolfCount must be between 1 and ${
+        playerCount - 1
+      } (got ${werewolfCount})`,
     );
   }
 
   const gameIdStr = gameId.toString();
   const contract = createRuntimeContract();
+
+  // Initialize deterministic PRNG if gameSeed is provided.
+  const prando = gameSeed ? new PrandoClass(toHexString(gameSeed)) : null;
+
+  const detRandomBytes = (len: number): Uint8Array => {
+    if (prando) {
+      const bytes = new Uint8Array(len);
+      for (let i = 0; i < len; i++) {
+        bytes[i] = prando.nextInt(0, 255);
+      }
+      return bytes;
+    }
+    return randomBytes(len);
+  };
 
   // --- Generate admin keys ---
   const adminVoteKeypair = nacl.box.keyPair();
@@ -249,16 +273,18 @@ export function generateBundles(
   const adminSignPublicKeyHex = bytesToHex(adminSignKeypair.publicKey);
 
   // --- Generate master secret ---
-  const masterSecret = randomBytes32();
+  const masterSecret = detRandomBytes(32);
   const masterSecretCommitment = new Uint8Array(
     pureCircuits.testComputeHash(masterSecret),
   );
 
   // --- Shuffle roles ---
   const roles = shuffle(
-    Array.from({ length: playerCount }, (_, idx) =>
-      idx < werewolfCount ? Role.Werewolf : Role.Villager,
+    Array.from(
+      { length: playerCount },
+      (_, idx) => idx < werewolfCount ? Role.Werewolf : Role.Villager,
     ),
+    prando,
   );
 
   // --- Generate per-player data ---
@@ -272,7 +298,7 @@ export function generateBundles(
   }[] = [];
 
   for (let id = 0; id < playerCount; id++) {
-    const sk = randomBytes32();
+    const sk = detRandomBytes(32);
     const salt = new Uint8Array(
       (pureCircuits as any).testComputeSalt(masterSecret, BigInt(id)),
     );

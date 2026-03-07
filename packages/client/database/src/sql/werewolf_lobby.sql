@@ -1,7 +1,10 @@
 /* @name upsertLobby */
-INSERT INTO werewolf_lobby (game_id, max_players, created_block, admin_sign_public_key)
-VALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key)
+INSERT INTO werewolf_lobby (game_id, max_players, created_block, admin_sign_public_key, encrypted_game_seed)
+VALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key, :encrypted_game_seed)
 ON CONFLICT (game_id) DO NOTHING;
+
+/* @name getEncryptedGameSeed */
+SELECT encrypted_game_seed FROM werewolf_lobby WHERE game_id = :game_id!;
 
 /* @name getAdminSignKey */
 SELECT admin_sign_public_key FROM werewolf_lobby WHERE game_id = :game_id!;

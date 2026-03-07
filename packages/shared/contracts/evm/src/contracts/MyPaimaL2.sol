@@ -21,13 +21,18 @@ contract MyPaimaL2Contract is PaimaL2Contract {
         Player[] players;
         uint256 playerCount;
         uint256 maxPlayers;
+        // 64-byte encrypted game seed: 32-byte salt || HKDF(WEREWOLF_KEY_SECRET, salt) XOR seed.
+        // Any node holding WEREWOLF_KEY_SECRET can decrypt the 32-byte game seed on-chain.
+        bytes encryptedGameSeed;
     }
 
     /// @dev Mapping of games indexed by game ID
     mapping(uint256 => Game) public games;
 
     /// @dev Emitted when a new game is created
-    event GameCreated(uint32 indexed gameId, uint256 maxPlayers);
+    /// encryptedGameSeed is a 64-byte blob (32-byte salt + 32-byte ciphertext) that
+    /// any authorized node can decrypt using WEREWOLF_KEY_SECRET via HKDF-SHA-256.
+    event GameCreated(uint32 indexed gameId, uint256 maxPlayers, bytes encryptedGameSeed);
 
     /// @dev Emitted when a player joins a game
     event PlayerJoined(uint256 indexed gameId, address indexed evmAddress, bytes32 publicKey);
@@ -35,14 +40,23 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @dev Emitted when a game is closed
     event GameClosed(uint256 indexed gameId);
 
+    /// @dev Emitted when a game is force-started before full capacity or timeout
+    event GameForceStarted(uint256 indexed gameId, uint256 playerCount);
+
+    /// @dev Minimum players required to force-start a game
+    uint256 public constant MIN_PLAYERS_TO_START = 5;
+
     constructor(address _owner, uint256 _fee) PaimaL2Contract(_owner, _fee) {}
 
     /// @dev Creates a new game lobby
     /// @param _gameId ID of the game to create
     /// @param _maxPlayers Maximum number of players for this game (max 16)
-    function createGame(uint32 _gameId, uint256 _maxPlayers) public {
+    /// @param _encryptedGameSeed 64-byte encrypted game seed (32-byte salt + 32-byte ciphertext).
+    ///        Decryptable by any node holding WEREWOLF_KEY_SECRET via HKDF-SHA-256.
+    function createGame(uint32 _gameId, uint256 _maxPlayers, bytes calldata _encryptedGameSeed) public {
         require(games[_gameId].id == 0, "Game already exists");
         require(_maxPlayers > 0 && _maxPlayers <= 16, "Invalid max players");
+        require(_encryptedGameSeed.length == 64, "encryptedGameSeed must be 64 bytes");
 
         // Initialize storage fields individually to avoid memory[] -> storage copy.
         Game storage game = games[_gameId];
@@ -50,8 +64,9 @@ contract MyPaimaL2Contract is PaimaL2Contract {
         game.state = GameState.Open;
         game.playerCount = 0;
         game.maxPlayers = _maxPlayers;
+        game.encryptedGameSeed = _encryptedGameSeed;
 
-        emit GameCreated(_gameId, _maxPlayers);
+        emit GameCreated(_gameId, _maxPlayers, _encryptedGameSeed);
     }
 
     /// @dev Joins an existing game lobby
@@ -88,17 +103,35 @@ contract MyPaimaL2Contract is PaimaL2Contract {
         emit GameClosed(_gameId);
     }
 
+    /// @dev Force-starts a game early, before it fills or times out.
+    ///      Requires at least MIN_PLAYERS_TO_START players to have joined.
+    /// @param _gameId ID of the game to force-start
+    function forceStart(uint256 _gameId) external {
+        require(games[_gameId].id != 0, "Game not found");
+        require(games[_gameId].state == GameState.Open, "Game is not open");
+        require(
+            games[_gameId].playerCount >= MIN_PLAYERS_TO_START,
+            "Not enough players to force start"
+        );
+
+        games[_gameId].state = GameState.Closed;
+
+        emit GameClosed(_gameId);
+        emit GameForceStarted(_gameId, games[_gameId].playerCount);
+    }
+
     /// @dev Returns game state and player count
     /// @param _gameId ID of the game to query
     function getGame(uint256 _gameId) public view returns (
         uint256 id,
         GameState state,
         uint256 playerCount,
-        uint256 maxPlayers
+        uint256 maxPlayers,
+        bytes memory encryptedGameSeed
     ) {
         require(games[_gameId].id != 0, "Game not found");
         Game storage game = games[_gameId];
-        return (game.id, game.state, game.playerCount, game.maxPlayers);
+        return (game.id, game.state, game.playerCount, game.maxPlayers, game.encryptedGameSeed);
     }
 
     /// @dev Returns number of players in a game

@@ -16,6 +16,7 @@ import {
 import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
 import nacl from "tweetnacl";
 import * as store from "../store.ts";
+import { resolvePhaseFromVotes, decryptVotes } from "../vote-resolver.ts";
 
 const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ??
   "http://localhost:3001";
@@ -245,6 +246,57 @@ export async function closeGameHandler(dbConn: Pool, gameId: number) {
 }
 
 /**
+ * Debug endpoint: force-closes a lobby and immediately starts bundle generation
+ * and Midnight game creation, bypassing the batcher/contract flow.
+ * Rejects if the lobby is not found, already closed, or has fewer than 2 players
+ * (absolute minimum needed to generate bundles).
+ */
+export async function debugStartGameHandler(
+  dbConn: Pool,
+  gameId: number,
+  handleLobbyClosed: (gameId: number) => Promise<void>,
+) {
+  const lobbyRows = await runPreparedQuery(
+    getLobby.run({ game_id: gameId }, dbConn),
+    "getLobby",
+  );
+
+  if (lobbyRows.length === 0) {
+    throw Object.assign(new Error(`Lobby ${gameId} not found`), {
+      statusCode: 404,
+    });
+  }
+
+  const lobby = lobbyRows[0];
+
+  if (lobby.closed) {
+    throw Object.assign(new Error(`Lobby ${gameId} is already closed`), {
+      statusCode: 409,
+    });
+  }
+
+  const playerCount = Number(lobby.player_count);
+  if (playerCount < 2) {
+    throw Object.assign(
+      new Error(`Lobby ${gameId} has only ${playerCount} player(s) — need at least 2`),
+      { statusCode: 400 },
+    );
+  }
+
+  await runPreparedQuery(
+    closeLobby.run({ game_id: gameId }, dbConn),
+    "closeLobby",
+  );
+
+  // Fire-and-forget: same flow as when lobby fills or times out with enough players
+  void handleLobbyClosed(gameId).catch((err) =>
+    console.error(`[debug] debugStartGame failed for game ${gameId}:`, err)
+  );
+
+  return { success: true, gameId, playerCount };
+}
+
+/**
  * Lobby status endpoint for frontend polling.
  */
 export async function lobbyStatusHandler(dbConn: Pool, gameId: number) {
@@ -321,16 +373,34 @@ async function triggerMidnightVoteSubmission(
   const votes = store.getVotes(gameId, round, phase);
 
   console.log(
-    `[votes] All ${votes.length} votes collected for game=${gameId} round=${round} phase=${phase}.` +
-      ` The dApp (trusted node) will decrypt, submit to chain, and resolve the phase via its polling loop.`,
+    `[votes] All ${votes.length} votes collected for game=${gameId} round=${round} phase=${phase}. Auto-resolving…`,
   );
 
-  // Notify all players in chat that voting has closed.
   chatPost("/broadcast", {
     gameId,
     text:
       `All votes received for round ${round} (${phase}). Processing results…`,
   });
+
+  try {
+    const result = await resolvePhaseFromVotes(gameId, round, phase);
+    console.log(
+      `[votes] Phase resolved: targetIdx=${result.targetIdx} hasElimination=${result.hasElimination} — ${result.info}`,
+    );
+
+    chatPost("/broadcast", {
+      gameId,
+      text: result.hasElimination
+        ? `Phase resolved: Player ${result.targetIdx} was eliminated. ${result.info}`
+        : `Phase resolved: No elimination this round. ${result.info}`,
+    });
+  } catch (err) {
+    console.error(`[votes] Phase resolution failed for game=${gameId}:`, err);
+    chatPost("/broadcast", {
+      gameId,
+      text: `Phase resolution failed. Manual intervention may be needed.`,
+    });
+  }
 }
 
 export async function submitVoteHandler(
@@ -458,8 +528,7 @@ export async function getVotesForRoundHandler(
       getAdminSignKey.run({ game_id: gameId }, dbConn),
       "getAdminSignKey",
     );
-    const keyHex = (rows[0] as unknown as { admin_sign_public_key: string })
-      .admin_sign_public_key;
+    const keyHex = rows.length > 0 ? rows[0].admin_sign_public_key : null;
     if (!keyHex) {
       throw Object.assign(
         new Error("Game not found or admin signing key not registered."),
@@ -537,4 +606,159 @@ export async function openLobbyHandler(dbConn: Pool) {
     playerCount: Number(row.player_count),
     maxPlayers: Number(row.max_players),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Admin API Handlers (localhost-only)
+// ---------------------------------------------------------------------------
+
+const Role: Record<number, string> = {
+  0: "Villager",
+  1: "Werewolf",
+  2: "Seer",
+  3: "Doctor",
+};
+
+/** List all games with current state. */
+export async function adminListGamesHandler(dbConn: Pool) {
+  const res = await dbConn.query(
+    `SELECT gv.game_id, gv.phase, gv.round, gv.player_count, gv.alive_count,
+            gv.werewolf_count, gv.villager_count, gv.finished
+     FROM werewolf_game_view gv
+     ORDER BY gv.game_id DESC
+     LIMIT 50`,
+  );
+
+  // Also get open lobbies that may not have a game view yet
+  const lobbyRes = await dbConn.query(
+    `SELECT game_id, player_count, max_players, closed, bundles_ready
+     FROM werewolf_lobby
+     ORDER BY game_id DESC
+     LIMIT 50`,
+  );
+
+  return {
+    games: res.rows.map((row: any) => ({
+      gameId: Number(row.game_id),
+      phase: row.phase,
+      round: Number(row.round),
+      playerCount: Number(row.player_count),
+      aliveCount: Number(row.alive_count),
+      werewolfCount: Number(row.werewolf_count),
+      villagerCount: Number(row.villager_count),
+      finished: row.finished,
+    })),
+    lobbies: lobbyRes.rows.map((row: any) => ({
+      gameId: Number(row.game_id),
+      playerCount: Number(row.player_count),
+      maxPlayers: Number(row.max_players),
+      closed: row.closed,
+      bundlesReady: row.bundles_ready,
+    })),
+  };
+}
+
+/** Full game state including decrypted roles (from bundles). */
+export async function adminGameStateHandler(dbConn: Pool, gameId: number) {
+  // Game view from DB
+  const rows = await runPreparedQuery(
+    getGameView.run({ game_id: gameId }, dbConn),
+    "getGameView",
+  );
+
+  const gameView = rows.length > 0
+    ? (() => {
+      const row = rows[0];
+      const aliveVector: boolean[] = JSON.parse(row.alive_vector);
+      return {
+        phase: row.phase as string,
+        round: Number(row.round),
+        playerCount: Number(row.player_count),
+        aliveCount: Number(row.alive_count),
+        werewolfCount: Number(row.werewolf_count),
+        villagerCount: Number(row.villager_count),
+        finished: row.finished as boolean,
+        aliveVector,
+      };
+    })()
+    : null;
+
+  // Player roles from bundles
+  const bundles = store.getAllBundlesForGame(gameId);
+  const players = bundles.map((b) => ({
+    playerId: b.playerId,
+    role: b.role != null ? (Role[b.role] ?? `Unknown(${b.role})`) : "Unknown",
+    roleId: b.role ?? -1,
+    alive: gameView ? (gameView.aliveVector[b.playerId] ?? false) : true,
+  }));
+
+  // Player nicknames from DB
+  const playerRows = await runPreparedQuery(
+    getLobbyPlayers.run({ game_id: gameId }, dbConn),
+    "getLobbyPlayers",
+  );
+  const nicknames = new Map<string, string>();
+  for (const row of playerRows) {
+    nicknames.set(row.public_key_hex, row.nickname ?? "");
+  }
+  // Match bundles to nicknames by join order (bundles[i] = playerRows[i])
+  for (let i = 0; i < players.length && i < playerRows.length; i++) {
+    (players[i] as any).nickname = playerRows[i].nickname ?? `Player ${i}`;
+  }
+
+  // Current vote status
+  const currentPhase = gameView?.phase?.toUpperCase() ?? "";
+  const currentRound = gameView?.round ?? 0;
+  const voteCount = (currentPhase === "NIGHT" || currentPhase === "DAY")
+    ? store.countVotes(gameId, currentRound, currentPhase)
+    : 0;
+
+  return {
+    gameId,
+    gameView,
+    players,
+    voteStatus: {
+      round: currentRound,
+      phase: currentPhase,
+      voteCount,
+      aliveCount: gameView?.aliveCount ?? 0,
+    },
+    hasSecrets: store.getGameSecrets(gameId) != null,
+    hasMerkleRoot: store.getMerkleRoot(gameId) != null,
+  };
+}
+
+/** Decrypt and return votes for a specific round/phase. */
+export function adminDecryptedVotesHandler(
+  gameId: number,
+  round: number,
+  phase: string,
+) {
+  const votes = store.getVotes(gameId, round, phase);
+  if (votes.length === 0) {
+    return { gameId, round, phase, votes: [], decrypted: [] };
+  }
+
+  try {
+    const decrypted = decryptVotes(gameId, round, phase);
+    return {
+      gameId,
+      round,
+      phase,
+      rawVoteCount: votes.length,
+      decrypted: decrypted.map((v) => ({
+        voterIndex: v.voterIndex,
+        target: v.target,
+      })),
+    };
+  } catch (err: any) {
+    return {
+      gameId,
+      round,
+      phase,
+      rawVoteCount: votes.length,
+      decrypted: [],
+      error: err.message,
+    };
+  }
 }

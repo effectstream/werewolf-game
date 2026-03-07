@@ -3,10 +3,14 @@ import type { Pool } from "pg";
 import type { StartConfigApiRouter } from "@paimaexample/runtime";
 import type fastify from "fastify";
 import { setDbPool } from "./db-pool.ts";
-import { scheduleNextLobby } from "./lobby-closer.ts";
+import { handleLobbyClosed, scheduleNextLobby } from "./lobby-closer.ts";
 import {
+  adminDecryptedVotesHandler,
+  adminGameStateHandler,
+  adminListGamesHandler,
   closeGameHandler,
   createGameHandler,
+  debugStartGameHandler,
   getBundleHandler,
   getGameStateHandler,
   getGameViewHandler,
@@ -216,6 +220,24 @@ export const apiRouter: StartConfigApiRouter = async function (
     return await closeGameHandler(dbConn, gameId);
   });
 
+  server.post<{ Body: { gameId: number } }>(
+    "/debug/start_game",
+    async (request, reply) => {
+      const { gameId } = request.body ?? {};
+      if (typeof gameId !== "number") {
+        return reply.status(400).send({
+          error: "gameId (number) required in request body",
+        });
+      }
+      try {
+        return await debugStartGameHandler(dbConn, gameId, handleLobbyClosed);
+      } catch (err: any) {
+        const status = err?.statusCode ?? 500;
+        return reply.status(status).send({ error: err.message });
+      }
+    },
+  );
+
   server.get<{
     Querystring: Static<typeof GetGameStateQuerystringSchema>;
     Reply: Static<typeof GetGameStateResponseSchema>;
@@ -322,6 +344,41 @@ export const apiRouter: StartConfigApiRouter = async function (
   });
 
   // -------------------------------------------------------------------------
+  // Admin API (localhost-only)
+  // -------------------------------------------------------------------------
+
+  // Localhost guard: reject non-local requests to /api/admin/*
+  server.addHook("onRequest", async (request, reply) => {
+    if (!request.url.startsWith("/api/admin")) return;
+    const ip = request.ip;
+    if (ip !== "127.0.0.1" && ip !== "::1" && ip !== "::ffff:127.0.0.1") {
+      return reply.status(403).send({ error: "Admin API is localhost-only" });
+    }
+  });
+
+  server.get("/api/admin/games", async () => {
+    return await adminListGamesHandler(dbConn);
+  });
+
+  server.get<{ Params: { gameId: string } }>(
+    "/api/admin/game_state/:gameId",
+    async (request) => {
+      const gameId = Number(request.params.gameId);
+      return await adminGameStateHandler(dbConn, gameId);
+    },
+  );
+
+  server.get<{ Params: { gameId: string; round: string; phase: string } }>(
+    "/api/admin/decrypted_votes/:gameId/:round/:phase",
+    async (request) => {
+      const gameId = Number(request.params.gameId);
+      const round = Number(request.params.round);
+      const phase = request.params.phase;
+      return adminDecryptedVotesHandler(gameId, round, phase);
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // Bootstrap: ensure at least one open lobby exists on startup.
   // Retries until werewolf_lobby exists (migrations may not be done yet).
   // -------------------------------------------------------------------------
@@ -340,7 +397,9 @@ export const apiRouter: StartConfigApiRouter = async function (
           console.log(
             "[api] No open lobby found — scheduling initial lobby creation",
           );
-          await scheduleNextLobby();
+          const firstSeed: Uint8Array = new Uint8Array(32);
+          firstSeed.fill(1);
+          await scheduleNextLobby(firstSeed);
         } else {
           console.log(
             `[api] Found ${count} open lobby(ies) — skipping bootstrap`,

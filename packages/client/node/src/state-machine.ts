@@ -5,11 +5,9 @@ import { createScheduledData } from "@paimaexample/db";
 import {
   closeLobby,
   getAliveSnapshots,
-  getAndIncrementGameId,
   getLobby,
   getWerewolfRoundState,
   type IGetAliveSnapshotsResult,
-  type IGetAndIncrementGameIdResult,
   type IGetLobbyResult,
   type IGetRoundStateResult,
   incrementLobbyPlayerCount,
@@ -34,11 +32,11 @@ import { handleLobbyClosed } from "./lobby-closer.ts";
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
 const VOTE_TIMEOUT_BLOCKS = Number(
-  Deno.env.get("WEREWOLF_VOTE_TIMEOUT_BLOCKS") ?? "180",
+  Deno.env.get("WEREWOLF_VOTE_TIMEOUT_BLOCKS") ?? "600",
 );
 
 const LOBBY_TIMEOUT_BLOCKS = Number(
-  Deno.env.get("WEREWOLF_LOBBY_TIMEOUT_BLOCKS") ?? "600",
+  Deno.env.get("WEREWOLF_LOBBY_TIMEOUT_BLOCKS") ?? "1800",
 );
 
 const LOBBY_MIN_PLAYERS = Number(
@@ -137,7 +135,11 @@ stm.addStateTransition(
 
       if (existingRows.length > 0) {
         // Round already initialised — sync vote count if it changed.
-        const currentVotes = ledger.voteCount(gameId, gameView.round, gameView.phase);
+        const currentVotes = ledger.voteCount(
+          gameId,
+          gameView.round,
+          gameView.phase,
+        );
         const dbVotes = Number(existingRows[0].votes_submitted);
 
         if (currentVotes !== dbVotes) {
@@ -414,7 +416,9 @@ stm.addStateTransition(
     const blockHeight = data.blockHeight;
 
     console.log(
-      `[lobby] join_game game=${gameId} publicKey=${publicKey.slice(0, 12)}… nickname=${nickname} at block=${blockHeight}`,
+      `[lobby] join_game game=${gameId} publicKey=${
+        publicKey.slice(0, 12)
+      }… nickname=${nickname} at block=${blockHeight}`,
     );
 
     const insertResult = (yield* World.resolve(insertLobbyPlayer, {
@@ -488,6 +492,67 @@ stm.addStateTransition(
 
     yield* World.resolve(closeLobby, { game_id: gameId });
     chatPost("/broadcast", { gameId, text: "The lobby has been closed." });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// STF: force_start
+// Fires when a player submits a forceStart contract call.
+// Closes the lobby early and triggers game creation if >= LOBBY_MIN_PLAYERS.
+// The contract already enforces the minimum player count on-chain, but the
+// STF performs a secondary check for defence-in-depth.
+// ---------------------------------------------------------------------------
+
+stm.addStateTransition(
+  "force_start",
+  function* (data) {
+    const { gameId } = data.parsedInput as { gameId: number };
+    const blockHeight = data.blockHeight;
+
+    console.log(
+      `[lobby] force_start game=${gameId} at block=${blockHeight}`,
+    );
+
+    const lobbyRows = (yield* World.resolve(getLobby, {
+      game_id: gameId,
+    })) as IGetLobbyResult[];
+
+    if (lobbyRows.length === 0) {
+      console.warn(`[lobby] force_start game=${gameId} — lobby not found`);
+      return;
+    }
+
+    const lobby = lobbyRows[0];
+
+    if (lobby.closed) {
+      console.warn(
+        `[lobby] force_start game=${gameId} — already closed`,
+      );
+      return;
+    }
+
+    if (Number(lobby.player_count) < LOBBY_MIN_PLAYERS) {
+      console.warn(
+        `[lobby] force_start game=${gameId} — only ${lobby.player_count}/${LOBBY_MIN_PLAYERS} players — rejecting`,
+      );
+      return;
+    }
+
+    console.log(
+      `[lobby] force_start game=${gameId} — ${lobby.player_count} players — closing and starting game`,
+    );
+
+    yield* World.resolve(closeLobby, { game_id: gameId });
+    chatPost("/broadcast", {
+      gameId,
+      text: `Game force-started with ${lobby.player_count} players!`,
+    });
+    void handleLobbyClosed(gameId).catch((err) =>
+      console.error(
+        `[lobby-closer] force_start failed for game ${gameId}:`,
+        err,
+      )
+    );
   },
 );
 
@@ -568,20 +633,13 @@ stm.addStateTransition(
 
 stm.addStateTransition(
   "autoCreateLobby",
-  function* (data) {
+  function* (data: any) {
+    const { encryptedGameSeed } = data.parsedInput as {
+      encryptedGameSeed: string;
+    };
     const blockHeight = data.blockHeight;
 
-    const idRows = (yield* World.resolve(
-      getAndIncrementGameId,
-      undefined,
-    )) as unknown as IGetAndIncrementGameIdResult[];
-
-    if (idRows.length === 0) {
-      console.error("[autoCreateLobby] Failed to get next game ID");
-      return;
-    }
-
-    const gameId = Number(idRows[0].last_game_id);
+    const gameId = data.randomGenerator.nextInt(0, 2 ** 32 - 1);
     const maxPlayers = 16;
 
     console.log(
@@ -593,6 +651,7 @@ stm.addStateTransition(
       max_players: maxPlayers,
       created_block: blockHeight,
       admin_sign_public_key: null,
+      encrypted_game_seed: encryptedGameSeed,
     });
 
     const timeoutBlock = blockHeight + LOBBY_TIMEOUT_BLOCKS;

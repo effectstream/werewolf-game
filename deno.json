@@ -19,7 +19,8 @@
     // Workarounds for broken imports in JSR packages
     "npm:/@sinclair/typebox@0.34.41/value": "npm:@sinclair/typebox@0.34.41/value",
     "npm:@cardano-foundation/cardano-verify-datasignature@1.0.11": "npm:@cardano-foundation/cardano-verify-datasignature@^1.0.11",
-    "tweetnacl": "npm:tweetnacl@1.0.3" // TODO: This is a workaround for a missing dependency.
+    "tweetnacl": "npm:tweetnacl@1.0.3", // TODO: This is a workaround for a missing dependency.
+    "prando": "npm:prando@^6.0.1"
   },
   "lint": {
     "rules": {

@@ -7,6 +7,7 @@ export type NumberOrString = number | string;
 export interface IUpsertLobbyParams {
   admin_sign_public_key?: string | null | void;
   created_block: NumberOrString;
+  encrypted_game_seed?: string | null | void;
   game_id: NumberOrString;
   max_players: NumberOrString;
 }
@@ -20,17 +21,44 @@ export interface IUpsertLobbyQuery {
   result: IUpsertLobbyResult;
 }
 
-const upsertLobbyIR: any = {"usedParamSet":{"game_id":true,"max_players":true,"created_block":true,"admin_sign_public_key":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":96,"b":104}]},{"name":"max_players","required":true,"transform":{"type":"scalar"},"locs":[{"a":107,"b":119}]},{"name":"created_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":122,"b":136}]},{"name":"admin_sign_public_key","required":false,"transform":{"type":"scalar"},"locs":[{"a":139,"b":160}]}],"statement":"INSERT INTO werewolf_lobby (game_id, max_players, created_block, admin_sign_public_key)\nVALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key)\nON CONFLICT (game_id) DO NOTHING"};
+const upsertLobbyIR: any = {"usedParamSet":{"game_id":true,"max_players":true,"created_block":true,"admin_sign_public_key":true,"encrypted_game_seed":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":117,"b":125}]},{"name":"max_players","required":true,"transform":{"type":"scalar"},"locs":[{"a":128,"b":140}]},{"name":"created_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":143,"b":157}]},{"name":"admin_sign_public_key","required":false,"transform":{"type":"scalar"},"locs":[{"a":160,"b":181}]},{"name":"encrypted_game_seed","required":false,"transform":{"type":"scalar"},"locs":[{"a":184,"b":203}]}],"statement":"INSERT INTO werewolf_lobby (game_id, max_players, created_block, admin_sign_public_key, encrypted_game_seed)\nVALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key, :encrypted_game_seed)\nON CONFLICT (game_id) DO NOTHING"};
 
 /**
  * Query generated from SQL:
  * ```
- * INSERT INTO werewolf_lobby (game_id, max_players, created_block, admin_sign_public_key)
- * VALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key)
+ * INSERT INTO werewolf_lobby (game_id, max_players, created_block, admin_sign_public_key, encrypted_game_seed)
+ * VALUES (:game_id!, :max_players!, :created_block!, :admin_sign_public_key, :encrypted_game_seed)
  * ON CONFLICT (game_id) DO NOTHING
  * ```
  */
 export const upsertLobby = new PreparedQuery<IUpsertLobbyParams,IUpsertLobbyResult>(upsertLobbyIR);
+
+
+/** 'GetEncryptedGameSeed' parameters type */
+export interface IGetEncryptedGameSeedParams {
+  game_id: NumberOrString;
+}
+
+/** 'GetEncryptedGameSeed' return type */
+export interface IGetEncryptedGameSeedResult {
+  encrypted_game_seed: string | null;
+}
+
+/** 'GetEncryptedGameSeed' query type */
+export interface IGetEncryptedGameSeedQuery {
+  params: IGetEncryptedGameSeedParams;
+  result: IGetEncryptedGameSeedResult;
+}
+
+const getEncryptedGameSeedIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":63,"b":71}]}],"statement":"SELECT encrypted_game_seed FROM werewolf_lobby WHERE game_id = :game_id!"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * SELECT encrypted_game_seed FROM werewolf_lobby WHERE game_id = :game_id!
+ * ```
+ */
+export const getEncryptedGameSeed = new PreparedQuery<IGetEncryptedGameSeedParams,IGetEncryptedGameSeedResult>(getEncryptedGameSeedIR);
 
 
 /** 'GetAdminSignKey' parameters type */
@@ -154,6 +182,7 @@ export interface IGetLobbyResult {
   bundles_ready: boolean;
   closed: boolean;
   created_block: string;
+  encrypted_game_seed: string | null;
   game_id: string;
   max_players: string;
   player_count: string;
