@@ -15,9 +15,11 @@ export type LobbySummary = {
   maxPlayers: number;
   closed: boolean;
   bundlesReady: boolean;
+  timeoutBlock?: number | null;
 };
 
 export type AdminGamesResponse = {
+  currentBlock?: number | null;
   games: GameSummary[];
   lobbies: LobbySummary[];
 };

@@ -619,6 +619,25 @@ const Role: Record<number, string> = {
   3: "Doctor",
 };
 
+/** Get current NTP block from sync state. Returns null if DB not initialized. */
+async function getCurrentNtpBlock(dbConn: Pool): Promise<number | null> {
+  try {
+    const result = await dbConn.query(
+      `SELECT page_number, page
+       FROM effectstream.sync_protocol_pagination
+       WHERE protocol_name = 'mainNtp'
+       ORDER BY page_number ASC
+       LIMIT 1`,
+    );
+    if (!result?.rows?.length) return null;
+    const row = result.rows[0] as { page_number: number; page: { root: number } };
+    const startTime = row.page.root - (row.page_number * 1000);
+    return Math.floor((Date.now() - startTime) / 1000);
+  } catch {
+    return null;
+  }
+}
+
 /** List all games with current state. */
 export async function adminListGamesHandler(dbConn: Pool) {
   const res = await dbConn.query(
@@ -631,13 +650,16 @@ export async function adminListGamesHandler(dbConn: Pool) {
 
   // Also get open lobbies that may not have a game view yet
   const lobbyRes = await dbConn.query(
-    `SELECT game_id, player_count, max_players, closed, bundles_ready
+    `SELECT game_id, player_count, max_players, closed, bundles_ready, timeout_block
      FROM werewolf_lobby
      ORDER BY game_id DESC
      LIMIT 50`,
   );
 
+  const currentBlock = await getCurrentNtpBlock(dbConn);
+
   return {
+    currentBlock,
     games: res.rows.map((row: any) => ({
       gameId: Number(row.game_id),
       phase: row.phase,
@@ -654,6 +676,7 @@ export async function adminListGamesHandler(dbConn: Pool) {
       maxPlayers: Number(row.max_players),
       closed: row.closed,
       bundlesReady: row.bundles_ready,
+      timeoutBlock: row.timeout_block != null ? Number(row.timeout_block) : null,
     })),
   };
 }

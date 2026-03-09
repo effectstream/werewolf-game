@@ -89,14 +89,32 @@ header h1 {
 }
 
 .game-id {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
   font-weight: 600;
   min-width: 36px;
+}
+
+.game-id-phrase {
+  line-height: 1.2;
+}
+
+.game-id-numeric {
+  font-size: 0.75em;
+  font-weight: 500;
+  color: #888;
+  margin-top: 1px;
 }
 
 .game-info {
   color: #888;
   font-size: 11px;
   margin-left: auto;
+}
+
+.lobby-countdown {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Section dividers in game list */

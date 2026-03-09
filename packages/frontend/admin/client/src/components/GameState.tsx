@@ -1,4 +1,5 @@
 import { useGameState } from "../contexts/GameStateContext.tsx";
+import { GameIdDisplay } from "./GameIdDisplay.tsx";
 
 export function GameState() {
   const { gameState: state } = useGameState();
@@ -8,7 +9,9 @@ export function GameState() {
 
   return (
     <div className="game-state">
-      <h3>Game #{state.gameId}</h3>
+      <h3>
+        Game <GameIdDisplay gameId={state.gameId} />
+      </h3>
 
       {!gv ? (
         <div className="info">Game view not yet available (lobby phase)</div>

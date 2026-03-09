@@ -172,6 +172,25 @@ export async function handleLobbyClosed(
   }
   store.storeBundlesByPublicKey(gameId, bundleMap);
 
+  // 4b. Invite players to chat channels now that roles are known.
+  //     Re-inviting to general is idempotent and handles the case where the
+  //     chat server restarted after players joined (rooms are in-memory only).
+  //     Werewolves are invited to the werewolf channel for the first time here.
+  for (let i = 0; i < players.length; i++) {
+    const playerKey = players[i].public_key_hex;
+    const nickname = (players[i].nickname as string | undefined) ?? `Player ${i}`;
+    const bundle = bundleMap.get(playerKey);
+    chatPost("/invite", { gameId, publicKeyHex: playerKey, nickname });
+    if (bundle?.role === 1) {
+      chatPost("/invite", {
+        gameId,
+        publicKeyHex: playerKey,
+        nickname,
+        channel: "werewolf",
+      });
+    }
+  }
+
   // 5. Store game secrets (including the decrypted game seed for future key derivation).
   store.storeGameSecrets(gameId, {
     masterSecret: result.masterSecret,
