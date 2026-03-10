@@ -350,5 +350,61 @@ export async function resolvePhaseFromVotes(
     `[vote-resolver] Phase resolution submitted for game=${gameId} round=${round} phase=${phase}`,
   );
 
+  // Parity / win detection: compute post-elimination alive counts from bundles
+  // and call forceEndGame if the game is over.
+  //
+  // The contract's resolveNightPhase / resolveDayPhase never set phase=Finished
+  // because they don't know player roles (committed, not revealed). We detect
+  // game-end here using the in-memory bundles that record each player's role.
+  const bundles = store.getAllBundlesForGame(gameId);
+  if (bundles.length > 0) {
+    const postAlive = new Set(aliveIndices);
+    if (tally.hasElimination) postAlive.delete(tally.targetIdx);
+
+    const aliveWolves = bundles.filter(
+      (b) => b.role === 1 && postAlive.has(b.playerId),
+    ).length;
+    const aliveVillagers = bundles.filter(
+      (b) => b.role !== 1 && postAlive.has(b.playerId),
+    ).length;
+
+    const gameOver = aliveWolves === 0 || aliveWolves >= aliveVillagers;
+    if (gameOver) {
+      const winner = aliveWolves === 0 ? "VILLAGERS" : "WEREWOLVES";
+      console.log(
+        `[vote-resolver] Game over detected: wolves=${aliveWolves} villagers=${aliveVillagers}` +
+          ` winner=${winner} — submitting forceEndGame for game=${gameId}`,
+      );
+      try {
+        await callMidnightCircuit({
+          circuitId: "forceEndGame",
+          privateState: emptyPrivateState,
+          batcherUrl: BATCHER_URL,
+          seed: adminWalletSeed,
+          callFn: async (contract) => {
+            // secrets is non-null here: adminWalletSeed is derived from it and
+            // was checked above; if secrets were undefined we'd have thrown.
+            await contract.callTx.forceEndGame(
+              BigInt(gameId),
+              secrets!.masterSecret,
+            );
+          },
+        });
+        console.log(
+          `[vote-resolver] forceEndGame submitted for game=${gameId} — winner=${winner}`,
+        );
+      } catch (err) {
+        console.error(
+          `[vote-resolver] forceEndGame failed for game=${gameId}:`,
+          err,
+        );
+      }
+    }
+  } else {
+    console.warn(
+      `[vote-resolver] No bundles for game=${gameId} — skipping parity check`,
+    );
+  }
+
   return tally;
 }

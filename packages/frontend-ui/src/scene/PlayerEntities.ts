@@ -8,27 +8,17 @@ import { createAngelMesh } from '../models/angelModel'
 import { makeTextSprite, makeBubbleSprite, createBubbleTexture } from '../utils/spriteUtils'
 import { generatePlayerConfigs, generateHairParameters } from '../utils/playerGenerator'
 import type { PlayerConfig } from '../models/PlayerConfigInterface'
-import type { ChatManager } from '../ui/ChatManager'
 
 export class PlayerEntities {
   private scene: THREE.Scene
-  private chatManager: ChatManager
   private unsubscribe: () => void
   private nameSprites: Map<number, THREE.Sprite> = new Map()
   private resolvedNames: Map<number, string> = new Map()
 
   private readonly ROLE_ORDER: Role[] = ['villager', 'werewolf', 'doctor', 'seer', 'angelDead']
-  private readonly ROLE_LABEL: Record<Role, string> = {
-    villager: 'Villager',
-    werewolf: 'Werewolf',
-    doctor: 'Doctor',
-    seer: 'Seer',
-    angelDead: 'Angel (dead)'
-  }
 
-  constructor(scene: THREE.Scene, chatManager: ChatManager, playerCount: number, updateCardLayout?: (count: number) => void) {
+  constructor(scene: THREE.Scene, playerCount: number, updateCardLayout?: (count: number) => void) {
     this.scene = scene
-    this.chatManager = chatManager
 
     this.initPlayers(playerCount, updateCardLayout)
 
@@ -145,9 +135,6 @@ export class PlayerEntities {
     nextModel.visible = true
     player.activeRole = role
     player.activeModel = nextModel
-
-    const roleLabel = this.ROLE_LABEL[role] ?? role
-    this.chatManager.addMessageLine('System', `${player.name} marked as ${roleLabel}`)
   }
 
   private syncVisuals(): void {

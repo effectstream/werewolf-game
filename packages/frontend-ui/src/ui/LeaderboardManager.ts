@@ -10,22 +10,39 @@ interface LeaderboardEntry {
 }
 
 export class LeaderboardManager {
+  private backdrop: HTMLDivElement;
   private panel: HTMLDivElement;
   private tableBody: HTMLTableSectionElement;
+  private toggleBtn: HTMLButtonElement | null = null;
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor() {
+    this.backdrop = document.createElement("div");
+    this.backdrop.id = "leaderboard-backdrop";
+    this.backdrop.className = "leaderboard-backdrop hidden";
+    this.backdrop.addEventListener("click", (event) => {
+      if (event.target === this.backdrop) {
+        this.hide();
+      }
+    });
+    document.body.appendChild(this.backdrop);
+
     this.panel = this.createPanel();
     document.body.appendChild(this.panel);
-    this.tableBody = this.panel.querySelector<HTMLTableSectionElement>(
-      "#leaderboard-tbody",
-    )!;
+    this.tableBody = this.panel.querySelector<HTMLTableSectionElement>("#leaderboard-tbody")
+      ?? document.createElement("tbody");
 
-    this.panel.querySelector<HTMLButtonElement>("#leaderboard-close")!
-      .addEventListener("click", () => this.hide());
+    const closeBtn = this.panel.querySelector<HTMLButtonElement>("#leaderboard-close");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", () => this.hide());
+    }
 
-    this.panel.querySelector<HTMLButtonElement>("#leaderboard-toggle")!
-      .addEventListener("click", () => this.toggle());
+    this.toggleBtn = document.querySelector<HTMLButtonElement>("#leaderboard-toggle");
+    if (this.toggleBtn) {
+      this.toggleBtn.addEventListener("click", () => this.toggle());
+    } else {
+      console.warn("[leaderboard] Toggle button not found; panel can still be shown programmatically.");
+    }
   }
 
   private createPanel(): HTMLDivElement {
@@ -33,9 +50,12 @@ export class LeaderboardManager {
     toggleBtn.id = "leaderboard-toggle";
     toggleBtn.className = "ui-btn leaderboard-toggle-btn";
     toggleBtn.textContent = "🏆 Leaderboard";
-    toggleBtn.style.cssText =
-      "position:fixed;bottom:16px;right:16px;z-index:1000;padding:8px 14px;font-size:13px;";
-    document.body.appendChild(toggleBtn);
+    const sidebar = document.querySelector<HTMLElement>(".sidebar");
+    if (sidebar) {
+      sidebar.appendChild(toggleBtn);
+    } else {
+      document.body.appendChild(toggleBtn);
+    }
 
     const panel = document.createElement("div");
     panel.id = "leaderboard-panel";
@@ -66,17 +86,27 @@ export class LeaderboardManager {
   }
 
   show() {
+    this.backdrop.classList.remove("hidden");
     this.panel.classList.remove("hidden");
     this.fetchAndRender();
     this.refreshInterval = setInterval(() => this.fetchAndRender(), 10_000);
   }
 
   hide() {
+    this.backdrop.classList.add("hidden");
     this.panel.classList.add("hidden");
     if (this.refreshInterval !== null) {
       clearInterval(this.refreshInterval);
       this.refreshInterval = null;
     }
+  }
+
+  destroy() {
+    this.hide();
+    this.backdrop.remove();
+    this.panel.remove();
+    this.toggleBtn?.remove();
+    this.toggleBtn = null;
   }
 
   toggle() {

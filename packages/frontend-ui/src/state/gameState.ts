@@ -60,6 +60,8 @@ class GameState {
   playerAlive: boolean[] = []
   /** Whether the game has ended */
   finished: boolean = false
+  /** Winning faction — only set when finished */
+  winner: 'VILLAGERS' | 'WEREWOLVES' | null = null
   /** Whether the game has started (first valid game view received or last-joiner flag set) */
   gameStarted: boolean = false
   /** Indices of werewolf players (only populated when finished) */
@@ -171,6 +173,11 @@ class GameState {
       this.finished = view.finished
       changed = true
       console.log('[gameState] Finished changed to:', view.finished)
+    }
+
+    if (view.winner !== this.winner) {
+      this.winner = view.winner
+      changed = true
     }
 
     const newAlive = view.players.map(p => p.alive)

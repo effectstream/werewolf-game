@@ -73,6 +73,7 @@ export interface GameViewResponse {
   villagerCount: number;
   players: PlayerStatus[];
   finished: boolean;
+  winner: 'VILLAGERS' | 'WEREWOLVES' | null;
   werewolfIndices: number[];
   updatedBlock: number;
 }

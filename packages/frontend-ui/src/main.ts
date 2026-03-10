@@ -8,6 +8,7 @@ import { ChatManager } from './ui/ChatManager'
 import { PlayerListManager } from './ui/PlayerListManager'
 import { RolePicker } from './ui/RolePicker'
 import { LeaderboardManager } from './ui/LeaderboardManager'
+import { GameEndModal } from './ui/GameEndModal'
 
 // Scene
 import { GameScene } from './scene/GameScene'
@@ -48,6 +49,8 @@ interface GameManagers {
   werewolfChatManager?: ChatManager
   playerListManager: PlayerListManager
   rolePicker: RolePicker
+  leaderboardManager: LeaderboardManager
+  gameEndModal: GameEndModal
   playerEntities: PlayerEntities
   poller: GameViewPoller
   votePoller: VoteStatusPoller
@@ -59,6 +62,8 @@ function destroyGame(managers: GameManagers): void {
   managers.werewolfChatManager?.destroy()
   managers.playerListManager.destroy()
   managers.rolePicker.destroy()
+  managers.leaderboardManager.destroy()
+  managers.gameEndModal.hide()
   managers.playerEntities.destroy()
   managers.poller.stop()
   managers.votePoller.stop()
@@ -74,7 +79,12 @@ async function bootGame(): Promise<GameManagers> {
     gameState.applyGameView(initialView)
     initialPlayerCount = initialView.playerCount
   } catch (err) {
-    console.warn('[bootGame] Failed to fetch initial game view:', err)
+    const message = err instanceof Error ? err.message : String(err)
+    if (message.includes('not found')) {
+      console.info('[bootGame] Initial game view not ready yet; continuing with DB player list and poller.')
+    } else {
+      console.warn('[bootGame] Failed to fetch initial game view:', err)
+    }
   }
 
   // Fetch player list to get index → nickname mapping.
@@ -107,15 +117,40 @@ async function bootGame(): Promise<GameManagers> {
   const playerListManager = new PlayerListManager()
   const rolePicker = new RolePicker()
   const leaderboardManager = new LeaderboardManager()
+  const gameEndModal = new GameEndModal()
 
-  // Show leaderboard automatically when the game finishes.
+  // Track the highest round in which the local player was alive (rounds survived).
+  let highestAliveRound = 0
+
+  let gameEndShown = false
+  // Show game-end modal + leaderboard when the game finishes.
   gameState.subscribe(() => {
-    if (gameState.finished) leaderboardManager.show()
+    if (gameState.finished && !gameEndShown) {
+      gameEndShown = true
+      const bundle = gameState.playerBundle
+      const completionMsg = gameState.winner === 'WEREWOLVES'
+        ? 'Game over! The werewolves have won!'
+        : gameState.winner === 'VILLAGERS'
+          ? 'Game over! The villagers have won!'
+          : 'Game over!'
+      chatManager.addMessageLine('System', completionMsg)
+      // Give the server a moment to persist leaderboard scores before showing UI.
+      setTimeout(() => {
+        gameEndModal.show({
+          winner: gameState.winner,
+          playerRole: bundle?.role,
+          roundsSurvived: highestAliveRound,
+          hasEvmAddress: !!gameState.playerEvmAddress,
+          onShowLeaderboard: () => leaderboardManager.show(),
+        })
+        leaderboardManager.show()
+      }, 1500)
+    }
   })
 
   // Initialize Scene Layer
   const gameScene = new GameScene()
-  const playerEntities = new PlayerEntities(gameScene.scene, chatManager, initialPlayerCount, (count) => {
+  const playerEntities = new PlayerEntities(gameScene.scene, initialPlayerCount, (count) => {
     if (gameScene.table.userData.updateCardLayout) {
       gameScene.table.userData.updateCardLayout(count)
     }
@@ -137,6 +172,12 @@ async function bootGame(): Promise<GameManagers> {
     const prevPhase = gameState.phase
 
     gameState.applyGameView(view)
+
+    // Track rounds survived for the local player (highest round where they were alive).
+    const localPlayerId = gameState.playerBundle?.playerId
+    if (localPlayerId !== undefined && gameState.playerAlive[localPlayerId] !== false) {
+      highestAliveRound = Math.max(highestAliveRound, gameState.round)
+    }
 
     // Detect alive → dead transitions and show elimination announcement
     const newAlive = gameState.playerAlive
@@ -194,7 +235,17 @@ async function bootGame(): Promise<GameManagers> {
 
   animate()
 
-  return { hudManager, chatManager, playerListManager, rolePicker, playerEntities, poller, votePoller }
+  return {
+    hudManager,
+    chatManager,
+    playerListManager,
+    rolePicker,
+    leaderboardManager,
+    gameEndModal,
+    playerEntities,
+    poller,
+    votePoller,
+  }
 }
 
 // Show lobby first; boot the game scene only after the player has joined.
@@ -227,10 +278,15 @@ lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, publicKeyHex: stri
 
     const bundle = gameState.playerBundle
     if (bundle?.role !== undefined) {
+      const roleName = roleNumberToRole(bundle.role)
       const player = gameState.players[bundle.playerId]
       if (player) {
-        managers.playerEntities.setPlayerRole(player, roleNumberToRole(bundle.role))
+        managers.playerEntities.setPlayerRole(player, roleName)
       }
+      const roleLabels: Record<string, string> = {
+        villager: 'Villager', werewolf: 'Werewolf', doctor: 'Doctor', seer: 'Seer', angelDead: 'Angel (dead)',
+      }
+      managers.chatManager.addMessageLine('System', `Your role: ${roleLabels[roleName] ?? roleName}`)
 
       // Werewolves get access to the private werewolf channel
       if (bundle.role === 1) {
