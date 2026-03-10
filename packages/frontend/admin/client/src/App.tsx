@@ -5,12 +5,14 @@ import { GameState } from "./components/GameState.tsx";
 import { PlayerTable } from "./components/PlayerTable.tsx";
 import { VoteMonitor } from "./components/VoteMonitor.tsx";
 import { ChatPanel } from "./components/ChatPanel.tsx";
+import { LeaderboardModal } from "./components/LeaderboardModal.tsx";
 import { GameStateContext } from "./contexts/GameStateContext.tsx";
 import type { AdminGameState } from "./types.ts";
 import "./App.css";
 
 export default function App() {
   const [selectedGameId, setSelectedGameId] = useState<number | null>(null);
+  const [showLeaderboard, setShowLeaderboard] = useState(false);
 
   const { data: gameState } = usePolling<AdminGameState>(
     selectedGameId != null
@@ -24,7 +26,17 @@ export default function App() {
       <div className="admin-app">
         <header>
           <h1>Werewolf Admin</h1>
+          <button
+            className="lb-btn"
+            onClick={() => setShowLeaderboard(true)}
+          >
+            Leaderboard
+          </button>
         </header>
+
+        {showLeaderboard && (
+          <LeaderboardModal onClose={() => setShowLeaderboard(false)} />
+        )}
 
         <div className="layout">
           <aside className="sidebar">
