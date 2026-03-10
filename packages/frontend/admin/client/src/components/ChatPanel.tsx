@@ -27,7 +27,7 @@ export function ChatPanel({
       ws.send(
         JSON.stringify({
           type: "identify",
-          midnightAddressHash: `admin-observer-${channel}`,
+          publicKeyHex: `admin-observer-${channel}`,
         }),
       );
     };

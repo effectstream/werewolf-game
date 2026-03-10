@@ -264,12 +264,16 @@ export function generateBundles(
   };
 
   // --- Generate admin keys ---
-  const adminVoteKeypair = nacl.box.keyPair();
+  // Both keypairs are derived from detRandomBytes so they are fully
+  // reproducible from gameSeed after a server restart.
+  const adminVoteSecret = detRandomBytes(32);
+  const adminVoteKeypair = nacl.box.keyPair.fromSecretKey(adminVoteSecret);
   const adminVotePublicKeyBytes = new Uint8Array(33);
   adminVotePublicKeyBytes.set(adminVoteKeypair.publicKey);
   const adminVotePublicKeyHex = bytesToHex(adminVotePublicKeyBytes);
 
-  const adminSignKeypair = nacl.sign.keyPair();
+  const adminSignSeed = detRandomBytes(32);
+  const adminSignKeypair = nacl.sign.keyPair.fromSeed(adminSignSeed);
   const adminSignPublicKeyHex = bytesToHex(adminSignKeypair.publicKey);
 
   // --- Generate master secret ---

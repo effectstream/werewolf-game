@@ -26,8 +26,8 @@ import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
 import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
-import { purgeVotes, storePlayerPublicKey } from "./store.ts";
-import { handleLobbyClosed } from "./lobby-closer.ts";
+import { getAllBundlesForGame, getGameSecrets, purgeVotes, storePlayerPublicKey } from "./store.ts";
+import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
 
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
@@ -102,6 +102,17 @@ stm.addStateTransition(
           }]`,
       );
 
+      // If secrets are missing (e.g. server restart), trigger async recovery so
+      // the next STF cycle has everything in memory for vote decryption + admin circuits.
+      if (!getGameSecrets(gameId) && !gameView.isFinished) {
+        console.warn(
+          `[midnight] game=${gameId}: GameSecrets not in memory — triggering recovery`,
+        );
+        void restoreGameSecrets(gameId).catch((err) =>
+          console.error(`[midnight] game=${gameId}: secret recovery failed`, err)
+        );
+      }
+
       // Upsert the denormalised game view used by the frontend.
       // werewolf_indices is only populated when the game is finished (future work).
       yield* World.resolve(upsertGameView, {
@@ -118,11 +129,13 @@ stm.addStateTransition(
         updated_block: blockHeight,
       });
 
-      // Skip round-state logic for games with no alive players.
-      if (gameView.aliveCount === 0) {
+      // Skip round-state logic for finished games or games with no alive players.
+      // isFinished must be checked explicitly: parity wins end the game while
+      // aliveCount > 0 (e.g. 2 wolves, 2 villagers → game over, 4 still alive).
+      if (gameView.isFinished || gameView.aliveCount === 0) {
         console.log(
           `[midnight] game=${gameId} skipping round-state logic` +
-            ` (aliveCount=0, playerCount=${gameView.playerCount})`,
+            ` (finished=${gameView.isFinished} winner=${gameView.winner} aliveCount=${gameView.aliveCount})`,
         );
         continue;
       }
@@ -163,11 +176,28 @@ stm.addStateTransition(
           ` phase=${gameView.phase} alive=${gameView.aliveCount}`,
       );
 
+      // For night phase, only alive werewolves vote — compute from store bundles
+      // (which have roles assigned at game creation) combined with the current
+      // alive set. This is more accurate than gameView.werewolfCount, which is
+      // only decremented by the manual revealPlayerRole circuit, not automatically.
+      // If bundles are not yet in memory (e.g. recovery is still pending after a
+      // restart), fall back to the on-chain werewolfCount rather than writing 0.
+      const nightBundles = gameView.phase === "NIGHT"
+        ? getAllBundlesForGame(gameId).filter(
+          (b) => b.role === 1 && gameView.aliveSet.has(b.playerId),
+        )
+        : [];
+      const eligibleVoterCount = gameView.phase === "NIGHT"
+        ? nightBundles.length > 0
+          ? nightBundles.length
+          : gameView.werewolfCount // fallback until bundles are restored
+        : gameView.aliveCount;
+
       yield* World.resolve(upsertRoundState, {
         game_id: gameId,
         round: gameView.round,
         phase: gameView.phase,
-        alive_count: gameView.aliveCount,
+        alive_count: eligibleVoterCount,
         round_started_block: blockHeight,
       });
 

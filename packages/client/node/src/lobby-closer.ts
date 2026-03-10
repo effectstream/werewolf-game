@@ -29,6 +29,7 @@ import { getDbPool } from "./db-pool.ts";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import {
   decryptGameSeed,
+  deriveAdminWalletSeed,
   encryptedSeedToHex,
   encryptGameSeed,
   hexToEncryptedSeed,
@@ -191,6 +192,20 @@ export async function handleLobbyClosed(
     }
   }
 
+  // Admin-UI observer — invite fixed hashes so the admin dashboard can connect
+  // to both channels without being a game participant.
+  chatPost("/invite", {
+    gameId,
+    publicKeyHex: "admin-observer-general",
+    nickname: "Admin",
+  });
+  chatPost("/invite", {
+    gameId,
+    publicKeyHex: "admin-observer-werewolf",
+    nickname: "Admin",
+    channel: "werewolf",
+  });
+
   // 5. Store game secrets (including the decrypted game seed for future key derivation).
   store.storeGameSecrets(gameId, {
     masterSecret: result.masterSecret,
@@ -213,8 +228,13 @@ export async function handleLobbyClosed(
   );
 
   // 8. Create the Midnight game via delegated balancing.
+  // Derive a deterministic admin wallet seed from WEREWOLF_KEY_SECRET + gameId so
+  // the wallet identity (std_ownPublicKey) is always recoverable after a restart
+  // without any DB storage.
+  const adminWalletSeed = await deriveAdminWalletSeed(WEREWOLF_KEY_SECRET, gameId);
+
   try {
-    const midnightResult = await createMidnightGame({
+    await createMidnightGame({
       gameId: BigInt(gameId),
       adminVotePublicKey: result.adminVoteKeypair.publicKey,
       adminSignPublicKey: result.adminSignKeypair.publicKey,
@@ -224,20 +244,20 @@ export async function handleLobbyClosed(
       roleCommitments: result.roleCommitments,
       merkleRoot: result.merkleRoot,
       batcherUrl: BATCHER_URL,
+      seed: adminWalletSeed,
     });
 
-    // Update stored secrets with the admin wallet seed so resolve circuits
-    // can rebuild the same wallet and pass std_ownPublicKey() == state.adminKey.
+    // Update stored secrets with the deterministic wallet seed.
     const currentSecrets = store.getGameSecrets(gameId);
     if (currentSecrets) {
       store.storeGameSecrets(gameId, {
         ...currentSecrets,
-        adminWalletSeed: midnightResult.adminWalletSeed,
+        adminWalletSeed,
       });
     }
 
     console.log(
-      `[lobby-closer] game=${gameId} Midnight game creation submitted to batcher. adminWalletSeed stored.`,
+      `[lobby-closer] game=${gameId} Midnight game creation submitted to batcher.`,
     );
   } catch (err) {
     console.error(
@@ -267,6 +287,97 @@ export async function handleLobbyClosed(
 
   // 11. Schedule next lobby.
   await scheduleNextLobby(gameSeed);
+}
+
+/**
+ * Restore all in-memory game secrets after a server restart.
+ *
+ * Because generateBundles is fully deterministic when given the same gameSeed,
+ * every secret (masterSecret, adminVoteKeypair, adminSignKeypair, player bundles,
+ * merkleRoot) can be reproduced exactly. The adminWalletSeed is not derivable
+ * from gameSeed so it is fetched from the DB where it was persisted at game creation.
+ *
+ * Returns true if recovery succeeded, false otherwise.
+ */
+export async function restoreGameSecrets(gameId: number): Promise<boolean> {
+  if (store.getGameSecrets(gameId)) return true; // already in memory
+
+  const dbConn = getDbPool();
+  console.log(`[lobby-closer] Attempting secret recovery for game=${gameId}`);
+
+  // 1. Get player list (preserves join order → bundle assignment).
+  const players = await runPreparedQuery(
+    getLobbyPlayers.run({ game_id: gameId }, dbConn),
+    "getLobbyPlayers",
+  );
+  if (players.length < 2) {
+    console.error(
+      `[lobby-closer] Recovery failed for game=${gameId}: only ${players.length} player(s) in DB`,
+    );
+    return false;
+  }
+
+  const playerCount = players.length;
+  const werewolfCount = Math.ceil(playerCount * 0.3);
+
+  // 2. Decrypt game seed.
+  const seedRows = await runPreparedQuery(
+    getEncryptedGameSeed.run({ game_id: gameId }, dbConn),
+    "getEncryptedGameSeed",
+  );
+  const encHex = (seedRows[0] as any)?.encrypted_game_seed as string | null;
+  if (!encHex) {
+    console.error(
+      `[lobby-closer] Recovery failed for game=${gameId}: no encrypted_game_seed in DB`,
+    );
+    return false;
+  }
+
+  let gameSeed: Uint8Array;
+  try {
+    const blob = hexToEncryptedSeed(encHex);
+    gameSeed = await decryptGameSeed(blob, WEREWOLF_KEY_SECRET);
+  } catch (err) {
+    console.error(
+      `[lobby-closer] Recovery failed for game=${gameId}: seed decryption failed`,
+      err,
+    );
+    return false;
+  }
+
+  // 3. Derive adminWalletSeed deterministically — no DB fetch needed.
+  const adminWalletSeed = await deriveAdminWalletSeed(WEREWOLF_KEY_SECRET, gameId);
+
+  // 4. Regenerate all bundles deterministically from gameSeed.
+  const result = generateBundles(BigInt(gameId), playerCount, werewolfCount, gameSeed);
+
+  // 5. Restore bundles keyed by public key (same join-order assignment as original).
+  const bundleMap = new Map<string, store.PlayerBundle>();
+  for (let i = 0; i < players.length; i++) {
+    bundleMap.set(
+      (players[i] as any).public_key_hex as string,
+      result.playerBundles[i] as store.PlayerBundle,
+    );
+  }
+  store.storeBundlesByPublicKey(gameId, bundleMap);
+
+  // 6. Restore game secrets.
+  store.storeGameSecrets(gameId, {
+    masterSecret: result.masterSecret,
+    adminVoteKeypair: result.adminVoteKeypair,
+    adminSignKeypair: result.adminSignKeypair,
+    gameSeed,
+    adminWalletSeed,
+  });
+
+  // 7. Restore merkle root and admin sign key cache.
+  store.storeMerkleRoot(gameId, result.merkleRoot);
+  store.setAdminSignKey(gameId, result.adminSignPublicKeyHex);
+
+  console.log(
+    `[lobby-closer] game=${gameId} secrets restored (${playerCount} players, ${werewolfCount} werewolves)`,
+  );
+  return true;
 }
 
 /**

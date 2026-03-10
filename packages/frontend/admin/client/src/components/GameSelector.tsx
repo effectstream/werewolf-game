@@ -26,12 +26,12 @@ function GameItem({
   onSelect: (id: number) => void;
 }) {
   const phaseClass = game.finished ? "finished" : game.phase?.toLowerCase();
-  const label = game.finished
-    ? game.werewolfCount === 0
-      ? "Villagers Win"
-      : game.villagerCount === 0
-      ? "Werewolves Win"
-      : "Finished"
+  const label = game.winner === "VILLAGERS"
+    ? "Villagers Win"
+    : game.winner === "WEREWOLVES"
+    ? "Werewolves Win"
+    : game.finished
+    ? "Finished"
     : game.phase;
 
   return (

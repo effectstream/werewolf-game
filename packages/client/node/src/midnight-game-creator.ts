@@ -34,6 +34,10 @@ export interface CreateMidnightGameParams {
   roleCommitments: Uint8Array[];
   merkleRoot: { field: bigint };
   batcherUrl: string;
+  /** Deterministic admin wallet seed (64-char hex). When provided the same
+   *  ZSwap coin identity is always produced, so std_ownPublicKey() will keep
+   *  matching state.adminKey after a server restart. */
+  seed?: string;
 }
 
 export interface CreateMidnightGameResult {
@@ -131,6 +135,7 @@ export async function createMidnightGame(
     // Factory receives the wallet's coin public key so adminKey is set correctly
     privateState: makePrivateStateFactory(params),
     batcherUrl,
+    seed: params.seed,
     callFn: async (contract) => {
       await contract.callTx.createGame(
         gameId,

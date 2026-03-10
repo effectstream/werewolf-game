@@ -81,6 +81,39 @@ export async function decryptGameSeed(
   return xor32(ciphertext, keystream);
 }
 
+/**
+ * Derive a deterministic 32-byte admin wallet seed from the node secret and a
+ * game ID. Uses HKDF-SHA-256 with a domain-separation info label so the output
+ * is independent of the game seed keystream used by encryptGameSeed/decryptGameSeed.
+ *
+ * The result is a 64-character lowercase hex string (same format as createRandomSeed).
+ * Providing the same secret + gameId always produces the same seed, making the
+ * admin wallet identity fully recoverable after a server restart with no DB storage.
+ */
+export async function deriveAdminWalletSeed(
+  secret: string,
+  gameId: number,
+): Promise<string> {
+  const salt = new TextEncoder().encode(gameId.toString()) as unknown as
+    Uint8Array<ArrayBuffer>;
+  const info = new TextEncoder().encode("werewolf-admin-wallet-v1");
+  const ikm = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HKDF" },
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    { name: "HKDF", hash: "SHA-256", salt, info },
+    ikm,
+    256,
+  );
+  return Array.from(new Uint8Array(bits), (b) =>
+    b.toString(16).padStart(2, "0")
+  ).join("");
+}
+
 /** Encode a 64-byte encrypted blob as a 128-character hex string. */
 export function encryptedSeedToHex(blob: Uint8Array): string {
   return Array.from(blob).map((b) => b.toString(16).padStart(2, "0")).join("");

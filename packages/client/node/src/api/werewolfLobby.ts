@@ -554,6 +554,15 @@ export async function getVotesForRoundHandler(
   };
 }
 
+/** Derive the winning faction from persisted columns. Returns null while the game is active. */
+function winnerOf(
+  finished: boolean,
+  werewolfCount: number,
+): "VILLAGERS" | "WEREWOLVES" | null {
+  if (!finished) return null;
+  return werewolfCount === 0 ? "VILLAGERS" : "WEREWOLVES";
+}
+
 export async function getGameViewHandler(dbConn: Pool, gameId: number) {
   const rows = await runPreparedQuery(
     getGameView.run({ game_id: gameId }, dbConn),
@@ -586,6 +595,7 @@ export async function getGameViewHandler(dbConn: Pool, gameId: number) {
     villagerCount: row.villager_count,
     players,
     finished: row.finished,
+    winner: winnerOf(row.finished, Number(row.werewolf_count)),
     werewolfIndices,
     updatedBlock: typeof row.updated_block === "string"
       ? Number(row.updated_block)
@@ -669,6 +679,7 @@ export async function adminListGamesHandler(dbConn: Pool) {
       werewolfCount: Number(row.werewolf_count),
       villagerCount: Number(row.villager_count),
       finished: row.finished,
+      winner: winnerOf(row.finished, Number(row.werewolf_count)),
     })),
     lobbies: lobbyRes.rows.map((row: any) => ({
       gameId: Number(row.game_id),

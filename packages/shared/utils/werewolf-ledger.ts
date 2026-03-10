@@ -122,6 +122,14 @@ export class WerewolfLedger {
     const raw = String(this.getPhase(gameId)).toLowerCase();
     if (raw === "1" || raw === "night") return "NIGHT";
     if (raw === "2" || raw === "day") return "DAY";
+    if (raw === "3" || raw === "finished") return "FINISHED";
+    // "0"/"lobby" is expected before game start and also maps to FINISHED so
+    // the STM skips round logic for games not yet active.
+    if (raw !== "0" && raw !== "lobby") {
+      console.warn(
+        `[WerewolfLedger] Unexpected phase value "${raw}" for game ${gameId} — treating as FINISHED`,
+      );
+    }
     return "FINISHED";
   }
 
