@@ -5,9 +5,12 @@ import { createScheduledData } from "@paimaexample/db";
 import {
   closeLobby,
   getAliveSnapshots,
+  getGameView,
   getLobby,
   getWerewolfRoundState,
+  markLeaderboardProcessed,
   type IGetAliveSnapshotsResult,
+  type IGetGameViewResult,
   type IGetLobbyResult,
   type IGetRoundStateResult,
   incrementLobbyPlayerCount,
@@ -28,6 +31,8 @@ import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
 import { getAllBundlesForGame, getGameSecrets, purgeVotes, storePlayerPublicKey } from "./store.ts";
 import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
+import { getDbPool } from "./db-pool.ts";
+import { calculateAndPersistScores } from "./leaderboard.ts";
 
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
@@ -137,6 +142,31 @@ stm.addStateTransition(
           `[midnight] game=${gameId} skipping round-state logic` +
             ` (finished=${gameView.isFinished} winner=${gameView.winner} aliveCount=${gameView.aliveCount})`,
         );
+
+        // Trigger leaderboard calculation once per game on the first finished block.
+        if (gameView.isFinished && gameView.winner) {
+          const dbViewRows = (yield* World.resolve(getGameView, {
+            game_id: gameId,
+          })) as IGetGameViewResult[];
+          const dbView = dbViewRows[0];
+          if (dbView && !dbView.leaderboard_processed) {
+            yield* World.resolve(markLeaderboardProcessed, {
+              game_id: gameId,
+            });
+            void calculateAndPersistScores(
+              gameId,
+              gameView.winner as "VILLAGERS" | "WEREWOLVES",
+              blockHeight,
+              getDbPool(),
+            ).catch((err) =>
+              console.error(
+                `[leaderboard] Failed to calculate scores for game=${gameId}:`,
+                err,
+              )
+            );
+          }
+        }
+
         continue;
       }
 

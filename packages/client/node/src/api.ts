@@ -14,6 +14,7 @@ import {
   getBundleHandler,
   getGameStateHandler,
   getGameViewHandler,
+  getLeaderboardHandler,
   getPlayersHandler,
   getVotesForRoundHandler,
   getVoteStatusHandler,
@@ -145,18 +146,19 @@ export const apiRouter: StartConfigApiRouter = async function (
   );
 
   server.post<{
-    Querystring: Static<typeof JoinGameQuerystringSchema>;
+    Querystring: Static<typeof JoinGameQuerystringSchema> & { evmAddress?: string };
     Reply: Static<
       typeof JoinGameResponseSchema | typeof GenericErrorResponseSchema
     >;
   }>("/api/join_game", async (request, reply) => {
-    const { gameId, publicKey, nickname } = request.query;
+    const { gameId, publicKey, nickname, evmAddress } = request.query;
     try {
       return await joinGameHandler(
         dbConn,
         Number(gameId),
         publicKey,
         nickname,
+        evmAddress,
       );
     } catch (err: any) {
       if (err?.statusCode === 409) {
@@ -342,6 +344,15 @@ export const apiRouter: StartConfigApiRouter = async function (
       throw err;
     }
   });
+
+  server.get<{ Querystring: { limit?: string; offset?: string } }>(
+    "/api/leaderboard",
+    async (request) => {
+      const limit = Math.min(Number(request.query.limit ?? 50), 100);
+      const offset = Number(request.query.offset ?? 0);
+      return getLeaderboardHandler(dbConn, limit, offset);
+    },
+  );
 
   // -------------------------------------------------------------------------
   // Admin API (localhost-only)

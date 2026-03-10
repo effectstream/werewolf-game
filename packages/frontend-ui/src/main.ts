@@ -7,6 +7,7 @@ import { HUDManager } from './ui/HUDManager'
 import { ChatManager } from './ui/ChatManager'
 import { PlayerListManager } from './ui/PlayerListManager'
 import { RolePicker } from './ui/RolePicker'
+import { LeaderboardManager } from './ui/LeaderboardManager'
 
 // Scene
 import { GameScene } from './scene/GameScene'
@@ -105,6 +106,12 @@ async function bootGame(): Promise<GameManagers> {
   const chatManager = new ChatManager()
   const playerListManager = new PlayerListManager()
   const rolePicker = new RolePicker()
+  const leaderboardManager = new LeaderboardManager()
+
+  // Show leaderboard automatically when the game finishes.
+  gameState.subscribe(() => {
+    if (gameState.finished) leaderboardManager.show()
+  })
 
   // Initialize Scene Layer
   const gameScene = new GameScene()
