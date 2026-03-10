@@ -21,6 +21,7 @@ import {
   getLobbyPlayers,
   markBundlesReady,
   setAdminSignKeyUpdate,
+  updateLobbyPlayerTrackingFields,
 } from "@werewolf-game/database";
 import { runPreparedQuery } from "@paimaexample/db";
 import * as store from "./store.ts";
@@ -173,7 +174,21 @@ export async function handleLobbyClosed(
   }
   store.storeBundlesByPublicKey(gameId, bundleMap);
 
-  // 4b. Invite players to chat channels now that roles are known.
+  // 4b. Persist player_idx and role to DB for leaderboard tracking.
+  for (let i = 0; i < players.length; i++) {
+    const bundle = bundleMap.get(players[i].public_key_hex);
+    await runPreparedQuery(
+      updateLobbyPlayerTrackingFields.run({
+        game_id: gameId,
+        public_key_hex: players[i].public_key_hex,
+        player_idx: i,
+        role: bundle?.role ?? 0,
+      }, dbConn),
+      "updateLobbyPlayerTrackingFields",
+    );
+  }
+
+  // 4c. Invite players to chat channels now that roles are known.
   //     Re-inviting to general is idempotent and handles the case where the
   //     chat server restarted after players joined (rooms are in-memory only).
   //     Werewolves are invited to the werewolf channel for the first time here.
@@ -369,6 +384,20 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
     gameSeed,
     adminWalletSeed,
   });
+
+  // 6b. Restore player_idx and role in DB (idempotent — needed for leaderboard recovery).
+  for (let i = 0; i < players.length; i++) {
+    const bundle = bundleMap.get((players[i] as any).public_key_hex as string);
+    await runPreparedQuery(
+      updateLobbyPlayerTrackingFields.run({
+        game_id: gameId,
+        public_key_hex: (players[i] as any).public_key_hex as string,
+        player_idx: i,
+        role: bundle?.role ?? 0,
+      }, dbConn),
+      "updateLobbyPlayerTrackingFields",
+    );
+  }
 
   // 7. Restore merkle root and admin sign key cache.
   store.storeMerkleRoot(gameId, result.merkleRoot);

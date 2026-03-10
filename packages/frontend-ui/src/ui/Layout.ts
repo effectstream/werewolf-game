@@ -7,8 +7,11 @@ export function initLayout() {
         <div id="phaseLabel">NIGHT</div>
       </div>
       <div class="role-block">
-        <button id="maskedRoleBtn" class="ui-btn">You are a ******</button>
-        <button id="revealRoleBtn" class="ui-btn">Reveal</button>
+        <div id="playerNicknameBadge" class="player-nickname-badge"></div>
+        <div class="role-buttons">
+          <button id="maskedRoleBtn" class="ui-btn">You are a ******</button>
+          <button id="revealRoleBtn" class="ui-btn">Reveal</button>
+        </div>
       </div>
     </div>
     <div class="layout">

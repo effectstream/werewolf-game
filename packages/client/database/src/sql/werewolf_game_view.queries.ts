@@ -69,6 +69,7 @@ export interface IGetGameViewResult {
   alive_vector: string;
   finished: boolean;
   game_id: string;
+  leaderboard_processed: boolean;
   phase: string;
   player_count: number;
   round: number;
@@ -94,5 +95,32 @@ const getGameViewIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"g
  * ```
  */
 export const getGameView = new PreparedQuery<IGetGameViewParams,IGetGameViewResult>(getGameViewIR);
+
+
+/** 'MarkLeaderboardProcessed' parameters type */
+export interface IMarkLeaderboardProcessedParams {
+  game_id: NumberOrString;
+}
+
+/** 'MarkLeaderboardProcessed' return type */
+export type IMarkLeaderboardProcessedResult = void;
+
+/** 'MarkLeaderboardProcessed' query type */
+export interface IMarkLeaderboardProcessedQuery {
+  params: IMarkLeaderboardProcessedParams;
+  result: IMarkLeaderboardProcessedResult;
+}
+
+const markLeaderboardProcessedIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":75,"b":83}]}],"statement":"UPDATE werewolf_game_view\nSET leaderboard_processed = TRUE\nWHERE game_id = :game_id!"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * UPDATE werewolf_game_view
+ * SET leaderboard_processed = TRUE
+ * WHERE game_id = :game_id!
+ * ```
+ */
+export const markLeaderboardProcessed = new PreparedQuery<IMarkLeaderboardProcessedParams,IMarkLeaderboardProcessedResult>(markLeaderboardProcessedIR);
 
 

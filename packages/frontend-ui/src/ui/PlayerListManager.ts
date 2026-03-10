@@ -37,6 +37,7 @@ export class PlayerListManager {
   public buildPlayerList(): void {
     const localPlayerIndex = gameState.playerBundle?.playerId ?? -1
     const localRole = gameState.playerBundle?.role
+    const localPlayerAlive = gameState.playerAlive[localPlayerIndex] !== false
     const phase = gameState.phase
     const hasVoted = gameState.hasVotedThisRound
 
@@ -50,7 +51,7 @@ export class PlayerListManager {
         <div class="player-row${deadClass}" data-player-index="${index}">
           <span>${displayName}${alive ? '' : ' (dead)'}</span>
           <div class="actions">
-            ${this.getButtonsHtml(index, index === localPlayerIndex, phase, localRole, alive, hasVoted)}
+            ${this.getButtonsHtml(index, index === localPlayerIndex, phase, localRole, alive, hasVoted, localPlayerAlive)}
           </div>
         </div>
       `
@@ -85,8 +86,9 @@ export class PlayerListManager {
     localRole: number | undefined,
     alive: boolean,
     hasVoted: boolean,
+    localPlayerAlive: boolean = true,
   ): string {
-    if (!alive || isLocalPlayer || phase === 'FINISHED') return ''
+    if (!alive || isLocalPlayer || phase === 'FINISHED' || !localPlayerAlive) return ''
 
     // When all votes are in, voting is closed — suppress all action buttons
     if (gameState.allVotesIn) return ''

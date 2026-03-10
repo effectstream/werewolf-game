@@ -24,3 +24,8 @@ ON CONFLICT (game_id) DO UPDATE SET
 /* @name getGameView */
 SELECT * FROM werewolf_game_view
 WHERE game_id = :game_id!;
+
+/* @name markLeaderboardProcessed */
+UPDATE werewolf_game_view
+SET leaderboard_processed = TRUE
+WHERE game_id = :game_id!;

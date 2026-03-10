@@ -13,6 +13,7 @@ export class HUDManager {
   private revealRoleBtn: HTMLButtonElement;
   private maskedRoleBtn: HTMLButtonElement;
   private endVoteBtn: HTMLButtonElement;
+  private nicknameBadge: HTMLDivElement;
   private roleRevealTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribe: () => void;
   /** Tracks previous vote count to detect increments for the bump animation */
@@ -28,6 +29,9 @@ export class HUDManager {
       "#maskedRoleBtn",
     )!;
     this.endVoteBtn = document.querySelector<HTMLButtonElement>("#endVoteBtn")!;
+    this.nicknameBadge = document.querySelector<HTMLDivElement>(
+      "#playerNicknameBadge",
+    )!;
 
     this.initEventListeners();
 
@@ -56,7 +60,16 @@ export class HUDManager {
     this.endVoteBtn.style.display = "none";
   }
 
+  private updateNicknameBadge() {
+    const nickname =
+      gameState.playerNickname ??
+      gameState.playerNicknames.get(gameState.playerBundle?.playerId ?? -1) ??
+      null;
+    this.nicknameBadge.textContent = nickname ? `Playing as ${nickname}` : "";
+  }
+
   private updatePhaseHud() {
+    this.updateNicknameBadge();
     this.roundLabel.textContent = `Round ${gameState.round}`;
 
     if (gameState.finished) {

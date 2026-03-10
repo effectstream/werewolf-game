@@ -66,24 +66,35 @@ function destroyGame(managers: GameManagers): void {
 async function bootGame(): Promise<GameManagers> {
   const gameId = gameState.lobbyGameId!
 
-  // Fetch initial game view to get the player count
-  let initialPlayerCount = 8
+  // Fetch initial game view (ledger state — may lag on force-start)
+  let initialPlayerCount = 0
   try {
     const initialView = await fetchGameView(gameId)
     gameState.applyGameView(initialView)
-    initialPlayerCount = initialView.playerCount || 8
+    initialPlayerCount = initialView.playerCount
   } catch (err) {
-    console.warn('[bootGame] Failed to fetch initial game view, using fallback count:', err)
+    console.warn('[bootGame] Failed to fetch initial game view:', err)
   }
 
-  // Fetch player list to get index → nickname mapping
+  // Fetch player list to get index → nickname mapping.
+  // The DB player count is the authoritative source — it's available immediately
+  // even when the ledger hasn't settled yet (e.g. after a force-start).
   try {
     const playersResponse = await fetchGamePlayers(gameId)
     playersResponse.players.forEach((p, index) => {
       gameState.playerNicknames.set(p.playerId ?? index, p.nickname)
     })
+    if (playersResponse.players.length > 0) {
+      initialPlayerCount = playersResponse.players.length
+    }
   } catch (err) {
     console.warn('[bootGame] Failed to fetch player nicknames, falling back to generated names:', err)
+  }
+
+  // Last-resort fallback if both fetches failed
+  if (initialPlayerCount === 0) {
+    console.warn('[bootGame] Could not determine player count, falling back to 8')
+    initialPlayerCount = 8
   }
 
   // Bootstrap Layout

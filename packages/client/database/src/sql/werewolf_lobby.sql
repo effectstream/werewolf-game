@@ -55,3 +55,13 @@ FROM werewolf_lobby_players
 WHERE game_id = :game_id!
 ORDER BY joined_block ASC;
 
+/* @name updateLobbyPlayerTrackingFields */
+UPDATE werewolf_lobby_players
+SET player_idx = :player_idx!, role = :role!
+WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!;
+
+/* @name updateLobbyPlayerEvmAddress */
+UPDATE werewolf_lobby_players
+SET evm_address = :evm_address!
+WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!;
+

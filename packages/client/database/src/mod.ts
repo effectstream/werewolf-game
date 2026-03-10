@@ -22,6 +22,8 @@ export {
   markBundlesReady,
   setAdminSignKeyUpdate,
   setLobbyTimeout,
+  updateLobbyPlayerEvmAddress,
+  updateLobbyPlayerTrackingFields,
   upsertLobby,
 } from "./sql/werewolf_lobby.queries.ts";
 
@@ -40,8 +42,16 @@ export {
 
 export {
   getGameView,
+  markLeaderboardProcessed,
   upsertGameView,
 } from "./sql/werewolf_game_view.queries.ts";
+
+export {
+  getLeaderboard,
+  getPlayerDataForGame,
+  getRoundsSurvivedForPlayer,
+  upsertLeaderboardEntry,
+} from "./sql/werewolf_leaderboard.queries.ts";
 
 // Export all interface types (excluding duplicate NumberOrString type)
 export type {
@@ -96,6 +106,12 @@ export type {
   IGetAndIncrementGameIdParams,
   IGetAndIncrementGameIdResult,
   IGetAndIncrementGameIdQuery,
+  IUpdateLobbyPlayerTrackingFieldsParams,
+  IUpdateLobbyPlayerTrackingFieldsResult,
+  IUpdateLobbyPlayerTrackingFieldsQuery,
+  IUpdateLobbyPlayerEvmAddressParams,
+  IUpdateLobbyPlayerEvmAddressResult,
+  IUpdateLobbyPlayerEvmAddressQuery,
 } from "./sql/werewolf_lobby.queries.ts";
 
 export type {
@@ -138,6 +154,24 @@ export type {
   IGetGameViewParams,
   IGetGameViewResult,
   IGetGameViewQuery,
+  IMarkLeaderboardProcessedParams,
+  IMarkLeaderboardProcessedResult,
+  IMarkLeaderboardProcessedQuery,
 } from "./sql/werewolf_game_view.queries.ts";
+
+export type {
+  IUpsertLeaderboardEntryParams,
+  IUpsertLeaderboardEntryResult,
+  IUpsertLeaderboardEntryQuery,
+  IGetLeaderboardParams,
+  IGetLeaderboardResult,
+  IGetLeaderboardQuery,
+  IGetPlayerDataForGameParams,
+  IGetPlayerDataForGameResult,
+  IGetPlayerDataForGameQuery,
+  IGetRoundsSurvivedForPlayerParams,
+  IGetRoundsSurvivedForPlayerResult,
+  IGetRoundsSurvivedForPlayerQuery,
+} from "./sql/werewolf_leaderboard.queries.ts";
 
 export { migrationTable } from "./migration-order.ts";

@@ -3,17 +3,20 @@ import { runPreparedQuery } from "@paimaexample/db";
 import {
   closeLobby,
   getAdminSignKey,
+  getAliveSnapshots,
   getGameView,
   getLobby,
   getLobbyPlayers,
+  getLeaderboard,
   getWerewolfRoundState,
   incrementLobbyPlayerCount,
   insertLobbyPlayer,
   markBundlesReady,
+  updateLobbyPlayerEvmAddress,
   updateRoundVoteCount,
   upsertLobby,
 } from "@werewolf-game/database";
-import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
+import type { IInsertLobbyPlayerResult, IGetLeaderboardResult } from "@werewolf-game/database";
 import nacl from "tweetnacl";
 import * as store from "../store.ts";
 import { resolvePhaseFromVotes, decryptVotes } from "../vote-resolver.ts";
@@ -99,6 +102,7 @@ export async function joinGameHandler(
   gameId: number,
   publicKeyHex: string,
   nickname: string,
+  evmAddress?: string,
 ) {
   // Check if this player is already registered.
   const existingPlayers = await runPreparedQuery(
@@ -143,6 +147,18 @@ export async function joinGameHandler(
     // Store public key for later signature verification.
     store.storePlayerPublicKey(gameId, publicKeyHex);
     playerIndex = existingPlayers.length; // 0-indexed position
+  }
+
+  // Store EVM address for leaderboard tracking (optional).
+  if (evmAddress && !alreadyJoined) {
+    await runPreparedQuery(
+      updateLobbyPlayerEvmAddress.run({
+        game_id: gameId,
+        public_key_hex: publicKeyHex,
+        evm_address: evmAddress,
+      }, dbConn),
+      "updateLobbyPlayerEvmAddress",
+    );
   }
 
   // Determine lobby state for the response.
@@ -419,6 +435,21 @@ export async function submitVoteHandler(
   voteCount?: number;
   aliveCount?: number;
 }> {
+  // Reject votes from dead players.
+  const aliveRows = await runPreparedQuery(
+    getAliveSnapshots.run({ game_id: gameId, round, phase }, dbConn),
+    "getAliveSnapshots",
+  );
+  if (aliveRows.length > 0) {
+    const aliveSet = new Set(aliveRows.map((r) => r.player_idx));
+    if (!aliveSet.has(voterIndex)) {
+      console.warn(
+        `[votes] Rejected vote from dead player: game=${gameId} round=${round} phase=${phase} voter=${voterIndex}`,
+      );
+      return { success: false };
+    }
+  }
+
   // Store vote in memory — returns false if this voter already submitted.
   const added = store.addVote(gameId, round, phase, {
     voterIndex,
@@ -616,6 +647,18 @@ export async function openLobbyHandler(dbConn: Pool) {
     playerCount: Number(row.player_count),
     maxPlayers: Number(row.max_players),
   };
+}
+
+export async function getLeaderboardHandler(
+  dbConn: Pool,
+  limit: number,
+  offset: number,
+): Promise<{ entries: IGetLeaderboardResult[] }> {
+  const rows = await runPreparedQuery(
+    getLeaderboard.run({ limit, offset }, dbConn),
+    "getLeaderboard",
+  );
+  return { entries: rows };
 }
 
 // ---------------------------------------------------------------------------

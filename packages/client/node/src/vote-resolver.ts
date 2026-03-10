@@ -199,6 +199,7 @@ export function tallyVotes(
 ): TallyResult {
   const counts = new Map<number, number>();
   for (const vote of decryptedVotes) {
+    if (!aliveIndices.has(vote.voterIndex)) continue;
     if (!aliveIndices.has(vote.target)) continue;
     counts.set(vote.target, (counts.get(vote.target) ?? 0) + 1);
   }

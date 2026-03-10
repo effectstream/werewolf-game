@@ -352,3 +352,62 @@ const getLobbyPlayersIR: any = {"usedParamSet":{"game_id":true},"params":[{"name
 export const getLobbyPlayers = new PreparedQuery<IGetLobbyPlayersParams,IGetLobbyPlayersResult>(getLobbyPlayersIR);
 
 
+/** 'UpdateLobbyPlayerTrackingFields' parameters type */
+export interface IUpdateLobbyPlayerTrackingFieldsParams {
+  game_id: NumberOrString;
+  player_idx: number;
+  public_key_hex: string;
+  role: number;
+}
+
+/** 'UpdateLobbyPlayerTrackingFields' return type */
+export type IUpdateLobbyPlayerTrackingFieldsResult = void;
+
+/** 'UpdateLobbyPlayerTrackingFields' query type */
+export interface IUpdateLobbyPlayerTrackingFieldsQuery {
+  params: IUpdateLobbyPlayerTrackingFieldsParams;
+  result: IUpdateLobbyPlayerTrackingFieldsResult;
+}
+
+const updateLobbyPlayerTrackingFieldsIR: any = {"usedParamSet":{"player_idx":true,"role":true,"game_id":true,"public_key_hex":true},"params":[{"name":"player_idx","required":true,"transform":{"type":"scalar"},"locs":[{"a":47,"b":58}]},{"name":"role","required":true,"transform":{"type":"scalar"},"locs":[{"a":68,"b":73}]},{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":91,"b":99}]},{"name":"public_key_hex","required":true,"transform":{"type":"scalar"},"locs":[{"a":122,"b":137}]}],"statement":"UPDATE werewolf_lobby_players\nSET player_idx = :player_idx!, role = :role!\nWHERE game_id = :game_id! AND public_key_hex = :public_key_hex!"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * UPDATE werewolf_lobby_players
+ * SET player_idx = :player_idx!, role = :role!
+ * WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!
+ * ```
+ */
+export const updateLobbyPlayerTrackingFields = new PreparedQuery<IUpdateLobbyPlayerTrackingFieldsParams,IUpdateLobbyPlayerTrackingFieldsResult>(updateLobbyPlayerTrackingFieldsIR);
+
+
+/** 'UpdateLobbyPlayerEvmAddress' parameters type */
+export interface IUpdateLobbyPlayerEvmAddressParams {
+  evm_address: string;
+  game_id: NumberOrString;
+  public_key_hex: string;
+}
+
+/** 'UpdateLobbyPlayerEvmAddress' return type */
+export type IUpdateLobbyPlayerEvmAddressResult = void;
+
+/** 'UpdateLobbyPlayerEvmAddress' query type */
+export interface IUpdateLobbyPlayerEvmAddressQuery {
+  params: IUpdateLobbyPlayerEvmAddressParams;
+  result: IUpdateLobbyPlayerEvmAddressResult;
+}
+
+const updateLobbyPlayerEvmAddressIR: any = {"usedParamSet":{"evm_address":true,"game_id":true,"public_key_hex":true},"params":[{"name":"evm_address","required":true,"transform":{"type":"scalar"},"locs":[{"a":48,"b":60}]},{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":78,"b":86}]},{"name":"public_key_hex","required":true,"transform":{"type":"scalar"},"locs":[{"a":109,"b":124}]}],"statement":"UPDATE werewolf_lobby_players\nSET evm_address = :evm_address!\nWHERE game_id = :game_id! AND public_key_hex = :public_key_hex!"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * UPDATE werewolf_lobby_players
+ * SET evm_address = :evm_address!
+ * WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!
+ * ```
+ */
+export const updateLobbyPlayerEvmAddress = new PreparedQuery<IUpdateLobbyPlayerEvmAddressParams,IUpdateLobbyPlayerEvmAddressResult>(updateLobbyPlayerEvmAddressIR);
+
+
