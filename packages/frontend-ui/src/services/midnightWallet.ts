@@ -1,30 +1,12 @@
+import type { ConnectedAPI, InitialAPI } from '@midnight-ntwrk/dapp-connector-api'
+
 /**
- * Minimal type declarations for the Midnight dApp Connector API injected by
- * the Lace browser extension into `window.midnight`.
- *
- * These mirror the shape of @midnight-ntwrk/dapp-connector-api without
- * requiring a runtime dependency in the frontend-ui package.
+ * Extends the Window object to include the Midnight DApp Connector API
+ * injected by the Lace browser extension.
  */
-interface MidnightShieldedAddresses {
-  shieldedAddress: string
-  coinPublicKey: string
-  encryptionPublicKey: string
-}
-
-interface MidnightConnectedAPI {
-  getShieldedAddresses(): Promise<MidnightShieldedAddresses>
-}
-
-interface MidnightConnectorAPI {
-  apiVersion: string
-  connect(networkId: string): Promise<MidnightConnectedAPI>
-}
-
-// Extend Window to include the midnight object injected by the Lace extension
 declare global {
   interface Window {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    midnight?: Record<string, MidnightConnectorAPI>
+    midnight?: Record<string, InitialAPI>
   }
 }
 
@@ -35,7 +17,7 @@ export interface MidnightWalletState {
 
 class MidnightWalletManager {
   private _shieldedAddress: string | null = null
-  private _connectedAPI: MidnightConnectedAPI | null = null
+  private _connectedAPI: ConnectedAPI | null = null
 
   /** Returns true if the Lace extension has injected window.midnight. */
   isAvailable(): boolean {
@@ -79,6 +61,11 @@ class MidnightWalletManager {
 
   getShieldedAddress(): string | null {
     return this._shieldedAddress
+  }
+
+  /** Returns the full DApp Connector API for building and signing Midnight transactions. */
+  getConnectedAPI(): ConnectedAPI | null {
+    return this._connectedAPI
   }
 
   getState(): MidnightWalletState {
