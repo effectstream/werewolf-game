@@ -31,6 +31,7 @@ import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
 import { getAllBundlesForGame, getGameSecrets, purgeVotes, storePlayerPublicKey } from "./store.ts";
 import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
+import { resolvePhaseFromLedger } from "./vote-resolver.ts";
 import { getDbPool } from "./db-pool.ts";
 import { calculateAndPersistScores } from "./leaderboard.ts";
 
@@ -196,6 +197,34 @@ stm.addStateTransition(
             `[midnight] game=${gameId} round=${gameView.round}` +
               ` phase=${gameView.phase} votes=${currentVotes}/${gameView.aliveCount}`,
           );
+
+          // Trigger phase resolution when vote count first reaches the threshold.
+          // Uses the on-chain encrypted votes from the ledger so no backend API
+          // submission is needed — players submit directly via Lace wallet.
+          const roundAliveCount = Number(existingRows[0].alive_count);
+          const wasAlreadyComplete = dbVotes >= roundAliveCount;
+          if (!wasAlreadyComplete && currentVotes >= roundAliveCount) {
+            const encryptedVotes = ledger.getVotesForRoundAndPhase(
+              gameId,
+              gameView.round,
+              gameView.phase,
+            );
+            console.log(
+              `[midnight] All votes in game=${gameId} round=${gameView.round}` +
+                ` phase=${gameView.phase} — triggering ledger resolution with ${encryptedVotes.length} votes`,
+            );
+            void resolvePhaseFromLedger(
+              gameId,
+              gameView.round,
+              gameView.phase,
+              encryptedVotes,
+            ).catch((err) =>
+              console.error(
+                `[midnight] Ledger phase resolution failed game=${gameId}:`,
+                err,
+              )
+            );
+          }
         }
         continue;
       }

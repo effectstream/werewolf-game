@@ -354,6 +354,27 @@ export const apiRouter: StartConfigApiRouter = async function (
     },
   );
 
+  // Exposes Midnight network config so the browser client can connect to the
+  // correct indexer, proof server, and contract address.
+  server.get("/api/midnight_config", async () => {
+    const { readMidnightContract } = await import(
+      "@paimaexample/midnight-contracts/read-contract"
+    );
+    const { midnightNetworkConfig } = await import(
+      "@paimaexample/midnight-contracts/midnight-env"
+    );
+    const { contractAddress } = readMidnightContract("contract-werewolf", {
+      networkId: midnightNetworkConfig.id,
+    });
+    return {
+      contractAddress,
+      networkId: midnightNetworkConfig.id,
+      indexerUrl: midnightNetworkConfig.indexer,
+      indexerWsUrl: midnightNetworkConfig.indexerWS,
+      proofServerUrl: midnightNetworkConfig.proofServer,
+    };
+  });
+
   // -------------------------------------------------------------------------
   // Admin API (localhost-only)
   // -------------------------------------------------------------------------
