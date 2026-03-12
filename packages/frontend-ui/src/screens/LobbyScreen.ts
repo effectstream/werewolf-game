@@ -11,6 +11,8 @@ import { getAllSessions, clearSession, hexToBytes, type StoredSession } from '..
 import {
   DEFAULT_AVATAR_SELECTION,
   HAIR_COLORS,
+  HAIR_STYLES,
+  HAIR_STYLE_LABELS,
   type AvatarSelection,
   SHIRT_COLORS,
   SKIN_TONES,
@@ -155,6 +157,19 @@ export class LobbyScreen {
                   `).join('')}
                 </div>
               </div>
+              <div class="lobby-avatar-group">
+                <span class="lobby-avatar-label">Hair Style</span>
+                <div class="lobby-style-row" data-avatar-group="hairStyle">
+                  ${HAIR_STYLES.map((style, index) => `
+                    <button
+                      type="button"
+                      class="lobby-style-btn"
+                      data-avatar-option="hairStyle:${index}"
+                      aria-label="${HAIR_STYLE_LABELS[style]}"
+                    >${HAIR_STYLE_LABELS[style]}</button>
+                  `).join('')}
+                </div>
+              </div>
             </div>
           </div>
           <input id="lobbyNicknameInput" class="lobby-input" type="text" placeholder="Nickname (min 3 characters)" hidden />
@@ -230,6 +245,8 @@ export class LobbyScreen {
           this.avatarSelection.shirtColor = index
         } else if (group === 'hairColor') {
           this.avatarSelection.hairColor = index
+        } else if (group === 'hairStyle') {
+          this.avatarSelection.hairStyle = index
         }
 
         this.syncAvatarSelection()
@@ -251,9 +268,11 @@ export class LobbyScreen {
       const isSelected =
         (group === 'skinTone' && this.avatarSelection.skinTone === index) ||
         (group === 'shirtColor' && this.avatarSelection.shirtColor === index) ||
-        (group === 'hairColor' && this.avatarSelection.hairColor === index)
+        (group === 'hairColor' && this.avatarSelection.hairColor === index) ||
+        (group === 'hairStyle' && this.avatarSelection.hairStyle === index)
 
-      button.classList.toggle('lobby-swatch-btn--selected', isSelected)
+      button.classList.toggle('lobby-swatch-btn--selected', group !== 'hairStyle' && isSelected)
+      button.classList.toggle('lobby-style-btn--selected', group === 'hairStyle' && isSelected)
       button.setAttribute('aria-pressed', String(isSelected))
     })
 

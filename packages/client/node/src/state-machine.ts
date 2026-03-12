@@ -529,7 +529,7 @@ stm.addStateTransition(
     // recorded on the Paima chain, and replayed deterministically on resync.
     const evmAddress = data.signerAddress;
 
-    if (!Number.isInteger(appearanceCode) || appearanceCode < 0 || appearanceCode >= 64) {
+    if (!Number.isInteger(appearanceCode) || appearanceCode < 0 || appearanceCode >= 256) {
       throw new Error(`Invalid appearanceCode for join_game: ${appearanceCode}`);
     }
 

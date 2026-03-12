@@ -1,3 +1,5 @@
+import type { HairStyle, PlayerConfig } from '../models/PlayerConfigInterface'
+
 // Seeded random number generator for deterministic results
 class SeededRandom {
   private seed: number
@@ -19,6 +21,8 @@ class SeededRandom {
     return min + this.next() * (max - min)
   }
 }
+
+const HAIR_STYLES: HairStyle[] = ['square', 'round', 'pointy', 'ponytail']
 
 // Extensive list of names
 const NAMES = [
@@ -82,19 +86,12 @@ const CLOTH_COLORS = [
   0x495057, 0x343a40, 0x212529, 0x1a1d20, 0x0d1117, 0x161b22, 0x1c2128, 0x22272e, 0x2d333b, 0x373e47
 ]
 
-export interface BasePlayerConfig {
-  name: string
-  cloth: number
-  hair: number
-  skin: number
-}
-
 /**
  * Generates player configurations deterministically based on a seed and count
  */
-export function generatePlayerConfigs(playerCount: number, seed: number = 42): BasePlayerConfig[] {
+export function generatePlayerConfigs(playerCount: number, seed: number = 42): PlayerConfig[] {
   const rng = new SeededRandom(seed)
-  const configs: BasePlayerConfig[] = []
+  const configs: PlayerConfig[] = []
   const usedNames = new Set<string>()
 
   for (let i = 0; i < playerCount; i++) {
@@ -117,40 +114,16 @@ export function generatePlayerConfigs(playerCount: number, seed: number = 42): B
     const clothColor = CLOTH_COLORS[rng.nextInt(CLOTH_COLORS.length)]
     const hairColor = HAIR_COLORS[rng.nextInt(HAIR_COLORS.length)]
     const skinColor = SKIN_COLORS[rng.nextInt(SKIN_COLORS.length)]
+    const hairStyle = HAIR_STYLES[rng.nextInt(HAIR_STYLES.length)]
 
     configs.push({
       name,
       cloth: clothColor,
       hair: hairColor,
-      skin: skinColor
+      skin: skinColor,
+      hairStyle,
     })
   }
 
   return configs
-}
-
-/**
- * Generates hair parameters deterministically for a player
- */
-export function generateHairParameters(seed: number): {
-  hairWidth: number
-  hairHeight: number
-  hairDepth: number
-  hasBun: boolean
-  bunSize: number
-} {
-  const rng = new SeededRandom(seed)
-  const hairWidth = 0.52 + rng.nextFloat(0, 0.18)
-  const hairHeight = 0.15 + rng.nextFloat(0, 0.3)
-  const hairDepth = 0.52 + rng.nextFloat(0, 0.1)
-  const hasBun = rng.next() > 0.7
-  const bunSize = hasBun ? 0.15 + rng.nextFloat(0, 0.1) : 0
-  
-  return {
-    hairWidth,
-    hairHeight,
-    hairDepth,
-    hasBun,
-    bunSize
-  }
 }

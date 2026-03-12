@@ -6,7 +6,7 @@ import { createSeerMesh } from '../models/seerModel'
 import { createWerewolfMesh } from '../models/werewolfModel'
 import { createAngelMesh } from '../models/angelModel'
 import { makeTextSprite, makeBubbleSprite, createBubbleTexture } from '../utils/spriteUtils'
-import { generatePlayerConfigs, generateHairParameters } from '../utils/playerGenerator'
+import { generatePlayerConfigs } from '../utils/playerGenerator'
 import type { PlayerConfig } from '../models/PlayerConfigInterface'
 
 export class PlayerEntities {
@@ -43,22 +43,12 @@ export class PlayerEntities {
   ) {
     const seed = 42
 
-    const basePlayerConfigs = generatePlayerConfigs(playerCount, seed)
-    const selectedPlayers: PlayerConfig[] = basePlayerConfigs.map((base, index) => {
+    const selectedPlayers: PlayerConfig[] = generatePlayerConfigs(playerCount, seed).map((base, index) => {
       const registeredConfig = playerConfigsByIndex.get(index)
       if (registeredConfig) {
         return registeredConfig
       }
-
-      const hairParams = generateHairParameters(seed + index * 1000)
-      return {
-        ...base,
-        hairWidth: hairParams.hairWidth,
-        hairHeight: hairParams.hairHeight,
-        hairDepth: hairParams.hairDepth,
-        hasBun: hairParams.hasBun,
-        bunSize: hairParams.bunSize
-      }
+      return base
     })
 
     if (updateCardLayout) {

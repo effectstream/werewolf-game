@@ -36,7 +36,7 @@ export const GenericErrorResponseSchema = Type.Object({
   error: Type.String(),
 });
 
-export const AppearanceCodeSchema = Type.Integer({ minimum: 0, maximum: 63 });
+export const AppearanceCodeSchema = Type.Integer({ minimum: 0, maximum: 255 });
 
 export const JoinGameQuerystringSchema = Type.Object({
   gameId: Type.Number(),

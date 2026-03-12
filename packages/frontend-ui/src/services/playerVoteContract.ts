@@ -224,10 +224,6 @@ export async function submitVoteOnChain(
   // be available — the Vite serveContractArtifacts middleware handles this.
   const zkConfigProvider = new FetchZkConfigProvider(window.location.origin, fetch.bind(globalThis));
 
-  // Use a unique privateStateId per vote call so levelPrivateStateProvider
-  // always uses initialPrivateState (never reuses a stale nextAction).
-  const privateStateId =
-    `player-vote-${gameId}-${round}-${phase}-${Date.now()}`;
   const initialPrivateState = buildVotePrivateState(
     bundle,
     gameId,
@@ -269,30 +265,54 @@ export async function submitVoteOnChain(
       window.location.origin,
     );
 
-  // Join the deployed contract (fetches current state from indexer)
-  const contract = await findDeployedContract(providers, {
-    contractAddress: config.contractAddress,
-    compiledContract,
-    privateStateId,
-    initialPrivateState,
-  });
+  // Join and call circuit with retry for indexer lag.
+  // "expected a cell, received null" means games.lookup(gameId) returned null —
+  // the createGame tx hasn't been indexed yet. Retry with fresh ledger state.
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 4000;
 
-  console.log(
-    `[playerVoteContract] Joined contract. Calling ${
-      phase === "NIGHT" ? "nightAction" : "voteDay"
-    } for game=${gameId}...`,
-  );
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      console.warn(
+        `[playerVoteContract] Game not yet in ledger (indexer lag), retrying in ${
+          RETRY_DELAY_MS / 1000
+        }s... (${attempt}/${MAX_RETRIES})`,
+      );
+      await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+    }
 
-  // Use BatcherClient to intercept the unproven tx and POST to batcher
-  const batcherClient = new BatcherClient(contract, provider, BATCHER_URL);
+    // Use a fresh privateStateId each attempt so initialPrivateState is always used.
+    const attemptStateId = `player-vote-${gameId}-${round}-${phase}-${Date.now()}`;
+    try {
+      const contract = await findDeployedContract(providers, {
+        contractAddress: config.contractAddress,
+        compiledContract,
+        privateStateId: attemptStateId,
+        initialPrivateState,
+      });
 
-  if (phase === "NIGHT" || phase === "night") {
-    await batcherClient.nightAction(BigInt(gameId));
-  } else {
-    await batcherClient.voteDay(BigInt(gameId));
+      console.log(
+        `[playerVoteContract] Joined contract (attempt ${attempt + 1}). Calling ${
+          phase === "NIGHT" ? "nightAction" : "voteDay"
+        } for game=${gameId}...`,
+      );
+
+      const batcherClient = new BatcherClient(contract, provider, BATCHER_URL);
+
+      if (phase === "NIGHT" || phase === "night") {
+        await batcherClient.nightAction(BigInt(gameId));
+      } else {
+        await batcherClient.voteDay(BigInt(gameId));
+      }
+
+      console.log(
+        `[playerVoteContract] Vote submitted on-chain for game=${gameId} round=${round} phase=${phase}`,
+      );
+      return;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      const isGameNotFound = msg.includes("expected a cell, received null");
+      if (!isGameNotFound || attempt >= MAX_RETRIES) throw error;
+    }
   }
-
-  console.log(
-    `[playerVoteContract] Vote submitted on-chain for game=${gameId} round=${round} phase=${phase}`,
-  );
 }

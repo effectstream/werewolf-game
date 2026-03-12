@@ -1,24 +1,6 @@
 import * as THREE from 'three'
 import { PlayerConfig } from './PlayerConfigInterface'
-
-function addHairFromConfig(headGroup: THREE.Mesh, colorMat: THREE.Material, config: PlayerConfig): void {
-  const hair = new THREE.Mesh(
-    new THREE.BoxGeometry(config.hairWidth, config.hairHeight, config.hairDepth),
-    colorMat
-  )
-  hair.position.y = 0.275 + config.hairHeight / 2
-  hair.castShadow = true
-  headGroup.add(hair)
-
-  if (config.hasBun) {
-    const bun = new THREE.Mesh(
-      new THREE.BoxGeometry(config.bunSize, config.bunSize, config.bunSize),
-      colorMat
-    )
-    bun.position.set(0, 0.2, -0.25 - config.bunSize / 2)
-    headGroup.add(bun)
-  }
-}
+import { addHairFromConfig } from './hairModel'
 
 export function createDoctorMesh(config: PlayerConfig): THREE.Group {
   const group = new THREE.Group()
@@ -65,7 +47,7 @@ export function createDoctorMesh(config: PlayerConfig): THREE.Group {
   rEye.position.x = 0.13
   head.add(rEye)
 
-  addHairFromConfig(head as any, matHair, config)
+  addHairFromConfig(head, matHair, config)
 
   function createArm(isLeft: boolean): THREE.Group {
     const shoulder = new THREE.Group()

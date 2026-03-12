@@ -73,12 +73,11 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @dev Joins an existing game lobby
     /// @param _gameId ID of the game to join
     /// @param _publicKey Ed25519 public key for bundle retrieval authentication
-    /// @param _appearanceCode Packed avatar appearance (0-63)
+    /// @param _appearanceCode Packed avatar appearance (0-255)
     function joinGame(uint256 _gameId, bytes32 _publicKey, uint8 _appearanceCode) public {
         require(games[_gameId].id != 0, "Game not found");
         require(games[_gameId].state == GameState.Open, "Game is closed");
         require(games[_gameId].playerCount < games[_gameId].maxPlayers, "Game is full");
-        require(_appearanceCode < 64, "Invalid appearance");
 
         // Check if player already joined
         for (uint256 i = 0; i < games[_gameId].playerCount; i++) {

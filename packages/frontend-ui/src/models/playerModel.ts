@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { PlayerConfig } from './PlayerConfigInterface'
+import { addHairFromConfig } from './hairModel'
 
 export function createPlayerMesh(config: PlayerConfig): THREE.Group {
   const group = new THREE.Group()
@@ -32,20 +33,8 @@ export function createPlayerMesh(config: PlayerConfig): THREE.Group {
   head.receiveShadow = true
   headGroup.add(head)
 
-  // --- Hair (parameters provided by PlayerConfig) ---
-  const hairGeo = new THREE.BoxGeometry(config.hairWidth, config.hairHeight, config.hairDepth)
-  const hairMesh = new THREE.Mesh(hairGeo, matHair)
-  hairMesh.position.y = 0.275 + config.hairHeight / 2
-  hairMesh.castShadow = true
-  hairMesh.receiveShadow = true
-  head.add(hairMesh)
-
-  if (config.hasBun) {
-    const bunGeo = new THREE.BoxGeometry(config.bunSize, config.bunSize, config.bunSize)
-    const bun = new THREE.Mesh(bunGeo, matHair)
-    bun.position.set(0, 0.2, -0.25 - config.bunSize / 2)
-    head.add(bun)
-  }
+  // --- Hair ---
+  addHairFromConfig(head, matHair, config)
 
   // --- Face (Eyes) ---
   const eyeGeo = new THREE.BoxGeometry(0.1, 0.1, 0.05)

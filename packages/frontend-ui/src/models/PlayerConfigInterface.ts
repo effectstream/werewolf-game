@@ -1,13 +1,9 @@
-export interface PlayerConfig {
-    name: string
-    cloth: number
-    hair: number
-    skin: number
+export type HairStyle = 'square' | 'round' | 'pointy' | 'ponytail'
 
-    // Hair / head style parameters (generated at game start and shared across models)
-    hairWidth: number
-    hairHeight: number
-    hairDepth: number
-    hasBun: boolean
-    bunSize: number
-  }
+export interface PlayerConfig {
+  name: string
+  cloth: number
+  hair: number
+  skin: number
+  hairStyle: HairStyle
+}

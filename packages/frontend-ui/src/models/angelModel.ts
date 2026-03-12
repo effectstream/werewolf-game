@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { PlayerConfig } from './PlayerConfigInterface'
+import { addHairFromConfig } from './hairModel'
 
 export function createAngelMesh(config: PlayerConfig): THREE.Group {
   const group = new THREE.Group()
@@ -49,23 +50,13 @@ export function createAngelMesh(config: PlayerConfig): THREE.Group {
   head.position.y = 0.35
   headGroup.add(head)
 
-  // --- Hair (parameters shared with PlayerConfig) ---
-  const hairGeo = new THREE.BoxGeometry(config.hairWidth, config.hairHeight, config.hairDepth)
-  const hairMesh = new THREE.Mesh(hairGeo, matHair)
-  hairMesh.position.y = 0.275 + config.hairHeight / 2
-  head.add(hairMesh)
-
-  if (config.hasBun) {
-    const bunGeo = new THREE.BoxGeometry(config.bunSize, config.bunSize, config.bunSize)
-    const bun = new THREE.Mesh(bunGeo, matHair)
-    bun.position.set(0, 0.2, -0.25 - config.bunSize / 2)
-    head.add(bun)
-  }
+  // --- Hair ---
+  const hairRender = addHairFromConfig(head, matHair, config)
 
   // --- Halo ---
   const halo = new THREE.Mesh(new THREE.TorusGeometry(0.32, 0.03, 8, 24), matGold)
   // Place the halo clearly above the top of the hair
-  const hairTopY = head.position.y + hairMesh.position.y + config.hairHeight / 2
+  const hairTopY = head.position.y + hairRender.topY
   halo.position.y = hairTopY + 0.12
   halo.rotation.x = Math.PI / 2
   headGroup.add(halo)

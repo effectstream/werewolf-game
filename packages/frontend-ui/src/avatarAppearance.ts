@@ -1,9 +1,10 @@
-import type { PlayerConfig } from './models/PlayerConfigInterface'
+import type { HairStyle, PlayerConfig } from './models/PlayerConfigInterface'
 
 export interface AvatarSelection {
   skinTone: number
   shirtColor: number
   hairColor: number
+  hairStyle: number
 }
 
 export const SKIN_TONES = [
@@ -27,34 +28,47 @@ export const HAIR_COLORS = [
   0xc0392b,
 ] as const
 
+export const HAIR_STYLES = [
+  'square',
+  'round',
+  'pointy',
+  'ponytail',
+] as const satisfies readonly HairStyle[]
+
+export const HAIR_STYLE_LABELS: Record<HairStyle, string> = {
+  square: 'Square',
+  round: 'Round',
+  pointy: 'Pointy',
+  ponytail: 'Ponytail',
+}
+
 export const DEFAULT_AVATAR_SELECTION: AvatarSelection = {
   skinTone: 0,
   shirtColor: 0,
   hairColor: 0,
+  hairStyle: 0,
 }
 
-const DEFAULT_HAIR_SHAPE = {
-  hairWidth: 0.6,
-  hairHeight: 0.24,
-  hairDepth: 0.56,
-  hasBun: false,
-  bunSize: 0,
-} as const
-
 export function isValidAppearanceCode(value: number): boolean {
-  return Number.isInteger(value) && value >= 0 && value < 64
+  return Number.isInteger(value) && value >= 0 && value < 256
 }
 
 export function encodeAppearance(selection: AvatarSelection): number {
   if (
     selection.skinTone < 0 || selection.skinTone >= SKIN_TONES.length ||
     selection.shirtColor < 0 || selection.shirtColor >= SHIRT_COLORS.length ||
-    selection.hairColor < 0 || selection.hairColor >= HAIR_COLORS.length
+    selection.hairColor < 0 || selection.hairColor >= HAIR_COLORS.length ||
+    selection.hairStyle < 0 || selection.hairStyle >= HAIR_STYLES.length
   ) {
     throw new Error('Invalid avatar selection.')
   }
 
-  return selection.skinTone | (selection.shirtColor << 2) | (selection.hairColor << 4)
+  return (
+    selection.skinTone |
+    (selection.shirtColor << 2) |
+    (selection.hairColor << 4) |
+    (selection.hairStyle << 6)
+  )
 }
 
 export function decodeAppearance(appearanceCode: number): AvatarSelection {
@@ -66,6 +80,7 @@ export function decodeAppearance(appearanceCode: number): AvatarSelection {
     skinTone: appearanceCode & 0b11,
     shirtColor: (appearanceCode >> 2) & 0b11,
     hairColor: (appearanceCode >> 4) & 0b11,
+    hairStyle: (appearanceCode >> 6) & 0b11,
   }
 }
 
@@ -80,6 +95,6 @@ export function appearanceToPlayerConfig(
     cloth: SHIRT_COLORS[selection.shirtColor],
     hair: HAIR_COLORS[selection.hairColor],
     skin: SKIN_TONES[selection.skinTone],
-    ...DEFAULT_HAIR_SHAPE,
+    hairStyle: HAIR_STYLES[selection.hairStyle],
   }
 }
