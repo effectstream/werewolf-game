@@ -21,6 +21,7 @@ import {
   setRoundTimeout,
   snapshotAlivePlayer,
   updateLobbyPlayerEvmAddress,
+  updateLobbyPlayerMidnightAddress,
   updateRoundVoteCount,
   upsertGameView,
   upsertLobby,
@@ -518,11 +519,12 @@ stm.addStateTransition(
 stm.addStateTransition(
   "join_game",
   function* (data) {
-    const { gameId, publicKey, nickname, appearanceCode } = data.parsedInput as {
+    const { gameId, publicKey, nickname, appearanceCode, midnightAddress } = data.parsedInput as {
       gameId: number;
       publicKey: string;
       nickname: string;
       appearanceCode: number;
+      midnightAddress: string;
     };
     const blockHeight = data.blockHeight;
     // The EVM address that signed the batcher input — verified by the Paima batcher,
@@ -559,6 +561,15 @@ stm.addStateTransition(
           game_id: gameId,
           public_key_hex: publicKey,
           evm_address: evmAddress,
+        });
+      }
+
+      // Persist the Midnight address for leaderboard tracking.
+      if (midnightAddress) {
+        yield* World.resolve(updateLobbyPlayerMidnightAddress, {
+          game_id: gameId,
+          public_key_hex: publicKey,
+          midnight_address: midnightAddress,
         });
       }
 

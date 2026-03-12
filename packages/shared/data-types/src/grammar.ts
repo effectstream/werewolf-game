@@ -29,6 +29,7 @@ export const paimaL2Grammar = {
     ["publicKey", Type.String()],
     ["nickname", Type.String()],
     ["appearanceCode", Type.Number()],
+    ["midnightAddress", Type.String()],
   ],
   "close_game": [
     ["gameId", Type.Number()],

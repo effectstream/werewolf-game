@@ -50,7 +50,7 @@ ON CONFLICT (game_id, public_key_hex) DO NOTHING
 RETURNING game_id;
 
 /* @name getLobbyPlayers */
-SELECT public_key_hex, nickname, appearance_code
+SELECT public_key_hex, nickname, appearance_code, midnight_address
 FROM werewolf_lobby_players
 WHERE game_id = :game_id!
 ORDER BY joined_block ASC;
@@ -63,6 +63,11 @@ WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!;
 /* @name updateLobbyPlayerEvmAddress */
 UPDATE werewolf_lobby_players
 SET evm_address = :evm_address!
+WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!;
+
+/* @name updateLobbyPlayerMidnightAddress */
+UPDATE werewolf_lobby_players
+SET midnight_address = :midnight_address!
 WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!;
 
 /* @name getGamesByEvmAddress */
@@ -82,4 +87,23 @@ FROM werewolf_lobby_players wlp
 LEFT JOIN werewolf_lobby    wl  ON wlp.game_id = wl.game_id
 LEFT JOIN werewolf_game_view wgv ON wlp.game_id = wgv.game_id
 WHERE wlp.evm_address = :evm_address!
+ORDER BY wlp.game_id DESC;
+
+/* @name getGamesByMidnightAddress */
+SELECT
+  wlp.game_id,
+  wlp.player_idx,
+  wlp.role,
+  wlp.public_key_hex,
+  wlp.nickname,
+  wlp.appearance_code,
+  wl.closed,
+  wl.bundles_ready,
+  wgv.phase,
+  wgv.round,
+  wgv.finished
+FROM werewolf_lobby_players wlp
+LEFT JOIN werewolf_lobby    wl  ON wlp.game_id = wl.game_id
+LEFT JOIN werewolf_game_view wgv ON wlp.game_id = wgv.game_id
+WHERE wlp.midnight_address = :midnight_address!
 ORDER BY wlp.game_id DESC;

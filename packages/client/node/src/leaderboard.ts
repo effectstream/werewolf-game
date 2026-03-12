@@ -2,7 +2,7 @@
  * Leaderboard score calculation and persistence.
  *
  * Called once per game when the game finishes (detected by midnightContractState STF).
- * Only players who provided an EVM address when joining the lobby are tracked.
+ * Only players who provided a Midnight Shielded address when joining the lobby are tracked.
  *
  * Scoring:
  *  - 5 pts: game participation (any completed game)
@@ -32,7 +32,7 @@ export async function calculateAndPersistScores(
     `[leaderboard] Calculating scores for game=${gameId} winner=${winner}`,
   );
 
-  // Get all players who have an EVM address, player_idx, and role set.
+  // Get all players who have a Midnight address, player_idx, and role set.
   const players = await runPreparedQuery(
     getPlayerDataForGame.run({ game_id: gameId }, dbConn),
     "getPlayerDataForGame",
@@ -40,14 +40,14 @@ export async function calculateAndPersistScores(
 
   if (players.length === 0) {
     console.log(
-      `[leaderboard] game=${gameId}: no players with EVM addresses — skipping`,
+      `[leaderboard] game=${gameId}: no players with Midnight addresses — skipping`,
     );
     return;
   }
 
   for (const player of players) {
     const playerIdx = player.player_idx!;
-    const evmAddress = player.evm_address!;
+    const midnightAddress = player.midnight_address!;
     const role = player.role ?? 0;
 
     // Count distinct rounds the player appears in alive_snapshot.
@@ -74,7 +74,7 @@ export async function calculateAndPersistScores(
 
     await runPreparedQuery(
       upsertLeaderboardEntry.run({
-        evm_address: evmAddress,
+        midnight_address: midnightAddress,
         total_points: points,
         games_played: 1,
         games_won: onWinningTeam ? 1 : 0,
@@ -85,7 +85,7 @@ export async function calculateAndPersistScores(
     );
 
     console.log(
-      `[leaderboard] game=${gameId} evm=${evmAddress.slice(0, 10)}…` +
+      `[leaderboard] game=${gameId} midnight=${midnightAddress.slice(0, 10)}…` +
         ` playerIdx=${playerIdx} role=${role} rounds=${roundsSurvived}` +
         ` onWinningTeam=${onWinningTeam} points=${points}`,
     );

@@ -21,6 +21,7 @@ CREATE TABLE werewolf_lobby_players (
   appearance_code       INT     NOT NULL DEFAULT 0,
   joined_block          BIGINT NOT NULL,
   evm_address           TEXT,            -- Optional EVM wallet address for leaderboard tracking
+  midnight_address      TEXT,            -- Optional Midnight shielded address for leaderboard tracking
   player_idx            INT,             -- Assigned numeric index (populated when lobby closes)
   role                  INT,             -- 0=villager, 1=werewolf (populated when lobby closes)
   PRIMARY KEY (game_id, public_key_hex)

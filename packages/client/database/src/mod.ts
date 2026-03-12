@@ -24,8 +24,10 @@ export {
   setAdminSignKeyUpdate,
   setLobbyTimeout,
   updateLobbyPlayerEvmAddress,
+  updateLobbyPlayerMidnightAddress,
   updateLobbyPlayerTrackingFields,
   upsertLobby,
+  getGamesByMidnightAddress,
 } from "./sql/werewolf_lobby.queries.ts";
 
 export {
@@ -107,6 +109,9 @@ export type {
   IUpdateLobbyPlayerEvmAddressParams,
   IUpdateLobbyPlayerEvmAddressQuery,
   IUpdateLobbyPlayerEvmAddressResult,
+  IUpdateLobbyPlayerMidnightAddressParams,
+  IUpdateLobbyPlayerMidnightAddressQuery,
+  IUpdateLobbyPlayerMidnightAddressResult,
   IUpdateLobbyPlayerTrackingFieldsParams,
   IUpdateLobbyPlayerTrackingFieldsQuery,
   IUpdateLobbyPlayerTrackingFieldsResult,

@@ -430,9 +430,11 @@ export class LobbyScreen {
 
   private async handleJoinGame(): Promise<void> {
     const address = evmWallet.getAddress()
-    console.log('[LobbyScreen] handleJoinGame address:', address, 'currentGame:', this.currentGame)
-    if (!address) {
-      this.setStatus('Wallet not connected. Please connect your wallets first.', true)
+    const midnightAddress = midnightWallet.getShieldedAddress()
+
+    console.log('[LobbyScreen] handleJoinGame address:', address, 'midnightAddress:', midnightAddress, 'currentGame:', this.currentGame)
+    if (!address || !midnightAddress) {
+      this.setStatus('Wallets not connected. Please connect both EVM and Midnight wallets first.', true)
       return
     }
     if (!this.currentGame) {
@@ -470,6 +472,7 @@ export class LobbyScreen {
         publicKeyHex,
         nickname,
         appearanceCode,
+        midnightAddress,
       })
       const batcherResult = await BatcherService.joinGame(
         address,
@@ -477,6 +480,7 @@ export class LobbyScreen {
         publicKeyHex,
         nickname,
         appearanceCode,
+        midnightAddress,
         ({ message }) => walletClient.signMessage({ account: address, message }),
       )
       console.log('[LobbyScreen] batcher joinGame result:', batcherResult)

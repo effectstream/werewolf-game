@@ -101,12 +101,19 @@ export class BatcherService {
     publicKey: string,
     nickname: string,
     appearanceCode: number,
+    midnightAddress: string,
     signMessage: (args: { message: string }) => Promise<`0x${string}`>,
   ): Promise<unknown> {
-    console.log('[BatcherService] joinGame', { gameId, publicKey, nickname, appearanceCode })
+    console.log('[BatcherService] joinGame', {
+      gameId,
+      publicKey,
+      nickname,
+      appearanceCode,
+      midnightAddress,
+    })
     return this.sendToBatcher(
       address,
-      ['join_game', gameId, publicKey, nickname, appearanceCode],
+      ['join_game', gameId, publicKey, nickname, appearanceCode, midnightAddress],
       signMessage,
     )
   }

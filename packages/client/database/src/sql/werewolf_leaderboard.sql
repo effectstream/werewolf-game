@@ -1,7 +1,7 @@
 /* @name upsertLeaderboardEntry */
-INSERT INTO werewolf_leaderboard (evm_address, total_points, games_played, games_won, rounds_survived, last_updated_block)
-VALUES (:evm_address!, :total_points!, :games_played!, :games_won!, :rounds_survived!, :last_updated_block!)
-ON CONFLICT (evm_address) DO UPDATE SET
+INSERT INTO werewolf_leaderboard (midnight_address, total_points, games_played, games_won, rounds_survived, last_updated_block)
+VALUES (:midnight_address!, :total_points!, :games_played!, :games_won!, :rounds_survived!, :last_updated_block!)
+ON CONFLICT (midnight_address) DO UPDATE SET
   total_points    = werewolf_leaderboard.total_points    + EXCLUDED.total_points,
   games_played    = werewolf_leaderboard.games_played    + EXCLUDED.games_played,
   games_won       = werewolf_leaderboard.games_won       + EXCLUDED.games_won,
@@ -9,16 +9,16 @@ ON CONFLICT (evm_address) DO UPDATE SET
   last_updated_block = EXCLUDED.last_updated_block;
 
 /* @name getLeaderboard */
-SELECT evm_address, total_points, games_played, games_won, rounds_survived
+SELECT midnight_address, total_points, games_played, games_won, rounds_survived
 FROM werewolf_leaderboard
 ORDER BY total_points DESC
 LIMIT :limit! OFFSET :offset!;
 
 /* @name getPlayerDataForGame */
-SELECT public_key_hex, evm_address, player_idx, role
+SELECT public_key_hex, midnight_address, player_idx, role
 FROM werewolf_lobby_players
 WHERE game_id = :game_id!
-  AND evm_address IS NOT NULL
+  AND midnight_address IS NOT NULL
   AND player_idx IS NOT NULL
   AND role IS NOT NULL;
 

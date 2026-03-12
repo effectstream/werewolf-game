@@ -330,6 +330,7 @@ export interface IGetLobbyPlayersParams {
 /** 'GetLobbyPlayers' return type */
 export interface IGetLobbyPlayersResult {
   appearance_code: number;
+  midnight_address: string | null;
   nickname: string;
   public_key_hex: string;
 }
@@ -340,12 +341,12 @@ export interface IGetLobbyPlayersQuery {
   result: IGetLobbyPlayersResult;
 }
 
-const getLobbyPlayersIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":93,"b":101}]}],"statement":"SELECT public_key_hex, nickname, appearance_code\nFROM werewolf_lobby_players\nWHERE game_id = :game_id!\nORDER BY joined_block ASC"};
+const getLobbyPlayersIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":111,"b":119}]}],"statement":"SELECT public_key_hex, nickname, appearance_code, midnight_address\nFROM werewolf_lobby_players\nWHERE game_id = :game_id!\nORDER BY joined_block ASC"};
 
 /**
  * Query generated from SQL:
  * ```
- * SELECT public_key_hex, nickname, appearance_code
+ * SELECT public_key_hex, nickname, appearance_code, midnight_address
  * FROM werewolf_lobby_players
  * WHERE game_id = :game_id!
  * ORDER BY joined_block ASC
@@ -413,6 +414,35 @@ const updateLobbyPlayerEvmAddressIR: any = {"usedParamSet":{"evm_address":true,"
 export const updateLobbyPlayerEvmAddress = new PreparedQuery<IUpdateLobbyPlayerEvmAddressParams,IUpdateLobbyPlayerEvmAddressResult>(updateLobbyPlayerEvmAddressIR);
 
 
+/** 'UpdateLobbyPlayerMidnightAddress' parameters type */
+export interface IUpdateLobbyPlayerMidnightAddressParams {
+  game_id: NumberOrString;
+  midnight_address: string;
+  public_key_hex: string;
+}
+
+/** 'UpdateLobbyPlayerMidnightAddress' return type */
+export type IUpdateLobbyPlayerMidnightAddressResult = void;
+
+/** 'UpdateLobbyPlayerMidnightAddress' query type */
+export interface IUpdateLobbyPlayerMidnightAddressQuery {
+  params: IUpdateLobbyPlayerMidnightAddressParams;
+  result: IUpdateLobbyPlayerMidnightAddressResult;
+}
+
+const updateLobbyPlayerMidnightAddressIR: any = {"usedParamSet":{"midnight_address":true,"game_id":true,"public_key_hex":true},"params":[{"name":"midnight_address","required":true,"transform":{"type":"scalar"},"locs":[{"a":53,"b":70}]},{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":88,"b":96}]},{"name":"public_key_hex","required":true,"transform":{"type":"scalar"},"locs":[{"a":119,"b":134}]}],"statement":"UPDATE werewolf_lobby_players\nSET midnight_address = :midnight_address!\nWHERE game_id = :game_id! AND public_key_hex = :public_key_hex!"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * UPDATE werewolf_lobby_players
+ * SET midnight_address = :midnight_address!
+ * WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!
+ * ```
+ */
+export const updateLobbyPlayerMidnightAddress = new PreparedQuery<IUpdateLobbyPlayerMidnightAddressParams,IUpdateLobbyPlayerMidnightAddressResult>(updateLobbyPlayerMidnightAddressIR);
+
+
 /** 'GetGamesByEvmAddress' parameters type */
 export interface IGetGamesByEvmAddressParams {
   evm_address: string;
@@ -464,5 +494,58 @@ const getGamesByEvmAddressIR: any = {"usedParamSet":{"evm_address":true},"params
  * ```
  */
 export const getGamesByEvmAddress = new PreparedQuery<IGetGamesByEvmAddressParams,IGetGamesByEvmAddressResult>(getGamesByEvmAddressIR);
+
+
+/** 'GetGamesByMidnightAddress' parameters type */
+export interface IGetGamesByMidnightAddressParams {
+  midnight_address: string;
+}
+
+/** 'GetGamesByMidnightAddress' return type */
+export interface IGetGamesByMidnightAddressResult {
+  appearance_code: number;
+  bundles_ready: boolean;
+  closed: boolean;
+  finished: boolean;
+  game_id: string;
+  nickname: string;
+  phase: string;
+  player_idx: number | null;
+  public_key_hex: string;
+  role: number | null;
+  round: number;
+}
+
+/** 'GetGamesByMidnightAddress' query type */
+export interface IGetGamesByMidnightAddressQuery {
+  params: IGetGamesByMidnightAddressParams;
+  result: IGetGamesByMidnightAddressResult;
+}
+
+const getGamesByMidnightAddressIR: any = {"usedParamSet":{"midnight_address":true},"params":[{"name":"midnight_address","required":true,"transform":{"type":"scalar"},"locs":[{"a":370,"b":387}]}],"statement":"SELECT\n  wlp.game_id,\n  wlp.player_idx,\n  wlp.role,\n  wlp.public_key_hex,\n  wlp.nickname,\n  wlp.appearance_code,\n  wl.closed,\n  wl.bundles_ready,\n  wgv.phase,\n  wgv.round,\n  wgv.finished\nFROM werewolf_lobby_players wlp\nLEFT JOIN werewolf_lobby    wl  ON wlp.game_id = wl.game_id\nLEFT JOIN werewolf_game_view wgv ON wlp.game_id = wgv.game_id\nWHERE wlp.midnight_address = :midnight_address!\nORDER BY wlp.game_id DESC"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * SELECT
+ *   wlp.game_id,
+ *   wlp.player_idx,
+ *   wlp.role,
+ *   wlp.public_key_hex,
+ *   wlp.nickname,
+ *   wlp.appearance_code,
+ *   wl.closed,
+ *   wl.bundles_ready,
+ *   wgv.phase,
+ *   wgv.round,
+ *   wgv.finished
+ * FROM werewolf_lobby_players wlp
+ * LEFT JOIN werewolf_lobby    wl  ON wlp.game_id = wl.game_id
+ * LEFT JOIN werewolf_game_view wgv ON wlp.game_id = wgv.game_id
+ * WHERE wlp.midnight_address = :midnight_address!
+ * ORDER BY wlp.game_id DESC
+ * ```
+ */
+export const getGamesByMidnightAddress = new PreparedQuery<IGetGamesByMidnightAddressParams,IGetGamesByMidnightAddressResult>(getGamesByMidnightAddressIR);
 
 

@@ -5,10 +5,10 @@ export type NumberOrString = number | string;
 
 /** 'UpsertLeaderboardEntry' parameters type */
 export interface IUpsertLeaderboardEntryParams {
-  evm_address: string;
   games_played: number;
   games_won: number;
   last_updated_block: NumberOrString;
+  midnight_address: string;
   rounds_survived: number;
   total_points: NumberOrString;
 }
@@ -22,14 +22,14 @@ export interface IUpsertLeaderboardEntryQuery {
   result: IUpsertLeaderboardEntryResult;
 }
 
-const upsertLeaderboardEntryIR: any = {"usedParamSet":{"evm_address":true,"total_points":true,"games_played":true,"games_won":true,"rounds_survived":true,"last_updated_block":true},"params":[{"name":"evm_address","required":true,"transform":{"type":"scalar"},"locs":[{"a":131,"b":143}]},{"name":"total_points","required":true,"transform":{"type":"scalar"},"locs":[{"a":146,"b":159}]},{"name":"games_played","required":true,"transform":{"type":"scalar"},"locs":[{"a":162,"b":175}]},{"name":"games_won","required":true,"transform":{"type":"scalar"},"locs":[{"a":178,"b":188}]},{"name":"rounds_survived","required":true,"transform":{"type":"scalar"},"locs":[{"a":191,"b":207}]},{"name":"last_updated_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":210,"b":229}]}],"statement":"INSERT INTO werewolf_leaderboard (evm_address, total_points, games_played, games_won, rounds_survived, last_updated_block)\nVALUES (:evm_address!, :total_points!, :games_played!, :games_won!, :rounds_survived!, :last_updated_block!)\nON CONFLICT (evm_address) DO UPDATE SET\n  total_points    = werewolf_leaderboard.total_points    + EXCLUDED.total_points,\n  games_played    = werewolf_leaderboard.games_played    + EXCLUDED.games_played,\n  games_won       = werewolf_leaderboard.games_won       + EXCLUDED.games_won,\n  rounds_survived = werewolf_leaderboard.rounds_survived + EXCLUDED.rounds_survived,\n  last_updated_block = EXCLUDED.last_updated_block"};
+const upsertLeaderboardEntryIR: any = {"usedParamSet":{"midnight_address":true,"total_points":true,"games_played":true,"games_won":true,"rounds_survived":true,"last_updated_block":true},"params":[{"name":"midnight_address","required":true,"transform":{"type":"scalar"},"locs":[{"a":136,"b":153}]},{"name":"total_points","required":true,"transform":{"type":"scalar"},"locs":[{"a":156,"b":169}]},{"name":"games_played","required":true,"transform":{"type":"scalar"},"locs":[{"a":172,"b":185}]},{"name":"games_won","required":true,"transform":{"type":"scalar"},"locs":[{"a":188,"b":198}]},{"name":"rounds_survived","required":true,"transform":{"type":"scalar"},"locs":[{"a":201,"b":217}]},{"name":"last_updated_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":220,"b":239}]}],"statement":"INSERT INTO werewolf_leaderboard (midnight_address, total_points, games_played, games_won, rounds_survived, last_updated_block)\nVALUES (:midnight_address!, :total_points!, :games_played!, :games_won!, :rounds_survived!, :last_updated_block!)\nON CONFLICT (midnight_address) DO UPDATE SET\n  total_points    = werewolf_leaderboard.total_points    + EXCLUDED.total_points,\n  games_played    = werewolf_leaderboard.games_played    + EXCLUDED.games_played,\n  games_won       = werewolf_leaderboard.games_won       + EXCLUDED.games_won,\n  rounds_survived = werewolf_leaderboard.rounds_survived + EXCLUDED.rounds_survived,\n  last_updated_block = EXCLUDED.last_updated_block"};
 
 /**
  * Query generated from SQL:
  * ```
- * INSERT INTO werewolf_leaderboard (evm_address, total_points, games_played, games_won, rounds_survived, last_updated_block)
- * VALUES (:evm_address!, :total_points!, :games_played!, :games_won!, :rounds_survived!, :last_updated_block!)
- * ON CONFLICT (evm_address) DO UPDATE SET
+ * INSERT INTO werewolf_leaderboard (midnight_address, total_points, games_played, games_won, rounds_survived, last_updated_block)
+ * VALUES (:midnight_address!, :total_points!, :games_played!, :games_won!, :rounds_survived!, :last_updated_block!)
+ * ON CONFLICT (midnight_address) DO UPDATE SET
  *   total_points    = werewolf_leaderboard.total_points    + EXCLUDED.total_points,
  *   games_played    = werewolf_leaderboard.games_played    + EXCLUDED.games_played,
  *   games_won       = werewolf_leaderboard.games_won       + EXCLUDED.games_won,
@@ -48,9 +48,9 @@ export interface IGetLeaderboardParams {
 
 /** 'GetLeaderboard' return type */
 export interface IGetLeaderboardResult {
-  evm_address: string;
   games_played: number;
   games_won: number;
+  midnight_address: string;
   rounds_survived: number;
   total_points: string;
 }
@@ -61,12 +61,12 @@ export interface IGetLeaderboardQuery {
   result: IGetLeaderboardResult;
 }
 
-const getLeaderboardIR: any = {"usedParamSet":{"limit":true,"offset":true},"params":[{"name":"limit","required":true,"transform":{"type":"scalar"},"locs":[{"a":134,"b":140}]},{"name":"offset","required":true,"transform":{"type":"scalar"},"locs":[{"a":149,"b":156}]}],"statement":"SELECT evm_address, total_points, games_played, games_won, rounds_survived\nFROM werewolf_leaderboard\nORDER BY total_points DESC\nLIMIT :limit! OFFSET :offset!"};
+const getLeaderboardIR: any = {"usedParamSet":{"limit":true,"offset":true},"params":[{"name":"limit","required":true,"transform":{"type":"scalar"},"locs":[{"a":139,"b":145}]},{"name":"offset","required":true,"transform":{"type":"scalar"},"locs":[{"a":154,"b":161}]}],"statement":"SELECT midnight_address, total_points, games_played, games_won, rounds_survived\nFROM werewolf_leaderboard\nORDER BY total_points DESC\nLIMIT :limit! OFFSET :offset!"};
 
 /**
  * Query generated from SQL:
  * ```
- * SELECT evm_address, total_points, games_played, games_won, rounds_survived
+ * SELECT midnight_address, total_points, games_played, games_won, rounds_survived
  * FROM werewolf_leaderboard
  * ORDER BY total_points DESC
  * LIMIT :limit! OFFSET :offset!
@@ -82,7 +82,7 @@ export interface IGetPlayerDataForGameParams {
 
 /** 'GetPlayerDataForGame' return type */
 export interface IGetPlayerDataForGameResult {
-  evm_address: string | null;
+  midnight_address: string | null;
   player_idx: number | null;
   public_key_hex: string;
   role: number | null;
@@ -94,15 +94,15 @@ export interface IGetPlayerDataForGameQuery {
   result: IGetPlayerDataForGameResult;
 }
 
-const getPlayerDataForGameIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":97,"b":105}]}],"statement":"SELECT public_key_hex, evm_address, player_idx, role\nFROM werewolf_lobby_players\nWHERE game_id = :game_id!\n  AND evm_address IS NOT NULL\n  AND player_idx IS NOT NULL\n  AND role IS NOT NULL"};
+const getPlayerDataForGameIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":102,"b":110}]}],"statement":"SELECT public_key_hex, midnight_address, player_idx, role\nFROM werewolf_lobby_players\nWHERE game_id = :game_id!\n  AND midnight_address IS NOT NULL\n  AND player_idx IS NOT NULL\n  AND role IS NOT NULL"};
 
 /**
  * Query generated from SQL:
  * ```
- * SELECT public_key_hex, evm_address, player_idx, role
+ * SELECT public_key_hex, midnight_address, player_idx, role
  * FROM werewolf_lobby_players
  * WHERE game_id = :game_id!
- *   AND evm_address IS NOT NULL
+ *   AND midnight_address IS NOT NULL
  *   AND player_idx IS NOT NULL
  *   AND role IS NOT NULL
  * ```
