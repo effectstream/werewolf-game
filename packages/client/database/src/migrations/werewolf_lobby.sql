@@ -18,6 +18,7 @@ CREATE TABLE werewolf_lobby_players (
   game_id               BIGINT NOT NULL,
   public_key_hex        TEXT    NOT NULL,
   nickname              TEXT    NOT NULL,
+  appearance_code       INT     NOT NULL DEFAULT 0,
   joined_block          BIGINT NOT NULL,
   evm_address           TEXT,            -- Optional EVM wallet address for leaderboard tracking
   player_idx            INT,             -- Assigned numeric index (populated when lobby closes)

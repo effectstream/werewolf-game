@@ -12,6 +12,7 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     struct Player {
         address evmAddress;
         bytes32 publicKey;
+        uint8 appearanceCode;
     }
 
     /// @dev Game structure for lobby management
@@ -35,7 +36,7 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     event GameCreated(uint32 indexed gameId, uint256 maxPlayers, bytes encryptedGameSeed);
 
     /// @dev Emitted when a player joins a game
-    event PlayerJoined(uint256 indexed gameId, address indexed evmAddress, bytes32 publicKey);
+    event PlayerJoined(uint256 indexed gameId, address indexed evmAddress, bytes32 publicKey, uint8 appearanceCode);
 
     /// @dev Emitted when a game is closed
     event GameClosed(uint256 indexed gameId);
@@ -72,10 +73,12 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @dev Joins an existing game lobby
     /// @param _gameId ID of the game to join
     /// @param _publicKey Ed25519 public key for bundle retrieval authentication
-    function joinGame(uint256 _gameId, bytes32 _publicKey) public {
+    /// @param _appearanceCode Packed avatar appearance (0-63)
+    function joinGame(uint256 _gameId, bytes32 _publicKey, uint8 _appearanceCode) public {
         require(games[_gameId].id != 0, "Game not found");
         require(games[_gameId].state == GameState.Open, "Game is closed");
         require(games[_gameId].playerCount < games[_gameId].maxPlayers, "Game is full");
+        require(_appearanceCode < 64, "Invalid appearance");
 
         // Check if player already joined
         for (uint256 i = 0; i < games[_gameId].playerCount; i++) {
@@ -85,11 +88,12 @@ contract MyPaimaL2Contract is PaimaL2Contract {
         // Add player
         games[_gameId].players.push(Player({
             evmAddress: msg.sender,
-            publicKey: _publicKey
+            publicKey: _publicKey,
+            appearanceCode: _appearanceCode
         }));
         games[_gameId].playerCount++;
 
-        emit PlayerJoined(_gameId, msg.sender, _publicKey);
+        emit PlayerJoined(_gameId, msg.sender, _publicKey, _appearanceCode);
     }
 
     /// @dev Closes a game lobby, preventing new players from joining
@@ -160,12 +164,13 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @param _playerIndex Index of the player to retrieve
     function getPlayer(uint256 _gameId, uint256 _playerIndex) public view returns (
         address evmAddress,
-        bytes32 publicKey
+        bytes32 publicKey,
+        uint8 appearanceCode
     ) {
         require(games[_gameId].id != 0, "Game not found");
         require(_playerIndex < games[_gameId].playerCount, "Player index out of bounds");
         Player storage player = games[_gameId].players[_playerIndex];
-        return (player.evmAddress, player.publicKey);
+        return (player.evmAddress, player.publicKey, player.appearanceCode);
     }
 
     /// @dev Checks if an address has already joined a game

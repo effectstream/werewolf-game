@@ -100,10 +100,15 @@ export class BatcherService {
     gameId: number,
     publicKey: string,
     nickname: string,
+    appearanceCode: number,
     signMessage: (args: { message: string }) => Promise<`0x${string}`>,
   ): Promise<unknown> {
-    console.log('[BatcherService] joinGame', { gameId, publicKey, nickname })
-    return this.sendToBatcher(address, ['join_game', gameId, publicKey, nickname], signMessage)
+    console.log('[BatcherService] joinGame', { gameId, publicKey, nickname, appearanceCode })
+    return this.sendToBatcher(
+      address,
+      ['join_game', gameId, publicKey, nickname, appearanceCode],
+      signMessage,
+    )
   }
 
   static async forceStart(

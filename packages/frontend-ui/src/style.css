@@ -310,7 +310,7 @@ body {
 }
 
 .lobby-card {
-  width: min(420px, 92vw);
+  width: min(680px, 92vw);
   border: 1px solid rgba(154, 172, 240, 0.28);
   border-radius: 18px;
   background: rgba(9, 17, 37, 0.92);
@@ -396,6 +396,100 @@ body {
   color: #f1f4ff;
 }
 
+.lobby-section-title {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(216, 228, 255, 0.92);
+}
+
+.lobby-avatar-section {
+  display: grid;
+  gap: 14px;
+  border: 1px solid rgba(138, 160, 220, 0.25);
+  border-radius: 14px;
+  background: rgba(12, 22, 46, 0.82);
+  padding: 14px;
+}
+
+.lobby-avatar-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 16px;
+  align-items: center;
+}
+
+.lobby-avatar-copy {
+  margin: 6px 0 0;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  color: rgba(190, 206, 245, 0.72);
+}
+
+.lobby-avatar-preview {
+  width: 100%;
+  height: 280px;
+  border-radius: 12px;
+  border: 1px solid rgba(154, 169, 235, 0.24);
+  background:
+    radial-gradient(circle at 50% 24%, rgba(115, 147, 255, 0.18), transparent 48%),
+    linear-gradient(180deg, rgba(18, 33, 70, 0.96), rgba(8, 14, 29, 0.96));
+  overflow: hidden;
+}
+
+.avatar-preview-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.lobby-avatar-controls {
+  display: grid;
+  gap: 12px;
+}
+
+.lobby-avatar-group {
+  display: grid;
+  gap: 8px;
+}
+
+.lobby-avatar-label {
+  font-size: 0.78rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(180, 200, 255, 0.68);
+}
+
+.lobby-swatch-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lobby-swatch-btn {
+  width: 100%;
+  min-height: 42px;
+  border-radius: 10px;
+  border: 1px solid rgba(154, 169, 235, 0.34);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--swatch-color) 88%, #18203a);
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.lobby-swatch-btn:hover {
+  transform: translateY(-1px);
+  border-color: rgba(210, 223, 255, 0.7);
+}
+
+.lobby-swatch-btn--selected {
+  border-color: rgba(230, 238, 255, 0.96);
+  box-shadow:
+    inset 0 0 0 999px color-mix(in srgb, var(--swatch-color) 88%, #18203a),
+    0 0 0 2px rgba(180, 205, 255, 0.34);
+}
+
 .lobby-btn {
   width: 100%;
 }
@@ -435,6 +529,14 @@ body {
 
   .messages-box {
     height: 110px;
+  }
+
+  .lobby-card {
+    width: min(560px, 94vw);
+  }
+
+  .lobby-avatar-panel {
+    grid-template-columns: 1fr;
   }
 }
 

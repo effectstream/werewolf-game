@@ -8,6 +8,15 @@ import { gameState, type PlayerBundle } from '../state/gameState'
 import { fetchBundle, fetchLobbyStatus, fetchOpenLobby, type LobbyStatusResponse } from '../services/lobbyApi'
 import { decodeGamePhrase, encodeGameId, isGamePhrase } from '../services/werewolfIdCodec'
 import { getAllSessions, clearSession, hexToBytes, type StoredSession } from '../services/sessionStore'
+import {
+  DEFAULT_AVATAR_SELECTION,
+  HAIR_COLORS,
+  type AvatarSelection,
+  SHIRT_COLORS,
+  SKIN_TONES,
+  encodeAppearance,
+} from '../avatarAppearance'
+import { AvatarPreview } from '../ui/AvatarPreview'
 
 const MIDNIGHT_NETWORK_ID =
   (import.meta.env.VITE_MIDNIGHT_NETWORK_ID as string | undefined) ?? 'undeployed'
@@ -38,12 +47,14 @@ async function deriveGameKeypair(
   })
   // evmSig is 0x-prefixed 130-char hex (65 bytes). Strip the 0x prefix.
   const sigBytes = hexToBytes(evmSig.slice(2))
-  const hashBuffer = await crypto.subtle.digest('SHA-256', sigBytes)
+  const hashBuffer = await crypto.subtle.digest('SHA-256', Uint8Array.from(sigBytes))
   return nacl.sign.keyPair.fromSeed(new Uint8Array(hashBuffer))
 }
 
 export class LobbyScreen {
-  onJoined: (gameId: number, gameStarted: boolean, publicKeyHex: string, nickname: string) => void = () => {}
+  onJoined:
+    (gameId: number, gameStarted: boolean, publicKeyHex: string, nickname: string, appearanceCode: number) => void =
+      () => {}
 
   private static readonly DISCOVER_POLL_MS = 3_000     // ms between /api/open_lobby retries
   private static readonly DISCOVER_TIMEOUT_MS = 60_000 // give up after 60 s
@@ -59,10 +70,14 @@ export class LobbyScreen {
   private nicknameInput!: HTMLInputElement
   private findBtn!: HTMLButtonElement
   private gameInfoEl!: HTMLDivElement
+  private avatarSection!: HTMLDivElement
+  private avatarPreviewEl!: HTMLDivElement
   private joinBtn!: HTMLButtonElement
 
   private currentGame: GameInfo | null = null
   private lobbyPollTimer: ReturnType<typeof setInterval> | null = null
+  private readonly avatarPreview = new AvatarPreview(DEFAULT_AVATAR_SELECTION)
+  private avatarSelection: AvatarSelection = { ...DEFAULT_AVATAR_SELECTION }
 
   constructor() {
     this.container = document.createElement('div')
@@ -89,6 +104,59 @@ export class LobbyScreen {
             <button id="lobbyFindBtn" class="ui-btn lobby-btn">Find Game</button>
           </div>
           <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
+          <div id="lobbyAvatarSection" class="lobby-avatar-section" hidden>
+            <div class="lobby-avatar-panel">
+              <div>
+                <h3 class="lobby-section-title">Character Preview</h3>
+                <p class="lobby-avatar-copy">Choose how your villager looks before joining the lobby.</p>
+              </div>
+              <div id="lobbyAvatarPreview" class="lobby-avatar-preview" aria-label="Avatar preview"></div>
+            </div>
+            <div class="lobby-avatar-controls">
+              <div class="lobby-avatar-group">
+                <span class="lobby-avatar-label">Skin Tone</span>
+                <div class="lobby-swatch-row" data-avatar-group="skinTone">
+                  ${SKIN_TONES.map((color, index) => `
+                    <button
+                      type="button"
+                      class="lobby-swatch-btn"
+                      data-avatar-option="skinTone:${index}"
+                      aria-label="Skin tone ${index + 1}"
+                      style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
+                    ></button>
+                  `).join('')}
+                </div>
+              </div>
+              <div class="lobby-avatar-group">
+                <span class="lobby-avatar-label">Shirt Color</span>
+                <div class="lobby-swatch-row" data-avatar-group="shirtColor">
+                  ${SHIRT_COLORS.map((color, index) => `
+                    <button
+                      type="button"
+                      class="lobby-swatch-btn"
+                      data-avatar-option="shirtColor:${index}"
+                      aria-label="Shirt color ${index + 1}"
+                      style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
+                    ></button>
+                  `).join('')}
+                </div>
+              </div>
+              <div class="lobby-avatar-group">
+                <span class="lobby-avatar-label">Hair Color</span>
+                <div class="lobby-swatch-row" data-avatar-group="hairColor">
+                  ${HAIR_COLORS.map((color, index) => `
+                    <button
+                      type="button"
+                      class="lobby-swatch-btn"
+                      data-avatar-option="hairColor:${index}"
+                      aria-label="Hair color ${index + 1}"
+                      style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
+                    ></button>
+                  `).join('')}
+                </div>
+              </div>
+            </div>
+          </div>
           <input id="lobbyNicknameInput" class="lobby-input" type="text" placeholder="Nickname (min 3 characters)" hidden />
           <button id="lobbyJoinBtn" class="ui-btn lobby-btn lobby-btn--primary" hidden>Join Game</button>
         </section>
@@ -106,12 +174,18 @@ export class LobbyScreen {
     this.nicknameInput = this.container.querySelector<HTMLInputElement>('#lobbyNicknameInput')!
     this.findBtn = this.container.querySelector<HTMLButtonElement>('#lobbyFindBtn')!
     this.gameInfoEl = this.container.querySelector<HTMLDivElement>('#lobbyGameInfo')!
+    this.avatarSection = this.container.querySelector<HTMLDivElement>('#lobbyAvatarSection')!
+    this.avatarPreviewEl = this.container.querySelector<HTMLDivElement>('#lobbyAvatarPreview')!
     this.joinBtn = this.container.querySelector<HTMLButtonElement>('#lobbyJoinBtn')!
     this.statusEl = this.container.querySelector<HTMLParagraphElement>('#lobbyStatus')!
 
     this.walletBtn.addEventListener('click', () => this.handleConnectWallet())
     this.findBtn.addEventListener('click', () => this.handleFindGame())
     this.joinBtn.addEventListener('click', () => this.handleJoinGame())
+
+    this.avatarPreview.mount(this.avatarPreviewEl)
+    this.bindAvatarControls()
+    this.syncAvatarSelection()
   }
 
   show(): void {
@@ -125,6 +199,7 @@ export class LobbyScreen {
       clearInterval(this.lobbyPollTimer)
       this.lobbyPollTimer = null
     }
+    this.avatarPreview.destroy()
     this.container.remove()
   }
 
@@ -136,6 +211,53 @@ export class LobbyScreen {
   private setLoading(btn: HTMLButtonElement, loading: boolean, label: string): void {
     btn.disabled = loading
     btn.textContent = loading ? '...' : label
+  }
+
+  private bindAvatarControls(): void {
+    const swatches = this.container.querySelectorAll<HTMLButtonElement>('[data-avatar-option]')
+    swatches.forEach((button) => {
+      button.addEventListener('click', () => {
+        const rawOption = button.dataset.avatarOption
+        if (!rawOption) return
+
+        const [group, indexValue] = rawOption.split(':')
+        const index = Number(indexValue)
+        if (!Number.isInteger(index)) return
+
+        if (group === 'skinTone') {
+          this.avatarSelection.skinTone = index
+        } else if (group === 'shirtColor') {
+          this.avatarSelection.shirtColor = index
+        } else if (group === 'hairColor') {
+          this.avatarSelection.hairColor = index
+        }
+
+        this.syncAvatarSelection()
+      })
+    })
+  }
+
+  private syncAvatarSelection(): void {
+    const encoded = encodeAppearance(this.avatarSelection)
+    this.avatarPreview.setSelection(this.avatarSelection)
+
+    const swatches = this.container.querySelectorAll<HTMLButtonElement>('[data-avatar-option]')
+    swatches.forEach((button) => {
+      const rawOption = button.dataset.avatarOption
+      if (!rawOption) return
+
+      const [group, indexValue] = rawOption.split(':')
+      const index = Number(indexValue)
+      const isSelected =
+        (group === 'skinTone' && this.avatarSelection.skinTone === index) ||
+        (group === 'shirtColor' && this.avatarSelection.shirtColor === index) ||
+        (group === 'hairColor' && this.avatarSelection.hairColor === index)
+
+      button.classList.toggle('lobby-swatch-btn--selected', isSelected)
+      button.setAttribute('aria-pressed', String(isSelected))
+    })
+
+    this.avatarPreviewEl.dataset.appearanceCode = String(encoded)
   }
 
   /**
@@ -246,7 +368,9 @@ export class LobbyScreen {
     this.setLoading(this.findBtn, true, 'Find Game')
     this.setStatus('')
     this.gameInfoEl.hidden = true
+    this.avatarSection.hidden = true
     this.joinBtn.hidden = true
+    this.nicknameInput.hidden = true
     this.currentGame = null
 
     try {
@@ -264,13 +388,16 @@ export class LobbyScreen {
       this.gameInfoEl.hidden = false
 
       if (game.state === 'Open' && game.playerCount < game.maxPlayers) {
+        this.avatarSection.hidden = false
         this.nicknameInput.hidden = false
         this.joinBtn.hidden = false
-        this.setStatus('Game is open. Enter a nickname and join.')
+        this.setStatus('Game is open. Customize your character, enter a nickname, and join.')
       } else if (game.state === 'Closed') {
+        this.avatarSection.hidden = true
         this.nicknameInput.hidden = true
         this.setStatus('This game is closed.', true)
       } else {
+        this.avatarSection.hidden = true
         this.nicknameInput.hidden = true
         this.setStatus('This game is full.', true)
       }
@@ -301,6 +428,7 @@ export class LobbyScreen {
     }
 
     this.setLoading(this.joinBtn, true, 'Join Game')
+    const appearanceCode = encodeAppearance(this.avatarSelection)
 
     const walletClient = evmWallet.getWalletClient()
 
@@ -317,12 +445,19 @@ export class LobbyScreen {
       // ── 2. Submit join via batcher (EVM signature) ────────────────────────
       // MetaMask will prompt a second time here for the batcher message.
       this.setStatus('Signing batcher message… (sign prompt 2/2)')
-      console.log('[LobbyScreen] calling BatcherService.joinGame', { address, gameId: this.currentGame.id, publicKeyHex, nickname })
+      console.log('[LobbyScreen] calling BatcherService.joinGame', {
+        address,
+        gameId: this.currentGame.id,
+        publicKeyHex,
+        nickname,
+        appearanceCode,
+      })
       const batcherResult = await BatcherService.joinGame(
         address,
         this.currentGame.id,
         publicKeyHex,
         nickname,
+        appearanceCode,
         ({ message }) => walletClient.signMessage({ account: address, message }),
       )
       console.log('[LobbyScreen] batcher joinGame result:', batcherResult)
@@ -331,9 +466,10 @@ export class LobbyScreen {
       this.setStatus('Joined! Waiting for lobby to close…')
       this.joinBtn.hidden = true
       this.nicknameInput.hidden = true
+      this.avatarSection.hidden = true
 
       const gameId = this.currentGame.id
-      await this.pollForBundles(gameId, publicKeyHex, keypair.secretKey, nickname)
+      await this.pollForBundles(gameId, publicKeyHex, keypair.secretKey, nickname, appearanceCode)
     } catch (err) {
       console.error('[LobbyScreen] handleJoinGame error:', err)
       this.setLoading(this.joinBtn, false, 'Join Game')
@@ -429,6 +565,7 @@ export class LobbyScreen {
    */
   private async handleRejoinGame(session: StoredSession, status: LobbyStatusResponse): Promise<void> {
     const address = evmWallet.getAddress()
+    const appearanceCode = session.appearanceCode ?? 0
     if (!address) {
       this.setStatus('EVM wallet not connected.', true)
       return
@@ -454,7 +591,7 @@ export class LobbyScreen {
       gameState.leafSecret = session.bundle.leafSecret
       gameState.setPlayerBundle(session.bundle as PlayerBundle)
       this.setStatus('Session restored! Loading game…')
-      this.onJoined(session.gameId, true, session.publicKeyHex, session.nickname)
+      this.onJoined(session.gameId, true, session.publicKeyHex, session.nickname, appearanceCode)
     } else if (status.bundlesReady) {
       // ── Case 2: bundle on server but not cached — re-fetch using derived key
       this.setStatus('Fetching your bundle…')
@@ -463,7 +600,7 @@ export class LobbyScreen {
         gameState.leafSecret = bundle.leafSecret
         gameState.setPlayerBundle(bundle)
         this.setStatus('Bundle received! Loading game…')
-        this.onJoined(session.gameId, true, session.publicKeyHex, session.nickname)
+        this.onJoined(session.gameId, true, session.publicKeyHex, session.nickname, appearanceCode)
       } catch (err) {
         this.setStatus(`Failed to fetch bundle: ${(err as Error).message}`, true)
       }
@@ -471,7 +608,13 @@ export class LobbyScreen {
       // ── Case 3: bundles not ready yet — wait for them ─────────────────────
       this.setStatus('Waiting for bundles…')
       try {
-        await this.pollForBundles(session.gameId, session.publicKeyHex, keypair.secretKey, session.nickname)
+        await this.pollForBundles(
+          session.gameId,
+          session.publicKeyHex,
+          keypair.secretKey,
+          session.nickname,
+          appearanceCode,
+        )
       } catch (err) {
         this.setStatus(`Error waiting for bundles: ${(err as Error).message}`, true)
       }
@@ -487,8 +630,9 @@ export class LobbyScreen {
     publicKeyHex: string,
     secretKey: Uint8Array,
     nickname: string,
+    appearanceCode: number,
   ): Promise<void> {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       const poll = async () => {
         try {
           const status = await fetchLobbyStatus(gameId)
@@ -517,7 +661,7 @@ export class LobbyScreen {
             gameState.setPlayerBundle(bundle)
 
             this.setStatus('Bundle received! Loading game…')
-            this.onJoined(gameId, true, publicKeyHex, nickname)
+            this.onJoined(gameId, true, publicKeyHex, nickname, appearanceCode)
             resolve()
           } else if (status.state === 'closed' && !status.bundlesReady) {
             this.setStatus('Lobby closed. Generating bundles…')

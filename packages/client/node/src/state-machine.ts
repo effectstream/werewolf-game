@@ -518,26 +518,32 @@ stm.addStateTransition(
 stm.addStateTransition(
   "join_game",
   function* (data) {
-    const { gameId, publicKey, nickname } = data.parsedInput as {
+    const { gameId, publicKey, nickname, appearanceCode } = data.parsedInput as {
       gameId: number;
       publicKey: string;
       nickname: string;
+      appearanceCode: number;
     };
     const blockHeight = data.blockHeight;
     // The EVM address that signed the batcher input — verified by the Paima batcher,
     // recorded on the Paima chain, and replayed deterministically on resync.
     const evmAddress = data.signerAddress;
 
+    if (!Number.isInteger(appearanceCode) || appearanceCode < 0 || appearanceCode >= 64) {
+      throw new Error(`Invalid appearanceCode for join_game: ${appearanceCode}`);
+    }
+
     console.log(
       `[lobby] join_game game=${gameId} publicKey=${
         publicKey.slice(0, 12)
-      }… nickname=${nickname} evmAddress=${evmAddress ?? "none"} at block=${blockHeight}`,
+      }… nickname=${nickname} appearanceCode=${appearanceCode} evmAddress=${evmAddress ?? "none"} at block=${blockHeight}`,
     );
 
     const insertResult = (yield* World.resolve(insertLobbyPlayer, {
       game_id: gameId,
       public_key_hex: publicKey,
       nickname,
+      appearance_code: appearanceCode,
       joined_block: blockHeight,
     })) as unknown as IInsertLobbyPlayerResult[];
 

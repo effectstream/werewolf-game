@@ -55,6 +55,10 @@ class GameState {
   publicKeyHex: string | null = null
   /** Maps player index → nickname, populated from /api/game_players at boot */
   playerNicknames: Map<number, string> = new Map()
+  /** Maps player index → appearance code, populated from /api/game_players at boot */
+  playerAppearanceCodes: Map<number, number> = new Map()
+  /** Appearance chosen by the local player during registration */
+  playerAppearanceCode: number | null = null
 
   /** Per-player alive status, indexed by player_idx */
   playerAlive: boolean[] = []

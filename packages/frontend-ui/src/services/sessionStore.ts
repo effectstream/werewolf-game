@@ -26,6 +26,7 @@ export interface StoredSession {
   publicKeyHex: string
   // secretKeyHex intentionally omitted — re-derived on demand from EVM wallet
   nickname:     string
+  appearanceCode: number
   evmAddress:   string
   bundle:       StoredBundle | null
 }

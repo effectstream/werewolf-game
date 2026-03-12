@@ -44,13 +44,13 @@ SET closed = TRUE
 WHERE game_id = :game_id!;
 
 /* @name insertLobbyPlayer */
-INSERT INTO werewolf_lobby_players (game_id, public_key_hex, nickname, joined_block)
-VALUES (:game_id!, :public_key_hex!, :nickname!, :joined_block!)
+INSERT INTO werewolf_lobby_players (game_id, public_key_hex, nickname, appearance_code, joined_block)
+VALUES (:game_id!, :public_key_hex!, :nickname!, :appearance_code!, :joined_block!)
 ON CONFLICT (game_id, public_key_hex) DO NOTHING
 RETURNING game_id;
 
 /* @name getLobbyPlayers */
-SELECT public_key_hex, nickname
+SELECT public_key_hex, nickname, appearance_code
 FROM werewolf_lobby_players
 WHERE game_id = :game_id!
 ORDER BY joined_block ASC;
@@ -72,6 +72,7 @@ SELECT
   wlp.role,
   wlp.public_key_hex,
   wlp.nickname,
+  wlp.appearance_code,
   wl.closed,
   wl.bundles_ready,
   wgv.phase,

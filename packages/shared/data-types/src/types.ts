@@ -36,10 +36,13 @@ export const GenericErrorResponseSchema = Type.Object({
   error: Type.String(),
 });
 
+export const AppearanceCodeSchema = Type.Integer({ minimum: 0, maximum: 63 });
+
 export const JoinGameQuerystringSchema = Type.Object({
   gameId: Type.Number(),
   publicKey: Type.String(),
   nickname: Type.String(),
+  appearanceCode: AppearanceCodeSchema,
 });
 
 export const JoinGameResponseSchema = Type.Object({
@@ -81,6 +84,7 @@ export const PlayerInfoSchema = Type.Object({
   publicKey: Type.String(),
   nickname: Type.String(),
   playerId: Type.Optional(Type.Number()),
+  appearanceCode: AppearanceCodeSchema,
 });
 
 export const GetPlayersResponseSchema = Type.Object({
@@ -197,6 +201,7 @@ export const PlayerGameSchema = Type.Object({
   role:         Type.Union([Type.Number(), Type.Null()]),
   publicKeyHex: Type.String(),
   nickname:     Type.String(),
+  appearanceCode: AppearanceCodeSchema,
   closed:       Type.Boolean(),
   bundlesReady: Type.Boolean(),
   phase:        Type.Union([Type.String(), Type.Null()]),

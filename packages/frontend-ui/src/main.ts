@@ -24,6 +24,8 @@ import { evmWallet } from './services/evmWallet'
 import { fetchGameView, fetchGamePlayers } from './services/lobbyApi'
 import { GameViewPoller, VoteStatusPoller } from './services/gameViewPoller'
 import { saveSession, clearSession } from './services/sessionStore'
+import { appearanceToPlayerConfig } from './avatarAppearance'
+import type { PlayerConfig } from './models/PlayerConfigInterface'
 
 /** Shows a full-screen announcement overlay for 4 seconds then fades out */
 function showAnnouncement(message: string): void {
@@ -72,6 +74,7 @@ function destroyGame(managers: GameManagers): void {
 
 async function bootGame(): Promise<GameManagers> {
   const gameId = gameState.lobbyGameId!
+  const playerConfigs = new Map<number, PlayerConfig>()
 
   // Fetch initial game view (ledger state — may lag on force-start)
   let initialPlayerCount = 0
@@ -94,7 +97,10 @@ async function bootGame(): Promise<GameManagers> {
   try {
     const playersResponse = await fetchGamePlayers(gameId)
     playersResponse.players.forEach((p, index) => {
-      gameState.playerNicknames.set(p.playerId ?? index, p.nickname)
+      const playerId = p.playerId ?? index
+      gameState.playerNicknames.set(playerId, p.nickname)
+      gameState.playerAppearanceCodes.set(playerId, p.appearanceCode)
+      playerConfigs.set(playerId, appearanceToPlayerConfig(p.appearanceCode, p.nickname))
     })
     if (playersResponse.players.length > 0) {
       initialPlayerCount = playersResponse.players.length
@@ -153,11 +159,16 @@ async function bootGame(): Promise<GameManagers> {
 
   // Initialize Scene Layer
   const gameScene = new GameScene()
-  const playerEntities = new PlayerEntities(gameScene.scene, initialPlayerCount, (count) => {
-    if (gameScene.table.userData.updateCardLayout) {
-      gameScene.table.userData.updateCardLayout(count)
-    }
-  })
+  const playerEntities = new PlayerEntities(
+    gameScene.scene,
+    initialPlayerCount,
+    playerConfigs,
+    (count) => {
+      if (gameScene.table.userData.updateCardLayout) {
+        gameScene.table.userData.updateCardLayout(count)
+      }
+    },
+  )
 
   // Wire up events
   rolePicker.onRoleSelected = (player, role) => {
@@ -205,6 +216,9 @@ async function bootGame(): Promise<GameManagers> {
           if (gameState.playerNicknames.get(mapKey) !== p.nickname) {
             gameState.playerNicknames.set(mapKey, p.nickname)
             changed = true
+          }
+          if (gameState.playerAppearanceCodes.get(mapKey) !== p.appearanceCode) {
+            gameState.playerAppearanceCodes.set(mapKey, p.appearanceCode)
           }
         })
         if (changed) {
@@ -257,7 +271,13 @@ lobbyScreen.show()
 
 let activeManagers: GameManagers | null = null
 
-lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, publicKeyHex: string, nickname: string) => {
+lobbyScreen.onJoined = (
+  gameId: number,
+  gameStarted: boolean,
+  publicKeyHex: string,
+  nickname: string,
+  appearanceCode: number,
+) => {
   if (activeManagers) {
     destroyGame(activeManagers)
     activeManagers = null
@@ -266,6 +286,7 @@ lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, publicKeyHex: stri
   gameState.lobbyGameId = gameId
   gameState.playerEvmAddress = evmWallet.getAddress()
   gameState.playerNickname = nickname
+  gameState.playerAppearanceCode = appearanceCode
 
   // Persist session so the player can rejoin after a page refresh.
   // The Ed25519 secret key is NOT stored — it is re-derived on demand from the
@@ -275,6 +296,7 @@ lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, publicKeyHex: stri
       gameId,
       publicKeyHex,
       nickname,
+      appearanceCode,
       evmAddress: evmWallet.getAddress() ?? '',
       bundle: gameState.playerBundle ?? null,
     })

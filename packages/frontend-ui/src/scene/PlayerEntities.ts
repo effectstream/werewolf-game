@@ -17,10 +17,15 @@ export class PlayerEntities {
 
   private readonly ROLE_ORDER: Role[] = ['villager', 'werewolf', 'doctor', 'seer', 'angelDead']
 
-  constructor(scene: THREE.Scene, playerCount: number, updateCardLayout?: (count: number) => void) {
+  constructor(
+    scene: THREE.Scene,
+    playerCount: number,
+    playerConfigsByIndex: Map<number, PlayerConfig> = new Map(),
+    updateCardLayout?: (count: number) => void,
+  ) {
     this.scene = scene
 
-    this.initPlayers(playerCount, updateCardLayout)
+    this.initPlayers(playerCount, playerConfigsByIndex, updateCardLayout)
 
     this.unsubscribe = gameState.subscribe(() => this.syncVisuals())
 
@@ -31,11 +36,20 @@ export class PlayerEntities {
     this.syncVisuals()
   }
 
-  private initPlayers(playerCount: number, updateCardLayout?: (count: number) => void) {
+  private initPlayers(
+    playerCount: number,
+    playerConfigsByIndex: Map<number, PlayerConfig>,
+    updateCardLayout?: (count: number) => void,
+  ) {
     const seed = 42
 
     const basePlayerConfigs = generatePlayerConfigs(playerCount, seed)
     const selectedPlayers: PlayerConfig[] = basePlayerConfigs.map((base, index) => {
+      const registeredConfig = playerConfigsByIndex.get(index)
+      if (registeredConfig) {
+        return registeredConfig
+      }
+
       const hairParams = generateHairParameters(seed + index * 1000)
       return {
         ...base,

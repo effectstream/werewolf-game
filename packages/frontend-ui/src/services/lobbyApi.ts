@@ -5,14 +5,6 @@ import nacl from 'tweetnacl'
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ??
   "http://localhost:9999";
 
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2)
-  for (let i = 0; i < bytes.length; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16)
-  }
-  return bytes
-}
-
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('')
 }
@@ -29,6 +21,7 @@ export interface PlayerInfo {
   publicKey: string;
   nickname: string;
   playerId?: number;
+  appearanceCode: number;
 }
 
 export interface GamePlayersResponse {
@@ -85,12 +78,6 @@ type PlayerBundle = {
   merklePath: { sibling: { field: string }; goes_left: boolean }[];
   adminVotePublicKeyHex: string;
   role?: number;
-};
-
-type BundleDataResponse = {
-  success: boolean;
-  message?: string;
-  bundle?: PlayerBundle;
 };
 
 export async function fetchGameView(gameId: number): Promise<GameViewResponse> {
@@ -159,6 +146,7 @@ export interface PlayerGame {
   role:         number | null
   publicKeyHex: string
   nickname:     string
+  appearanceCode: number
   closed:       boolean
   bundlesReady: boolean
   phase:        string | null

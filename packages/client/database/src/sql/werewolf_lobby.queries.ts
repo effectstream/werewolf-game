@@ -290,6 +290,7 @@ export const closeLobby = new PreparedQuery<ICloseLobbyParams,ICloseLobbyResult>
 
 /** 'InsertLobbyPlayer' parameters type */
 export interface IInsertLobbyPlayerParams {
+  appearance_code: number;
   game_id: NumberOrString;
   joined_block: NumberOrString;
   nickname: string;
@@ -307,13 +308,13 @@ export interface IInsertLobbyPlayerQuery {
   result: IInsertLobbyPlayerResult;
 }
 
-const insertLobbyPlayerIR: any = {"usedParamSet":{"game_id":true,"public_key_hex":true,"nickname":true,"joined_block":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":93,"b":101}]},{"name":"public_key_hex","required":true,"transform":{"type":"scalar"},"locs":[{"a":104,"b":119}]},{"name":"nickname","required":true,"transform":{"type":"scalar"},"locs":[{"a":122,"b":131}]},{"name":"joined_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":134,"b":147}]}],"statement":"INSERT INTO werewolf_lobby_players (game_id, public_key_hex, nickname, joined_block)\nVALUES (:game_id!, :public_key_hex!, :nickname!, :joined_block!)\nON CONFLICT (game_id, public_key_hex) DO NOTHING\nRETURNING game_id"};
+const insertLobbyPlayerIR: any = {"usedParamSet":{"game_id":true,"public_key_hex":true,"nickname":true,"appearance_code":true,"joined_block":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":110,"b":118}]},{"name":"public_key_hex","required":true,"transform":{"type":"scalar"},"locs":[{"a":121,"b":136}]},{"name":"nickname","required":true,"transform":{"type":"scalar"},"locs":[{"a":139,"b":148}]},{"name":"appearance_code","required":true,"transform":{"type":"scalar"},"locs":[{"a":151,"b":167}]},{"name":"joined_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":170,"b":183}]}],"statement":"INSERT INTO werewolf_lobby_players (game_id, public_key_hex, nickname, appearance_code, joined_block)\nVALUES (:game_id!, :public_key_hex!, :nickname!, :appearance_code!, :joined_block!)\nON CONFLICT (game_id, public_key_hex) DO NOTHING\nRETURNING game_id"};
 
 /**
  * Query generated from SQL:
  * ```
- * INSERT INTO werewolf_lobby_players (game_id, public_key_hex, nickname, joined_block)
- * VALUES (:game_id!, :public_key_hex!, :nickname!, :joined_block!)
+ * INSERT INTO werewolf_lobby_players (game_id, public_key_hex, nickname, appearance_code, joined_block)
+ * VALUES (:game_id!, :public_key_hex!, :nickname!, :appearance_code!, :joined_block!)
  * ON CONFLICT (game_id, public_key_hex) DO NOTHING
  * RETURNING game_id
  * ```
@@ -328,6 +329,7 @@ export interface IGetLobbyPlayersParams {
 
 /** 'GetLobbyPlayers' return type */
 export interface IGetLobbyPlayersResult {
+  appearance_code: number;
   nickname: string;
   public_key_hex: string;
 }
@@ -338,12 +340,12 @@ export interface IGetLobbyPlayersQuery {
   result: IGetLobbyPlayersResult;
 }
 
-const getLobbyPlayersIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":76,"b":84}]}],"statement":"SELECT public_key_hex, nickname\nFROM werewolf_lobby_players\nWHERE game_id = :game_id!\nORDER BY joined_block ASC"};
+const getLobbyPlayersIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":93,"b":101}]}],"statement":"SELECT public_key_hex, nickname, appearance_code\nFROM werewolf_lobby_players\nWHERE game_id = :game_id!\nORDER BY joined_block ASC"};
 
 /**
  * Query generated from SQL:
  * ```
- * SELECT public_key_hex, nickname
+ * SELECT public_key_hex, nickname, appearance_code
  * FROM werewolf_lobby_players
  * WHERE game_id = :game_id!
  * ORDER BY joined_block ASC
@@ -418,6 +420,7 @@ export interface IGetGamesByEvmAddressParams {
 
 /** 'GetGamesByEvmAddress' return type */
 export interface IGetGamesByEvmAddressResult {
+  appearance_code: number;
   bundles_ready: boolean;
   closed: boolean;
   finished: boolean;
@@ -436,7 +439,7 @@ export interface IGetGamesByEvmAddressQuery {
   result: IGetGamesByEvmAddressResult;
 }
 
-const getGamesByEvmAddressIR: any = {"usedParamSet":{"evm_address":true},"params":[{"name":"evm_address","required":true,"transform":{"type":"scalar"},"locs":[{"a":342,"b":354}]}],"statement":"SELECT\n  wlp.game_id,\n  wlp.player_idx,\n  wlp.role,\n  wlp.public_key_hex,\n  wlp.nickname,\n  wl.closed,\n  wl.bundles_ready,\n  wgv.phase,\n  wgv.round,\n  wgv.finished\nFROM werewolf_lobby_players wlp\nLEFT JOIN werewolf_lobby    wl  ON wlp.game_id = wl.game_id\nLEFT JOIN werewolf_game_view wgv ON wlp.game_id = wgv.game_id\nWHERE wlp.evm_address = :evm_address!\nORDER BY wlp.game_id DESC"};
+const getGamesByEvmAddressIR: any = {"usedParamSet":{"evm_address":true},"params":[{"name":"evm_address","required":true,"transform":{"type":"scalar"},"locs":[{"a":365,"b":377}]}],"statement":"SELECT\n  wlp.game_id,\n  wlp.player_idx,\n  wlp.role,\n  wlp.public_key_hex,\n  wlp.nickname,\n  wlp.appearance_code,\n  wl.closed,\n  wl.bundles_ready,\n  wgv.phase,\n  wgv.round,\n  wgv.finished\nFROM werewolf_lobby_players wlp\nLEFT JOIN werewolf_lobby    wl  ON wlp.game_id = wl.game_id\nLEFT JOIN werewolf_game_view wgv ON wlp.game_id = wgv.game_id\nWHERE wlp.evm_address = :evm_address!\nORDER BY wlp.game_id DESC"};
 
 /**
  * Query generated from SQL:
@@ -447,6 +450,7 @@ const getGamesByEvmAddressIR: any = {"usedParamSet":{"evm_address":true},"params
  *   wlp.role,
  *   wlp.public_key_hex,
  *   wlp.nickname,
+ *   wlp.appearance_code,
  *   wl.closed,
  *   wl.bundles_ready,
  *   wgv.phase,

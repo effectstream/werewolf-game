@@ -10,7 +10,6 @@ import {
   getLobby,
   getLobbyPlayers,
   getWerewolfRoundState,
-  markBundlesReady,
   updateRoundVoteCount,
   upsertLobby,
 } from "@werewolf-game/database";
@@ -297,6 +296,7 @@ export async function getPlayersHandler(dbConn: Pool, gameId: number) {
         publicKey: p.public_key_hex,
         nickname: p.nickname,
         playerId: bundle?.playerId ?? index,
+        appearanceCode: Number(p.appearance_code ?? 0),
       };
     }),
   };
@@ -784,6 +784,7 @@ export async function getPlayerGamesHandler(dbConn: Pool, evmAddress: string) {
       role: r.role ?? null,
       publicKeyHex: r.public_key_hex,
       nickname: r.nickname,
+      appearanceCode: Number(r.appearance_code ?? 0),
       closed: r.closed ?? false,
       bundlesReady: r.bundles_ready ?? false,
       phase: r.phase ?? null,
