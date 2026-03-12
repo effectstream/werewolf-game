@@ -3,8 +3,6 @@ import { Zod } from '@sinclair/typemap';
 import {
   CreateGameQuerystringSchema,
   CreateGameResponseSchema,
-  JoinGameQuerystringSchema,
-  JoinGameResponseSchema,
   CloseGameQuerystringSchema,
   CloseGameResponseSchema,
   GetGameStateQuerystringSchema,
@@ -22,14 +20,6 @@ export const apiWerewolfContract = c.router({
     query: Zod(CreateGameQuerystringSchema),
     responses: {
       200: Zod(CreateGameResponseSchema)
-    }
-  },
-  joinGame: {
-    method: 'POST',
-    path: '/api/join_game',
-    query: Zod(JoinGameQuerystringSchema),
-    responses: {
-      200: Zod(JoinGameResponseSchema)
     }
   },
   closeGame: {

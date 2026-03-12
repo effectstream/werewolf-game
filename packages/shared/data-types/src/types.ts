@@ -186,3 +186,25 @@ export const PlayerVoteSchema = Type.Object({
 export const GetVotesForRoundResponseSchema = Type.Object({
   votes: Type.Array(PlayerVoteSchema),
 });
+
+export const PlayerGamesQuerystringSchema = Type.Object({
+  evmAddress: Type.String(),
+});
+
+export const PlayerGameSchema = Type.Object({
+  gameId:       Type.Number(),
+  playerIdx:    Type.Union([Type.Number(), Type.Null()]),
+  role:         Type.Union([Type.Number(), Type.Null()]),
+  publicKeyHex: Type.String(),
+  nickname:     Type.String(),
+  closed:       Type.Boolean(),
+  bundlesReady: Type.Boolean(),
+  phase:        Type.Union([Type.String(), Type.Null()]),
+  round:        Type.Union([Type.Number(), Type.Null()]),
+  finished:     Type.Boolean(),
+});
+
+export const PlayerGamesResponseSchema = Type.Object({
+  evmAddress: Type.String(),
+  games: Type.Array(PlayerGameSchema),
+});

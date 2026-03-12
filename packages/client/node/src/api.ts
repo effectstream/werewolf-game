@@ -15,10 +15,10 @@ import {
   getGameStateHandler,
   getGameViewHandler,
   getLeaderboardHandler,
+  getPlayerGamesHandler,
   getPlayersHandler,
   getVotesForRoundHandler,
   getVoteStatusHandler,
-  joinGameHandler,
   lobbyStatusHandler,
   openLobbyHandler,
   submitVoteHandler,
@@ -41,10 +41,10 @@ import {
   GetVotesForRoundResponseSchema,
   GetVoteStatusQuerystringSchema,
   GetVoteStatusResponseSchema,
-  JoinGameQuerystringSchema,
-  JoinGameResponseSchema,
   LobbyStatusQuerystringSchema,
   LobbyStatusResponseSchema,
+  PlayerGamesQuerystringSchema,
+  PlayerGamesResponseSchema,
   SubmitVoteBodySchema,
   SubmitVoteResponseSchema,
 } from "@werewolf-game/data-types/grammar";
@@ -144,29 +144,6 @@ export const apiRouter: StartConfigApiRouter = async function (
       }
     },
   );
-
-  server.post<{
-    Querystring: Static<typeof JoinGameQuerystringSchema> & { evmAddress?: string };
-    Reply: Static<
-      typeof JoinGameResponseSchema | typeof GenericErrorResponseSchema
-    >;
-  }>("/api/join_game", async (request, reply) => {
-    const { gameId, publicKey, nickname, evmAddress } = request.query;
-    try {
-      return await joinGameHandler(
-        dbConn,
-        Number(gameId),
-        publicKey,
-        nickname,
-        evmAddress,
-      );
-    } catch (err: any) {
-      if (err?.statusCode === 409) {
-        return reply.status(409).send({ error: err.message });
-      }
-      throw err;
-    }
-  });
 
   server.get<{
     Querystring: Static<typeof GetBundleQuerystringSchema>;
@@ -343,6 +320,14 @@ export const apiRouter: StartConfigApiRouter = async function (
       }
       throw err;
     }
+  });
+
+  server.get<{
+    Querystring: Static<typeof PlayerGamesQuerystringSchema>;
+    Reply: Static<typeof PlayerGamesResponseSchema | typeof GenericErrorResponseSchema>;
+  }>("/api/player_games", async (request) => {
+    const { evmAddress } = request.query;
+    return getPlayerGamesHandler(dbConn, evmAddress);
   });
 
   server.get<{ Querystring: { limit?: string; offset?: string } }>(

@@ -17,27 +17,34 @@ const managedDir = resolve(
  * directory under /keys/* and /zkir/* — matching the layout expected by
  * FetchZkConfigProvider (fetches `${origin}/keys/${circuitId}.verifier`, etc.).
  */
+function artifactMiddleware(req: any, res: any, next: any) {
+  // Strip query params — Vite adds ?v=timestamp for cache busting which
+  // would make fs.existsSync fail if included in the file path.
+  const url: string = (req.url ?? '').split('?')[0]
+  let filePath: string | null = null
+
+  if (url.startsWith('/keys/')) {
+    filePath = resolve(managedDir, 'keys', url.slice('/keys/'.length))
+  } else if (url.startsWith('/zkir/')) {
+    filePath = resolve(managedDir, 'zkir', url.slice('/zkir/'.length))
+  }
+
+  if (filePath && fs.existsSync(filePath)) {
+    res.setHeader('Content-Type', 'application/octet-stream')
+    fs.createReadStream(filePath).pipe(res)
+  } else {
+    next()
+  }
+}
+
 function serveContractArtifacts() {
   return {
     name: 'serve-contract-artifacts',
     configureServer(server: any) {
-      server.middlewares.use((req: any, res: any, next: any) => {
-        const url: string = req.url ?? ''
-        let filePath: string | null = null
-
-        if (url.startsWith('/keys/')) {
-          filePath = resolve(managedDir, 'keys', url.slice('/keys/'.length))
-        } else if (url.startsWith('/zkir/')) {
-          filePath = resolve(managedDir, 'zkir', url.slice('/zkir/'.length))
-        }
-
-        if (filePath && fs.existsSync(filePath)) {
-          res.setHeader('Content-Type', 'application/octet-stream')
-          fs.createReadStream(filePath).pipe(res)
-        } else {
-          next()
-        }
-      })
+      server.middlewares.use(artifactMiddleware)
+    },
+    configurePreviewServer(server: any) {
+      server.middlewares.use(artifactMiddleware)
     },
   }
 }

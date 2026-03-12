@@ -20,6 +20,7 @@ import {
   setLobbyTimeout,
   setRoundTimeout,
   snapshotAlivePlayer,
+  updateLobbyPlayerEvmAddress,
   updateRoundVoteCount,
   upsertGameView,
   upsertLobby,
@@ -29,9 +30,10 @@ import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
 import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
-import { getAllBundlesForGame, getGameSecrets, purgeVotes, storePlayerPublicKey } from "./store.ts";
+import { getAllBundlesForGame, getGameSecrets, isResolutionTriggered, purgeVotes, setResolutionTriggered, storePlayerPublicKey } from "./store.ts";
 import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
 import { resolvePhaseFromLedger } from "./vote-resolver.ts";
+import { fetchCurrentLedgerVotes } from "./midnight-circuit-caller.ts";
 import { getDbPool } from "./db-pool.ts";
 import { calculateAndPersistScores } from "./leaderboard.ts";
 
@@ -203,7 +205,11 @@ stm.addStateTransition(
           // submission is needed — players submit directly via Lace wallet.
           const roundAliveCount = Number(existingRows[0].alive_count);
           const wasAlreadyComplete = dbVotes >= roundAliveCount;
-          if (!wasAlreadyComplete && currentVotes >= roundAliveCount) {
+          if (
+            !wasAlreadyComplete && currentVotes >= roundAliveCount &&
+            !isResolutionTriggered(gameId, gameView.round, gameView.phase)
+          ) {
+            setResolutionTriggered(gameId, gameView.round, gameView.phase);
             const encryptedVotes = ledger.getVotesForRoundAndPhase(
               gameId,
               gameView.round,
@@ -438,6 +444,21 @@ stm.addStateTransition(
       );
     }
 
+    // Trigger contract-level phase resolution with whatever votes are on the
+    // ledger.  fetchCurrentLedgerVotes reads the live Midnight state so this
+    // works even after a server restart (no in-memory cache dependency).
+    if (!isResolutionTriggered(gameId, round, phase)) {
+      setResolutionTriggered(gameId, round, phase);
+      void fetchCurrentLedgerVotes(gameId, round, phase)
+        .then((votes) => resolvePhaseFromLedger(gameId, round, phase, votes))
+        .catch((err) =>
+          console.error(
+            `[timeout] Phase resolution failed game=${gameId} round=${round} phase=${phase}:`,
+            err,
+          )
+        );
+    }
+
     yield* World.resolve(resolveRound, { game_id: gameId, round, phase });
     chatPost("/broadcast", {
       gameId,
@@ -503,11 +524,14 @@ stm.addStateTransition(
       nickname: string;
     };
     const blockHeight = data.blockHeight;
+    // The EVM address that signed the batcher input — verified by the Paima batcher,
+    // recorded on the Paima chain, and replayed deterministically on resync.
+    const evmAddress = data.signerAddress;
 
     console.log(
       `[lobby] join_game game=${gameId} publicKey=${
         publicKey.slice(0, 12)
-      }… nickname=${nickname} at block=${blockHeight}`,
+      }… nickname=${nickname} evmAddress=${evmAddress ?? "none"} at block=${blockHeight}`,
     );
 
     const insertResult = (yield* World.resolve(insertLobbyPlayer, {
@@ -517,12 +541,20 @@ stm.addStateTransition(
       joined_block: blockHeight,
     })) as unknown as IInsertLobbyPlayerResult[];
 
-    // Only increment player count if the insert actually happened (RETURNING game_id exists)
-    // This prevents double-increment when the HTTP handler has already inserted the player.
+    // Only act when the insert actually happened (ON CONFLICT DO NOTHING returns no rows).
     if (insertResult.length > 0) {
       yield* World.resolve(incrementLobbyPlayerCount, {
         game_id: gameId,
       });
+
+      // Persist the verified EVM address for leaderboard tracking.
+      if (evmAddress) {
+        yield* World.resolve(updateLobbyPlayerEvmAddress, {
+          game_id: gameId,
+          public_key_hex: publicKey,
+          evm_address: evmAddress,
+        });
+      }
 
       // Store public key for later signature verification.
       storePlayerPublicKey(gameId, publicKey);

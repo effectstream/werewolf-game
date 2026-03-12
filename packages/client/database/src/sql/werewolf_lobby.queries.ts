@@ -411,3 +411,54 @@ const updateLobbyPlayerEvmAddressIR: any = {"usedParamSet":{"evm_address":true,"
 export const updateLobbyPlayerEvmAddress = new PreparedQuery<IUpdateLobbyPlayerEvmAddressParams,IUpdateLobbyPlayerEvmAddressResult>(updateLobbyPlayerEvmAddressIR);
 
 
+/** 'GetGamesByEvmAddress' parameters type */
+export interface IGetGamesByEvmAddressParams {
+  evm_address: string;
+}
+
+/** 'GetGamesByEvmAddress' return type */
+export interface IGetGamesByEvmAddressResult {
+  bundles_ready: boolean;
+  closed: boolean;
+  finished: boolean;
+  game_id: string;
+  nickname: string;
+  phase: string;
+  player_idx: number | null;
+  public_key_hex: string;
+  role: number | null;
+  round: number;
+}
+
+/** 'GetGamesByEvmAddress' query type */
+export interface IGetGamesByEvmAddressQuery {
+  params: IGetGamesByEvmAddressParams;
+  result: IGetGamesByEvmAddressResult;
+}
+
+const getGamesByEvmAddressIR: any = {"usedParamSet":{"evm_address":true},"params":[{"name":"evm_address","required":true,"transform":{"type":"scalar"},"locs":[{"a":342,"b":354}]}],"statement":"SELECT\n  wlp.game_id,\n  wlp.player_idx,\n  wlp.role,\n  wlp.public_key_hex,\n  wlp.nickname,\n  wl.closed,\n  wl.bundles_ready,\n  wgv.phase,\n  wgv.round,\n  wgv.finished\nFROM werewolf_lobby_players wlp\nLEFT JOIN werewolf_lobby    wl  ON wlp.game_id = wl.game_id\nLEFT JOIN werewolf_game_view wgv ON wlp.game_id = wgv.game_id\nWHERE wlp.evm_address = :evm_address!\nORDER BY wlp.game_id DESC"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * SELECT
+ *   wlp.game_id,
+ *   wlp.player_idx,
+ *   wlp.role,
+ *   wlp.public_key_hex,
+ *   wlp.nickname,
+ *   wl.closed,
+ *   wl.bundles_ready,
+ *   wgv.phase,
+ *   wgv.round,
+ *   wgv.finished
+ * FROM werewolf_lobby_players wlp
+ * LEFT JOIN werewolf_lobby    wl  ON wlp.game_id = wl.game_id
+ * LEFT JOIN werewolf_game_view wgv ON wlp.game_id = wgv.game_id
+ * WHERE wlp.evm_address = :evm_address!
+ * ORDER BY wlp.game_id DESC
+ * ```
+ */
+export const getGamesByEvmAddress = new PreparedQuery<IGetGamesByEvmAddressParams,IGetGamesByEvmAddressResult>(getGamesByEvmAddressIR);
+
+

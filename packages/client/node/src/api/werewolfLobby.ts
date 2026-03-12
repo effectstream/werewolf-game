@@ -4,22 +4,21 @@ import {
   closeLobby,
   getAdminSignKey,
   getAliveSnapshots,
+  getGamesByEvmAddress,
   getGameView,
+  getLeaderboard,
   getLobby,
   getLobbyPlayers,
-  getLeaderboard,
   getWerewolfRoundState,
-  incrementLobbyPlayerCount,
-  insertLobbyPlayer,
   markBundlesReady,
-  updateLobbyPlayerEvmAddress,
   updateRoundVoteCount,
   upsertLobby,
 } from "@werewolf-game/database";
-import type { IInsertLobbyPlayerResult, IGetLeaderboardResult } from "@werewolf-game/database";
+import type { IGetLeaderboardResult } from "@werewolf-game/database";
 import nacl from "tweetnacl";
 import * as store from "../store.ts";
-import { resolvePhaseFromVotes, decryptVotes } from "../vote-resolver.ts";
+import { decryptVotes, resolvePhaseFromVotes } from "../vote-resolver.ts";
+import type { IGetGamesByEvmAddressResult } from "../../../database/src/sql/werewolf_lobby.queries.ts";
 
 const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ??
   "http://localhost:3001";
@@ -93,88 +92,6 @@ export async function createGameHandler(
 }
 
 /**
- * Join a lobby. The player provides an Ed25519 public key which is stored
- * for later bundle retrieval authentication. No bundle is delivered on join —
- * players must wait until bundles are ready and call /api/get_bundle.
- */
-export async function joinGameHandler(
-  dbConn: Pool,
-  gameId: number,
-  publicKeyHex: string,
-  nickname: string,
-  evmAddress?: string,
-) {
-  // Check if this player is already registered.
-  const existingPlayers = await runPreparedQuery(
-    getLobbyPlayers.run({ game_id: gameId }, dbConn),
-    "getLobbyPlayers",
-  );
-  const alreadyJoined = existingPlayers.some(
-    (p) => p.public_key_hex === publicKeyHex,
-  );
-
-  // Always (re-)invite to general chat — idempotent.
-  await chatPost("/invite", { gameId, publicKeyHex, nickname });
-
-  let playerIndex: number | undefined;
-
-  if (alreadyJoined) {
-    playerIndex = existingPlayers.findIndex(
-      (p) => p.public_key_hex === publicKeyHex,
-    );
-    console.log(
-      `[lobby] Player ${publicKeyHex.slice(0, 12)}… already in game ${gameId}.`,
-    );
-  } else {
-    // First time joining — insert the player and increment count.
-    const insertResult = await runPreparedQuery(
-      insertLobbyPlayer.run({
-        game_id: gameId,
-        public_key_hex: publicKeyHex,
-        nickname,
-        joined_block: 0,
-      }, dbConn),
-      "insertLobbyPlayer",
-    ) as unknown as IInsertLobbyPlayerResult[];
-
-    if (insertResult.length > 0) {
-      await runPreparedQuery(
-        incrementLobbyPlayerCount.run({ game_id: gameId }, dbConn),
-        "incrementLobbyPlayerCount",
-      );
-    }
-
-    // Store public key for later signature verification.
-    store.storePlayerPublicKey(gameId, publicKeyHex);
-    playerIndex = existingPlayers.length; // 0-indexed position
-  }
-
-  // Store EVM address for leaderboard tracking (optional).
-  if (evmAddress && !alreadyJoined) {
-    await runPreparedQuery(
-      updateLobbyPlayerEvmAddress.run({
-        game_id: gameId,
-        public_key_hex: publicKeyHex,
-        evm_address: evmAddress,
-      }, dbConn),
-      "updateLobbyPlayerEvmAddress",
-    );
-  }
-
-  // Determine lobby state for the response.
-  const lobbyRows = await runPreparedQuery(
-    getLobby.run({ game_id: gameId }, dbConn),
-    "getLobby",
-  );
-  const lobby = lobbyRows[0];
-  let lobbyState = "open";
-  if (lobby?.bundles_ready) lobbyState = "bundles_ready";
-  else if (lobby?.closed) lobbyState = "closed";
-
-  return { success: true, playerIndex, lobbyState };
-}
-
-/**
  * Retrieve a bundle after the lobby has closed and bundles are ready.
  * The player proves identity by signing "werewolf:{gameId}:{timestamp}"
  * with the Ed25519 private key corresponding to their registered public key.
@@ -205,7 +122,9 @@ export async function getBundleHandler(
   }
   if (!lobbyRows[0].bundles_ready) {
     throw Object.assign(
-      new Error("Bundles are not ready yet. Please wait for the lobby to close."),
+      new Error(
+        "Bundles are not ready yet. Please wait for the lobby to close.",
+      ),
       { statusCode: 425 },
     );
   }
@@ -294,7 +213,9 @@ export async function debugStartGameHandler(
   const playerCount = Number(lobby.player_count);
   if (playerCount < 2) {
     throw Object.assign(
-      new Error(`Lobby ${gameId} has only ${playerCount} player(s) — need at least 2`),
+      new Error(
+        `Lobby ${gameId} has only ${playerCount} player(s) — need at least 2`,
+      ),
       { statusCode: 400 },
     );
   }
@@ -683,7 +604,10 @@ async function getCurrentNtpBlock(dbConn: Pool): Promise<number | null> {
        LIMIT 1`,
     );
     if (!result?.rows?.length) return null;
-    const row = result.rows[0] as { page_number: number; page: { root: number } };
+    const row = result.rows[0] as {
+      page_number: number;
+      page: { root: number };
+    };
     const startTime = row.page.root - (row.page_number * 1000);
     return Math.floor((Date.now() - startTime) / 1000);
   } catch {
@@ -730,7 +654,9 @@ export async function adminListGamesHandler(dbConn: Pool) {
       maxPlayers: Number(row.max_players),
       closed: row.closed,
       bundlesReady: row.bundles_ready,
-      timeoutBlock: row.timeout_block != null ? Number(row.timeout_block) : null,
+      timeoutBlock: row.timeout_block != null
+        ? Number(row.timeout_block)
+        : null,
     })),
   };
 }
@@ -838,4 +764,31 @@ export function adminDecryptedVotesHandler(
       error: err.message,
     };
   }
+}
+
+/**
+ * Return all games a given EVM address has participated in, with current
+ * lobby and game-view state so the frontend can offer a rejoin option for
+ * any game that is still in progress.
+ */
+export async function getPlayerGamesHandler(dbConn: Pool, evmAddress: string) {
+  const rows = await runPreparedQuery(
+    getGamesByEvmAddress.run({ evm_address: evmAddress }, dbConn),
+    "getGamesByEvmAddress",
+  ) as IGetGamesByEvmAddressResult[];
+  return {
+    evmAddress,
+    games: rows.map((r) => ({
+      gameId: Number(r.game_id),
+      playerIdx: r.player_idx ?? null,
+      role: r.role ?? null,
+      publicKeyHex: r.public_key_hex,
+      nickname: r.nickname,
+      closed: r.closed ?? false,
+      bundlesReady: r.bundles_ready ?? false,
+      phase: r.phase ?? null,
+      round: r.round != null ? Number(r.round) : null,
+      finished: r.finished ?? false,
+    })),
+  };
 }

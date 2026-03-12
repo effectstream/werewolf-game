@@ -21,7 +21,7 @@ import * as store from "./store.ts";
 import { callMidnightCircuit } from "./midnight-circuit-caller.ts";
 import type { PrivateState } from "../../../shared/contracts/midnight/contract-werewolf/src/witnesses.ts";
 import { runPreparedQuery } from "@paimaexample/db";
-import { getGameView } from "@werewolf-game/database";
+import { getGameView, resolveRound } from "@werewolf-game/database";
 import { getDbPool } from "./db-pool.ts";
 
 const BATCHER_URL = Deno.env.get("BATCHER_URL") ?? "http://localhost:3334";
@@ -424,6 +424,18 @@ export async function resolvePhaseFromLedger(
   console.log(
     `[vote-resolver] Ledger phase resolution submitted game=${gameId} round=${round} phase=${phase}`,
   );
+
+  // Mark the round resolved in the DB so the scheduled timeout handler skips
+  // cleanly instead of sending a spurious "All players voted" message.
+  try {
+    await resolveRound.run({ game_id: gameId, round, phase }, dbConn);
+  } catch (err) {
+    // Non-fatal — the timeout will still set resolved=TRUE when it fires.
+    console.warn(
+      `[vote-resolver] Could not mark round resolved in DB game=${gameId}:`,
+      err,
+    );
+  }
 
   // Check win condition and submit forceEndGame if game is over
   if (bundles.length > 0) {

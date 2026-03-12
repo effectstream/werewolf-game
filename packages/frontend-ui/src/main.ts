@@ -23,6 +23,7 @@ import { gameMaster } from './debug/GameMaster'
 import { evmWallet } from './services/evmWallet'
 import { fetchGameView, fetchGamePlayers } from './services/lobbyApi'
 import { GameViewPoller, VoteStatusPoller } from './services/gameViewPoller'
+import { saveSession, clearSession } from './services/sessionStore'
 
 /** Shows a full-screen announcement overlay for 4 seconds then fades out */
 function showAnnouncement(message: string): void {
@@ -127,6 +128,8 @@ async function bootGame(): Promise<GameManagers> {
   gameState.subscribe(() => {
     if (gameState.finished && !gameEndShown) {
       gameEndShown = true
+      // Game is over — remove the persisted session so the tile disappears on next load.
+      clearSession(gameId)
       const bundle = gameState.playerBundle
       const completionMsg = gameState.winner === 'WEREWOLVES'
         ? 'Game over! The werewolves have won!'
@@ -263,6 +266,20 @@ lobbyScreen.onJoined = (gameId: number, gameStarted: boolean, publicKeyHex: stri
   gameState.lobbyGameId = gameId
   gameState.playerEvmAddress = evmWallet.getAddress()
   gameState.playerNickname = nickname
+
+  // Persist session so the player can rejoin after a page refresh.
+  // The Ed25519 secret key is NOT stored — it is re-derived on demand from the
+  // player's EVM wallet signature of "werewolf:{gameId}".
+  if (gameState.publicKeyHex) {
+    saveSession({
+      gameId,
+      publicKeyHex,
+      nickname,
+      evmAddress: evmWallet.getAddress() ?? '',
+      bundle: gameState.playerBundle ?? null,
+    })
+  }
+
   lobbyScreen.hide()
 
   bootGame().then((managers) => {

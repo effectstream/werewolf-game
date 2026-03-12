@@ -1,4 +1,4 @@
-import wordList from './werewolf-words.json'
+import wordList from './werewolf-words.json' with { type: 'json' }
 
 const wordToIndex: Map<string, number> = new Map()
 for (let i = 0; i < wordList.length; i++) {
@@ -30,4 +30,16 @@ export function decodeGamePhrase(phrase: string): number {
  */
 export function isGamePhrase(value: string): boolean {
   return /^\s*[a-zA-Z]+(?:\s+[a-zA-Z]+){3}\s*$/.test(value)
+}
+
+/**
+ * Encode a 32-bit uint game ID into a 4-word phrase.
+ */
+export function encodeGameId(id: number | string): string {
+  const numericId = typeof id === 'string' ? parseInt(id, 10) : id
+  const byte0 = (numericId >>> 24) & 0xFF
+  const byte1 = (numericId >>> 16) & 0xFF
+  const byte2 = (numericId >>> 8) & 0xFF
+  const byte3 = numericId & 0xFF
+  return `${wordList[byte0]} ${wordList[byte1]} ${wordList[byte2]} ${wordList[byte3]}`
 }

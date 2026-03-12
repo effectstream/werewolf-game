@@ -274,6 +274,43 @@ export function getMerkleRoot(gameId: number): { field: bigint } | undefined {
 // Bundle Enumeration
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Phase Resolution Guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Tracks which (gameId, round, phase) tuples have already had a contract
+ * resolution call dispatched.  Prevents double-calling resolveNightPhase /
+ * resolveDayPhase when both the early-resolution path (all votes in) and the
+ * timeout path fire for the same round.  Lost on server restart — the DB
+ * `resolved` flag is the durable guard; this is the in-process fast path.
+ */
+const _resolutionTriggered = new Set<string>();
+
+function resolutionKey(gameId: number, round: number, phase: string): string {
+  return `${gameId}:${round}:${phase.toUpperCase()}`;
+}
+
+export function setResolutionTriggered(
+  gameId: number,
+  round: number,
+  phase: string,
+): void {
+  _resolutionTriggered.add(resolutionKey(gameId, round, phase));
+}
+
+export function isResolutionTriggered(
+  gameId: number,
+  round: number,
+  phase: string,
+): boolean {
+  return _resolutionTriggered.has(resolutionKey(gameId, round, phase));
+}
+
+// ---------------------------------------------------------------------------
+// Bundle Enumeration
+// ---------------------------------------------------------------------------
+
 /** Retrieve all bundles for a game (for vote decryption). */
 export function getAllBundlesForGame(gameId: number): PlayerBundle[] {
   const prefix = `${gameId}:`;

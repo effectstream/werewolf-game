@@ -1,11 +1,13 @@
 import nacl from 'tweetnacl'
+import type { WalletClient } from 'viem'
 import { evmWallet } from '../services/evmWallet'
 import { midnightWallet } from '../services/midnightWallet'
 import { getGameState, type GameInfo } from '../services/lobbyContract'
 import { BatcherService } from '../services/batcherService'
 import { gameState, type PlayerBundle } from '../state/gameState'
-import { fetchBundle, fetchLobbyStatus, fetchOpenLobby } from '../services/lobbyApi'
-import { decodeGamePhrase, isGamePhrase } from '../services/werewolfIdCodec'
+import { fetchBundle, fetchLobbyStatus, fetchOpenLobby, type LobbyStatusResponse } from '../services/lobbyApi'
+import { decodeGamePhrase, encodeGameId, isGamePhrase } from '../services/werewolfIdCodec'
+import { getAllSessions, clearSession, hexToBytes, type StoredSession } from '../services/sessionStore'
 
 const MIDNIGHT_NETWORK_ID =
   (import.meta.env.VITE_MIDNIGHT_NETWORK_ID as string | undefined) ?? 'undeployed'
@@ -13,6 +15,31 @@ const LOBBY_POLL_INTERVAL_MS = 4000
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Derives a deterministic Ed25519 signing keypair for a given game from the
+ * player's EVM wallet. The player signs the fixed message `"werewolf:{gameId}"`
+ * with MetaMask (EIP-191 personal_sign). The resulting ECDSA signature bytes
+ * are SHA-256 hashed to produce a 32-byte seed for `nacl.sign.keyPair.fromSeed`.
+ *
+ * Because EVM ECDSA uses RFC 6979 deterministic k-generation, the same wallet
+ * always produces the same signature for the same message, making the derived
+ * Ed25519 keypair fully recoverable on any device that holds the EVM private key.
+ */
+async function deriveGameKeypair(
+  evmAddress: `0x${string}`,
+  gameId: number,
+  walletClient: WalletClient,
+): Promise<nacl.SignKeyPair> {
+  const evmSig = await walletClient.signMessage({
+    account: evmAddress,
+    message: `werewolf:${gameId}`,
+  })
+  // evmSig is 0x-prefixed 130-char hex (65 bytes). Strip the 0x prefix.
+  const sigBytes = hexToBytes(evmSig.slice(2))
+  const hashBuffer = await crypto.subtle.digest('SHA-256', sigBytes)
+  return nacl.sign.keyPair.fromSeed(new Uint8Array(hashBuffer))
 }
 
 export class LobbyScreen {
@@ -26,6 +53,7 @@ export class LobbyScreen {
   private walletBtn!: HTMLButtonElement
   private evmAddressEl!: HTMLSpanElement
   private midnightAddressEl!: HTMLSpanElement
+  private activeGamesSection!: HTMLDivElement
   private gameSection!: HTMLDivElement
   private gameIdInput!: HTMLInputElement
   private nicknameInput!: HTMLInputElement
@@ -53,6 +81,8 @@ export class LobbyScreen {
           </div>
         </section>
 
+        <section id="lobbyActiveGames" class="lobby-active-games" hidden></section>
+
         <section id="lobbyGameSection" class="lobby-game-section" hidden>
           <div class="lobby-row">
             <input id="lobbyGameIdInput" class="lobby-input" type="text" placeholder="Game ID or 4-word phrase" />
@@ -70,6 +100,7 @@ export class LobbyScreen {
     this.walletBtn = this.container.querySelector<HTMLButtonElement>('#lobbyWalletBtn')!
     this.evmAddressEl = this.container.querySelector<HTMLSpanElement>('#lobbyEvmAddress')!
     this.midnightAddressEl = this.container.querySelector<HTMLSpanElement>('#lobbyMidnightAddress')!
+    this.activeGamesSection = this.container.querySelector<HTMLDivElement>('#lobbyActiveGames')!
     this.gameSection = this.container.querySelector<HTMLDivElement>('#lobbyGameSection')!
     this.gameIdInput = this.container.querySelector<HTMLInputElement>('#lobbyGameIdInput')!
     this.nicknameInput = this.container.querySelector<HTMLInputElement>('#lobbyNicknameInput')!
@@ -165,6 +196,7 @@ export class LobbyScreen {
     this.gameSection.hidden = false
     this.setStatus('Searching for open lobby…')
     void this.autoDiscoverLobby()
+    void this.loadActiveGames(evmAddress)
   }
 
   private async autoDiscoverLobby(): Promise<void> {
@@ -174,7 +206,7 @@ export class LobbyScreen {
       try {
         const open = await fetchOpenLobby()
         if (open) {
-          this.gameIdInput.value = String(open.gameId)
+          this.gameIdInput.value = encodeGameId(open.gameId)
           await this.handleFindGame()
           return
         }
@@ -225,7 +257,7 @@ export class LobbyScreen {
 
       const stateLabel = game.state === 'Open' ? '🟢 Open' : '🔴 Closed'
       this.gameInfoEl.innerHTML = `
-        <div class="lobby-game-row"><span>Game ID</span><strong>${game.id}</strong></div>
+        <div class="lobby-game-row"><span>Game Phrase</span><strong>${encodeGameId(game.id)}</strong></div>
         <div class="lobby-game-row"><span>Status</span><strong>${stateLabel}</strong></div>
         <div class="lobby-game-row"><span>Players</span><strong>${game.playerCount} / ${game.maxPlayers}</strong></div>
       `
@@ -269,19 +301,22 @@ export class LobbyScreen {
     }
 
     this.setLoading(this.joinBtn, true, 'Join Game')
-    this.setStatus('Generating signing keypair…')
+
+    const walletClient = evmWallet.getWalletClient()
 
     try {
-      // ── 1. Generate Ed25519 keypair for this session ──────────────────────
-      const keypair = nacl.sign.keyPair()
+      // ── 1. Derive deterministic Ed25519 keypair from EVM wallet ───────────
+      // Player signs "werewolf:{gameId}" — MetaMask will prompt once here.
+      this.setStatus('Deriving game keypair… (sign prompt 1/2)')
+      const keypair = await deriveGameKeypair(address, this.currentGame.id, walletClient)
       const publicKeyHex = bytesToHex(keypair.publicKey)
       gameState.playerSignKeypair = keypair
       gameState.publicKeyHex = publicKeyHex
-      console.log('[LobbyScreen] generated Ed25519 publicKeyHex:', publicKeyHex)
+      console.log('[LobbyScreen] derived Ed25519 publicKeyHex:', publicKeyHex)
 
       // ── 2. Submit join via batcher (EVM signature) ────────────────────────
-      this.setStatus('Signing batcher message…')
-      const walletClient = evmWallet.getWalletClient()
+      // MetaMask will prompt a second time here for the batcher message.
+      this.setStatus('Signing batcher message… (sign prompt 2/2)')
       console.log('[LobbyScreen] calling BatcherService.joinGame', { address, gameId: this.currentGame.id, publicKeyHex, nickname })
       const batcherResult = await BatcherService.joinGame(
         address,
@@ -307,6 +342,143 @@ export class LobbyScreen {
   }
 
   /**
+   * Scans localStorage for persisted game sessions and renders "Rejoin" tiles
+   * for games that are still active on the server.
+   *
+   * Uses localStorage as the source of truth for which games to show (rather
+   * than querying the DB by EVM address) so that the section appears reliably
+   * on page refresh regardless of whether the EVM address is stored in the DB.
+   * The Ed25519 keypair is NOT read from localStorage — it is re-derived on
+   * demand via `deriveGameKeypair` when the player clicks Rejoin.
+   */
+  private async loadActiveGames(_evmAddress: string): Promise<void> {
+    try {
+      const sessions = getAllSessions()
+      if (sessions.length === 0) return
+
+      // Fetch current lobby status for each session in parallel.
+      const results = await Promise.allSettled(
+        sessions.map(async (s) => {
+          const status = await fetchLobbyStatus(s.gameId)
+          return { session: s, status }
+        }),
+      )
+
+      // Sessions whose status fetch failed (404, network error) → game is gone → clean up.
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') clearSession(sessions[i].gameId)
+      })
+
+      const active = results
+        .filter(
+          (r): r is PromiseFulfilledResult<{ session: StoredSession; status: LobbyStatusResponse }> =>
+            r.status === 'fulfilled',
+        )
+        .map((r) => r.value)
+
+      if (active.length === 0) return
+
+      this.activeGamesSection.hidden = false
+      this.activeGamesSection.innerHTML = `
+        <h3 class="lobby-section-title">Your Active Games</h3>
+        ${active.map(({ session, status }) => {
+          let statusLabel: string
+          if (status.state === 'open') {
+            statusLabel = '🟢 Open'
+          } else if (!status.bundlesReady) {
+            statusLabel = '⏳ Waiting for bundles'
+          } else {
+            statusLabel = '🎮 In Progress'
+          }
+          return `
+            <div class="lobby-game-tile" data-game-id="${session.gameId}">
+              <div class="lobby-game-tile-info">
+                <span class="lobby-game-tile-id">${encodeGameId(session.gameId)}</span>
+                <span class="lobby-game-tile-status">${statusLabel}</span>
+                <span class="lobby-game-tile-nick">${session.nickname}</span>
+              </div>
+              <button class="ui-btn lobby-btn lobby-btn--rejoin" data-rejoin-id="${session.gameId}">
+                Rejoin
+              </button>
+            </div>
+          `
+        }).join('')}
+      `
+
+      // Attach click handlers — Rejoin always available since session exists in localStorage.
+      active.forEach(({ session, status }) => {
+        const btn = this.activeGamesSection.querySelector<HTMLButtonElement>(
+          `[data-rejoin-id="${session.gameId}"]`,
+        )
+        btn?.addEventListener('click', () => void this.handleRejoinGame(session, status))
+      })
+    } catch (err) {
+      console.warn('[LobbyScreen] Failed to load active games:', err)
+    }
+  }
+
+  /**
+   * Rejoins a game after a page refresh by re-deriving the Ed25519 keypair
+   * deterministically from the player's EVM wallet (one MetaMask prompt) and
+   * then restoring or re-fetching the bundle.
+   *
+   * Three cases:
+   *  1. Bundle cached in localStorage → restore immediately, call onJoined.
+   *  2. Bundle not cached but ready on server → re-fetch via derived keypair.
+   *  3. Bundle not yet ready → resume pollForBundles to wait for it.
+   */
+  private async handleRejoinGame(session: StoredSession, status: LobbyStatusResponse): Promise<void> {
+    const address = evmWallet.getAddress()
+    if (!address) {
+      this.setStatus('EVM wallet not connected.', true)
+      return
+    }
+
+    // Re-derive the Ed25519 keypair — MetaMask will prompt once.
+    this.setStatus('Deriving game keypair… (sign prompt)')
+    const walletClient = evmWallet.getWalletClient()
+
+    let keypair: nacl.SignKeyPair
+    try {
+      keypair = await deriveGameKeypair(address, session.gameId, walletClient)
+    } catch (err) {
+      this.setStatus(`Keypair derivation failed: ${(err as Error).message}`, true)
+      return
+    }
+
+    gameState.playerSignKeypair = keypair
+    gameState.publicKeyHex = session.publicKeyHex
+
+    if (session.bundle) {
+      // ── Case 1: bundle cached locally ─────────────────────────────────────
+      gameState.leafSecret = session.bundle.leafSecret
+      gameState.setPlayerBundle(session.bundle as PlayerBundle)
+      this.setStatus('Session restored! Loading game…')
+      this.onJoined(session.gameId, true, session.publicKeyHex, session.nickname)
+    } else if (status.bundlesReady) {
+      // ── Case 2: bundle on server but not cached — re-fetch using derived key
+      this.setStatus('Fetching your bundle…')
+      try {
+        const bundle = await fetchBundle(session.gameId, session.publicKeyHex, keypair.secretKey)
+        gameState.leafSecret = bundle.leafSecret
+        gameState.setPlayerBundle(bundle)
+        this.setStatus('Bundle received! Loading game…')
+        this.onJoined(session.gameId, true, session.publicKeyHex, session.nickname)
+      } catch (err) {
+        this.setStatus(`Failed to fetch bundle: ${(err as Error).message}`, true)
+      }
+    } else {
+      // ── Case 3: bundles not ready yet — wait for them ─────────────────────
+      this.setStatus('Waiting for bundles…')
+      try {
+        await this.pollForBundles(session.gameId, session.publicKeyHex, keypair.secretKey, session.nickname)
+      } catch (err) {
+        this.setStatus(`Error waiting for bundles: ${(err as Error).message}`, true)
+      }
+    }
+  }
+
+  /**
    * Polls /api/lobby_status until bundles are ready, then fetches the bundle
    * and transitions to the game screen.
    */
@@ -326,7 +498,7 @@ export class LobbyScreen {
           if (this.gameInfoEl && !this.gameInfoEl.hidden) {
             const stateLabel = status.state === 'open' ? '🟢 Open' : '🔴 Closed'
             this.gameInfoEl.innerHTML = `
-              <div class="lobby-game-row"><span>Game ID</span><strong>${gameId}</strong></div>
+              <div class="lobby-game-row"><span>Game Phrase</span><strong>${encodeGameId(gameId)}</strong></div>
               <div class="lobby-game-row"><span>Status</span><strong>${stateLabel}</strong></div>
               <div class="lobby-game-row"><span>Players</span><strong>${status.playerCount} / ${status.maxPlayers}</strong></div>
             `

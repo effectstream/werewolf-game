@@ -153,6 +153,35 @@ export async function fetchBundle(
   return data.bundle
 }
 
+export interface PlayerGame {
+  gameId:       number
+  playerIdx:    number | null
+  role:         number | null
+  publicKeyHex: string
+  nickname:     string
+  closed:       boolean
+  bundlesReady: boolean
+  phase:        string | null
+  round:        number | null
+  finished:     boolean
+}
+
+export interface PlayerGamesResponse {
+  evmAddress: string
+  games: PlayerGame[]
+}
+
+export async function fetchPlayerGames(evmAddress: string): Promise<PlayerGamesResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/player_games?evmAddress=${encodeURIComponent(evmAddress)}`,
+  )
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`player_games failed: ${res.status} ${text}`)
+  }
+  return res.json() as Promise<PlayerGamesResponse>
+}
+
 export interface LobbyStatusResponse {
   state: 'open' | 'closed' | 'bundles_ready'
   playerCount: number

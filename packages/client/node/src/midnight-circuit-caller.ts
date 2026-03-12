@@ -23,7 +23,7 @@ import type {
   UnboundTransaction,
   WalletProvider,
 } from "@midnight-ntwrk/midnight-js-types";
-import { findDeployedContract } from "@midnight-ntwrk/midnight-js-contracts";
+import { findDeployedContract, getPublicStates } from "@midnight-ntwrk/midnight-js-contracts";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
 import {
   assertIsContractAddress,
@@ -40,6 +40,7 @@ import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight
 import type { FinalizedTransaction } from "@midnight-ntwrk/ledger-v7";
 import { CompiledContract } from "@midnight-ntwrk/compact-js";
 import { resolve } from "node:path";
+import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -351,4 +352,36 @@ export async function callMidnightCircuit(
     seed,
     coinPublicKey, // already Uint8Array, converted from zswapSecretKeys.coinPublicKey hex
   };
+}
+
+// ---------------------------------------------------------------------------
+// Ledger read helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch encrypted votes for a given (gameId, round, phase) directly from the
+ * live Midnight ledger via the indexer.  Used by the round-timeout handler so
+ * it can call resolvePhaseFromLedger() with up-to-date on-chain vote data even
+ * when a partial vote set triggered the timeout.
+ */
+export async function fetchCurrentLedgerVotes(
+  gameId: number,
+  round: number,
+  phase: string,
+): Promise<unknown[]> {
+  setNetworkId(midnightNetworkConfig.id as any);
+  const { contractAddress } = readMidnightContract("contract-werewolf", {
+    networkId: midnightNetworkConfig.id,
+  });
+  const dataProvider = indexerPublicDataProvider(
+    midnightNetworkConfig.indexer!,
+    midnightNetworkConfig.indexerWS!,
+  );
+  assertIsContractAddress(contractAddress as ContractAddress);
+  const { contractState } = await getPublicStates(
+    dataProvider,
+    contractAddress as ContractAddress,
+  );
+  const ledger = WerewolfLedger.from(contractState);
+  return ledger.getVotesForRoundAndPhase(gameId, round, phase);
 }
