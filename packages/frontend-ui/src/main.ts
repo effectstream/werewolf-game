@@ -59,6 +59,42 @@ interface GameManagers {
   votePoller: VoteStatusPoller
 }
 
+type LobbyPlayer = {
+  playerId?: number
+  nickname: string
+  appearanceCode: number
+}
+
+function applyNicknameCollisions(players: LobbyPlayer[]): Map<number, string> {
+  const keyedPlayers = players.map((player, index) => ({
+    mapKey: player.playerId ?? index,
+    baseNickname: player.nickname,
+  }))
+
+  const groupedByNickname = new Map<string, Array<{ mapKey: number; baseNickname: string }>>()
+  keyedPlayers.forEach((player) => {
+    const existing = groupedByNickname.get(player.baseNickname)
+    if (existing) {
+      existing.push(player)
+      return
+    }
+    groupedByNickname.set(player.baseNickname, [player])
+  })
+
+  const resolved = new Map<number, string>()
+  keyedPlayers.forEach((player) => resolved.set(player.mapKey, player.baseNickname))
+
+  groupedByNickname.forEach((collisions) => {
+    if (collisions.length !== 2) return
+
+    const sorted = [...collisions].sort((a, b) => a.mapKey - b.mapKey)
+    const lowerIndexPlayer = sorted[0]
+    resolved.set(lowerIndexPlayer.mapKey, `${lowerIndexPlayer.baseNickname} Jr.`)
+  })
+
+  return resolved
+}
+
 function destroyGame(managers: GameManagers): void {
   managers.hudManager.destroy()
   managers.chatManager.destroy()
@@ -96,11 +132,13 @@ async function bootGame(): Promise<GameManagers> {
   // even when the ledger hasn't settled yet (e.g. after a force-start).
   try {
     const playersResponse = await fetchGamePlayers(gameId)
+    const resolvedNicknames = applyNicknameCollisions(playersResponse.players)
     playersResponse.players.forEach((p, index) => {
       const playerId = p.playerId ?? index
-      gameState.playerNicknames.set(playerId, p.nickname)
+      const displayNickname = resolvedNicknames.get(playerId) ?? p.nickname
+      gameState.playerNicknames.set(playerId, displayNickname)
       gameState.playerAppearanceCodes.set(playerId, p.appearanceCode)
-      playerConfigs.set(playerId, appearanceToPlayerConfig(p.appearanceCode, p.nickname))
+      playerConfigs.set(playerId, appearanceToPlayerConfig(p.appearanceCode, displayNickname))
     })
     if (playersResponse.players.length > 0) {
       initialPlayerCount = playersResponse.players.length
@@ -210,11 +248,13 @@ async function bootGame(): Promise<GameManagers> {
     // Re-fetch nicknames whenever we have fewer names than expected players
     if (gameState.playerNicknames.size < view.playerCount) {
       fetchGamePlayers(gameId).then((r) => {
+        const resolvedNicknames = applyNicknameCollisions(r.players)
         let changed = false
         r.players.forEach((p, index) => {
           const mapKey = p.playerId ?? index
-          if (gameState.playerNicknames.get(mapKey) !== p.nickname) {
-            gameState.playerNicknames.set(mapKey, p.nickname)
+          const displayNickname = resolvedNicknames.get(mapKey) ?? p.nickname
+          if (gameState.playerNicknames.get(mapKey) !== displayNickname) {
+            gameState.playerNicknames.set(mapKey, displayNickname)
             changed = true
           }
           if (gameState.playerAppearanceCodes.get(mapKey) !== p.appearanceCode) {

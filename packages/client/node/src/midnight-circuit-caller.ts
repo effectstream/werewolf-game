@@ -41,6 +41,8 @@ import type { FinalizedTransaction } from "@midnight-ntwrk/ledger-v7";
 import { CompiledContract } from "@midnight-ntwrk/compact-js";
 import { resolve } from "node:path";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
+import { convertMidnightLedger } from "../../../shared/utils/paima-utils.ts";
+import { ledger as contractLedger } from "../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -382,6 +384,15 @@ export async function fetchCurrentLedgerVotes(
     dataProvider,
     contractAddress as ContractAddress,
   );
-  const ledger = WerewolfLedger.from(contractState);
-  return ledger.getVotesForRoundAndPhase(gameId, round, phase);
+  // Apply the same ledger() + convertMidnightLedger() pipeline used in config.ts
+  // so that Midnight Map-like objects are converted to plain objects that
+  // WerewolfLedger.parseMap() can iterate correctly.
+  const typedLedger = contractLedger(contractState as any);
+  const converted = convertMidnightLedger(typedLedger);
+  const werewolfLedger = WerewolfLedger.from(converted);
+  const votes = werewolfLedger.getVotesForRoundAndPhase(gameId, round, phase);
+  console.log(
+    `[fetchCurrentLedgerVotes] game=${gameId} round=${round} phase=${phase} → ${votes.length} vote(s) in live ledger`,
+  );
+  return votes;
 }

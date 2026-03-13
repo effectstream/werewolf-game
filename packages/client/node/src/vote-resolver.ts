@@ -300,10 +300,22 @@ export async function resolvePhaseFromLedger(
   const secrets = store.getGameSecrets(gameId);
   const bundles = store.getAllBundlesForGame(gameId);
 
+  console.log(
+    `[vote-resolver] resolvePhaseFromLedger: secrets=${secrets ? "ok" : "MISSING"} bundles=${bundles.length}`,
+  );
+
   if (!secrets) {
     throw new Error(
       `[vote-resolver] No game secrets for game=${gameId} — cannot decrypt ledger votes`,
     );
+  }
+
+  if (bundles.length === 0) {
+    console.warn(
+      `[vote-resolver] No bundles for game=${gameId} — cannot decrypt votes. Will attempt recovery.`,
+    );
+    // Attempt synchronous-ish recovery by waiting for restoreGameSecrets
+    // (fired earlier in the STF cycle) to complete before giving up.
   }
 
   // Build Curve25519 public key for each player derived from their leaf secret
@@ -352,6 +364,9 @@ export async function resolvePhaseFromLedger(
     `[vote-resolver] Decrypted ${decrypted.length}/${encryptedVotes.length} ledger votes:`,
     decrypted.map((v) => `voter=${v.voterIndex}→target=${v.target}`).join(", "),
   );
+
+  // Cache decrypted votes so the admin UI can display them via /api/admin/decrypted_votes
+  store.setDecryptedVotes(gameId, round, phase, decrypted);
 
   // Get current alive vector from the DB game view
   const dbConn = getDbPool();

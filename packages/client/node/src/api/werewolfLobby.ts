@@ -738,7 +738,21 @@ export function adminDecryptedVotesHandler(
   phase: string,
 ) {
   const votes = store.getVotes(gameId, round, phase);
+
+  // Player-delegated voting path: votes go on-chain directly, not through the
+  // server API, so the encrypted store is empty. Fall back to the decrypted
+  // cache populated by resolvePhaseFromLedger().
   if (votes.length === 0) {
+    const cached = store.getCachedDecryptedVotes(gameId, round, phase);
+    if (cached.length > 0) {
+      return {
+        gameId,
+        round,
+        phase,
+        rawVoteCount: cached.length,
+        decrypted: cached.map((v) => ({ voterIndex: v.voterIndex, target: v.target })),
+      };
+    }
     return { gameId, round, phase, votes: [], decrypted: [] };
   }
 

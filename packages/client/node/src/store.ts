@@ -84,6 +84,10 @@ const adminSignKeys = new Map<number, Uint8Array>();
 /** Merkle roots per game (needed by resolveNightPhase). */
 const merkleRoots = new Map<number, { field: bigint }>();
 
+/** Decrypted votes cache for player-delegated voting path, keyed by `${gameId}:${round}:${phase}`. */
+export type CachedDecryptedVote = { voterIndex: number; target: number; round: number };
+const decryptedVotesCache = new Map<string, CachedDecryptedVote[]>();
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -236,6 +240,32 @@ export function purgeVotes(
   console.log(
     `[store] Purged ${count} votes for game=${gameId} round=${round} phase=${phase}`,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Decrypted Votes Cache (player-delegated voting path)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cache decrypted votes resolved from the on-chain ledger.
+ * Used so the admin UI can display votes even when players submitted directly.
+ */
+export function setDecryptedVotes(
+  gameId: number,
+  round: number,
+  phase: string,
+  votes: CachedDecryptedVote[],
+): void {
+  decryptedVotesCache.set(voteKey(gameId, round, phase), votes);
+}
+
+/** Retrieve cached decrypted votes (ledger path). Returns [] if not cached. */
+export function getCachedDecryptedVotes(
+  gameId: number,
+  round: number,
+  phase: string,
+): CachedDecryptedVote[] {
+  return decryptedVotesCache.get(voteKey(gameId, round, phase)) ?? [];
 }
 
 // ---------------------------------------------------------------------------

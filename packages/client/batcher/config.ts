@@ -86,6 +86,8 @@ const midnightBalancingAdapter = midnight_enabled
       proofServer: midnightNetworkConfig.proofServer,
       zkConfigPath,
       walletNetworkId: midnightNetworkConfig.id,
+      addShieldedPadding: true,
+      maxBatchSize: 2,
     },
   )
   : undefined;

@@ -8,6 +8,7 @@ import { gameState, type PlayerBundle } from '../state/gameState'
 import { fetchBundle, fetchLobbyStatus, fetchOpenLobby, type LobbyStatusResponse } from '../services/lobbyApi'
 import { decodeGamePhrase, encodeGameId, isGamePhrase } from '../services/werewolfIdCodec'
 import { getAllSessions, clearSession, hexToBytes, type StoredSession } from '../services/sessionStore'
+import { deriveNicknameFromMidnightAddress } from '../services/nicknameGenerator'
 import {
   DEFAULT_AVATAR_SELECTION,
   HAIR_COLORS,
@@ -40,7 +41,7 @@ function bytesToHex(bytes: Uint8Array): string {
  * Ed25519 keypair fully recoverable on any device that holds the EVM private key.
  */
 async function deriveGameKeypair(
-  evmAddress: `0x${string}`,
+  _evmAddress: `0x${string}`,
   gameId: number,
   walletClient: WalletClient,
 ): Promise<nacl.SignKeyPair> {
@@ -69,7 +70,8 @@ export class LobbyScreen {
   private activeGamesSection!: HTMLDivElement
   private gameSection!: HTMLDivElement
   private gameIdInput!: HTMLInputElement
-  private nicknameInput!: HTMLInputElement
+  private nicknameInfoEl!: HTMLDivElement
+  private nicknameValueEl!: HTMLElement
   private findBtn!: HTMLButtonElement
   private gameInfoEl!: HTMLDivElement
   private avatarSection!: HTMLDivElement
@@ -77,6 +79,7 @@ export class LobbyScreen {
   private joinBtn!: HTMLButtonElement
 
   private currentGame: GameInfo | null = null
+  private derivedNickname: string | null = null
   private lobbyPollTimer: ReturnType<typeof setInterval> | null = null
   private readonly avatarPreview = new AvatarPreview(DEFAULT_AVATAR_SELECTION)
   private avatarSelection: AvatarSelection = { ...DEFAULT_AVATAR_SELECTION }
@@ -106,7 +109,9 @@ export class LobbyScreen {
             <button id="lobbyFindBtn" class="ui-btn lobby-btn">Find Game</button>
           </div>
           <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
-          <input id="lobbyNicknameInput" class="lobby-input" type="text" placeholder="Nickname (min 3 characters)" hidden />
+          <div id="lobbyNicknameInfo" class="lobby-game-info" hidden>
+            <div class="lobby-game-row"><span>Nickname</span><strong id="lobbyNicknameValue"></strong></div>
+          </div>
           <button id="lobbyJoinBtn" class="ui-btn lobby-btn lobby-btn--primary" hidden>Join Game</button>
         </section>
 
@@ -186,7 +191,8 @@ export class LobbyScreen {
     this.activeGamesSection = this.container.querySelector<HTMLDivElement>('#lobbyActiveGames')!
     this.gameSection = this.container.querySelector<HTMLDivElement>('#lobbyGameSection')!
     this.gameIdInput = this.container.querySelector<HTMLInputElement>('#lobbyGameIdInput')!
-    this.nicknameInput = this.container.querySelector<HTMLInputElement>('#lobbyNicknameInput')!
+    this.nicknameInfoEl = this.container.querySelector<HTMLDivElement>('#lobbyNicknameInfo')!
+    this.nicknameValueEl = this.container.querySelector<HTMLElement>('#lobbyNicknameValue')!
     this.findBtn = this.container.querySelector<HTMLButtonElement>('#lobbyFindBtn')!
     this.gameInfoEl = this.container.querySelector<HTMLDivElement>('#lobbyGameInfo')!
     this.avatarSection = this.container.querySelector<HTMLDivElement>('#lobbyAvatarSection')!
@@ -313,13 +319,20 @@ export class LobbyScreen {
     try {
       const midnightState = await midnightWallet.connect(MIDNIGHT_NETWORK_ID)
       const shielded = midnightState.shieldedAddress!
+      this.derivedNickname = deriveNicknameFromMidnightAddress(shielded)
       const displayAddr = shielded.length > 24
         ? `${shielded.slice(0, 12)}…${shielded.slice(-8)}`
         : shielded
       this.midnightAddressEl.textContent = `Midnight: ${displayAddr}`
+      this.nicknameValueEl.textContent = this.derivedNickname
+      this.nicknameInfoEl.hidden = false
       console.log('[LobbyScreen] Midnight wallet connected:', shielded)
+      console.log('[LobbyScreen] Derived nickname:', this.derivedNickname)
     } catch (err) {
       this.setLoading(this.walletBtn, false, 'Connect Wallet')
+      this.derivedNickname = null
+      this.nicknameValueEl.textContent = ''
+      this.nicknameInfoEl.hidden = true
       this.setStatus(`Midnight wallet connection failed: ${(err as Error).message}`, true)
       return
     }
@@ -384,7 +397,6 @@ export class LobbyScreen {
     this.gameInfoEl.hidden = true
     this.avatarSection.hidden = true
     this.joinBtn.hidden = true
-    this.nicknameInput.hidden = true
     this.currentGame = null
 
     try {
@@ -403,16 +415,13 @@ export class LobbyScreen {
 
       if (game.state === 'Open' && game.playerCount < game.maxPlayers) {
         this.avatarSection.hidden = false
-        this.nicknameInput.hidden = false
         this.joinBtn.hidden = false
-        this.setStatus('Game is open. Customize your character, enter a nickname, and join.')
+        this.setStatus('Game is open. Customize your character and join.')
       } else if (game.state === 'Closed') {
         this.avatarSection.hidden = true
-        this.nicknameInput.hidden = true
         this.setStatus('This game is closed.', true)
       } else {
         this.avatarSection.hidden = true
-        this.nicknameInput.hidden = true
         this.setStatus('This game is full.', true)
       }
     } catch (err) {
@@ -437,9 +446,9 @@ export class LobbyScreen {
       return
     }
 
-    const nickname = this.nicknameInput.value.trim()
-    if (nickname.length < 3) {
-      this.setStatus('Nickname must be at least 3 characters.', true)
+    const nickname = this.derivedNickname?.trim()
+    if (!nickname) {
+      this.setStatus('Unable to derive nickname from Midnight wallet address.', true)
       return
     }
 
@@ -476,14 +485,14 @@ export class LobbyScreen {
         nickname,
         appearanceCode,
         midnightAddress,
-        ({ message }) => walletClient.signMessage({ message }),
+        ({ message }) => walletClient.signMessage({ account: address, message }),
       )
       console.log('[LobbyScreen] batcher joinGame result:', batcherResult)
 
       // ── 3. Wait for lobby to close and bundles to be ready ────────────────
       this.setStatus('Joined! Waiting for lobby to close…')
       this.joinBtn.hidden = true
-      this.nicknameInput.hidden = true
+      this.nicknameInfoEl.hidden = true
       this.avatarSection.hidden = true
 
       const gameId = this.currentGame.id
