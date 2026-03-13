@@ -306,11 +306,13 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 24px;
   background: radial-gradient(circle at top, #18203a 0%, #060a14 60%);
+  padding: 20px;
 }
 
 .lobby-card {
-  width: min(680px, 92vw);
+  width: min(480px, 92vw);
   border: 1px solid rgba(154, 172, 240, 0.28);
   border-radius: 18px;
   background: rgba(9, 17, 37, 0.92);
@@ -318,6 +320,19 @@ body {
   padding: 36px 32px 28px;
   display: grid;
   gap: 24px;
+}
+
+.lobby-avatar-card {
+  width: min(380px, 92vw);
+  border: 1px solid rgba(154, 172, 240, 0.28);
+  border-radius: 18px;
+  background: rgba(9, 17, 37, 0.92);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+  padding: 24px 20px 20px;
+  display: grid;
+  gap: 16px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
 }
 
 .lobby-title {
@@ -344,7 +359,7 @@ body {
 .lobby-wallet-section,
 .lobby-game-section {
   display: grid;
-  gap: 10px;
+  gap: 14px;
 }
 
 .lobby-address {
@@ -404,13 +419,47 @@ body {
   color: rgba(216, 228, 255, 0.92);
 }
 
-.lobby-avatar-section {
+.lobby-active-games {
   display: grid;
-  gap: 14px;
+  gap: 10px;
+}
+
+.lobby-game-tile {
   border: 1px solid rgba(138, 160, 220, 0.25);
-  border-radius: 14px;
-  background: rgba(12, 22, 46, 0.82);
-  padding: 14px;
+  border-radius: 10px;
+  background: rgba(14, 26, 55, 0.7);
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.lobby-game-tile-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lobby-game-tile-id {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: rgba(200, 215, 255, 0.9);
+}
+
+.lobby-game-tile-status {
+  font-size: 0.78rem;
+  color: rgba(180, 200, 255, 0.7);
+}
+
+.lobby-game-tile-nick {
+  font-size: 0.75rem;
+  color: rgba(160, 180, 240, 0.6);
+}
+
+.lobby-btn--rejoin {
+  font-size: 0.8rem;
+  padding: 6px 10px;
 }
 
 .lobby-avatar-panel {
@@ -563,12 +612,27 @@ body {
     height: 110px;
   }
 
-  .lobby-card {
+  .lobby-screen {
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  .lobby-card,
+  .lobby-avatar-card {
     width: min(560px, 94vw);
   }
 
   .lobby-avatar-panel {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .lobby-card,
+  .lobby-avatar-card {
+    width: 100%;
+    padding: 24px 20px;
   }
 }
 

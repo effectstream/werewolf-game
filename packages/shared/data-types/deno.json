@@ -8,11 +8,11 @@
     "./grammar": "./src/grammar.ts"
   },
   "imports": {
-    "@paimaexample/concise": "jsr:@paimaexample/concise@0.8.1",
-    "@paimaexample/config": "jsr:@paimaexample/config@0.8.1",
-    "@paimaexample/utils": "jsr:@paimaexample/utils@0.8.1",
-    "@paimaexample/db": "jsr:@paimaexample/db@0.8.1",
-    "@paimaexample/sm": "jsr:@paimaexample/sm@0.8.1",
+    "@paimaexample/concise": "jsr:@paimaexample/concise@0.8.4",
+    "@paimaexample/config": "jsr:@paimaexample/config@0.8.4",
+    "@paimaexample/utils": "jsr:@paimaexample/utils@0.8.4",
+    "@paimaexample/db": "jsr:@paimaexample/db@0.8.4",
+    "@paimaexample/sm": "jsr:@paimaexample/sm@0.8.4",
     "viem": "npm:viem@2.37.3",
     "@sinclair/typebox": "npm:@sinclair/typebox@0.34.41"
   }

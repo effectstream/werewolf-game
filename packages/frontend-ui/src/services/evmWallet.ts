@@ -1,10 +1,11 @@
 import {
   createPublicClient,
   createWalletClient,
-  custom,
+  http,
   type PublicClient,
   type WalletClient,
 } from 'viem'
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts'
 import { hardhat } from 'viem/chains'
 
 export interface EvmWalletState {
@@ -12,31 +13,36 @@ export interface EvmWalletState {
   address: `0x${string}` | null
 }
 
-// Extend Window to include ethereum injected by MetaMask / any EIP-1193 wallet
-declare global {
-  interface Window {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ethereum?: any
-  }
-}
+export const LOCAL_STORAGE_KEY = 'werewolf:evm-private-key'
+const PRIVATE_KEY_REGEX = /^0x[a-fA-F0-9]{64}$/
 
 class EvmWalletManager {
   private _address: `0x${string}` | null = null
   private _walletClient: WalletClient | null = null
   private _publicClient: PublicClient | null = null
 
-  isAvailable(): boolean {
-    return typeof window !== 'undefined' && !!window.ethereum
+  private loadOrCreatePrivateKey(): `0x${string}` {
+    if (typeof window === 'undefined') {
+      throw new Error('EVM wallet requires a browser environment.')
+    }
+
+    const persisted = window.localStorage.getItem(LOCAL_STORAGE_KEY)
+    if (persisted && PRIVATE_KEY_REGEX.test(persisted)) {
+      return persisted as `0x${string}`
+    }
+
+    const privateKey = generatePrivateKey()
+    window.localStorage.setItem(LOCAL_STORAGE_KEY, privateKey)
+    return privateKey
   }
 
   async connect(): Promise<EvmWalletState> {
-    if (!this.isAvailable()) {
-      throw new Error('No EVM wallet detected. Please install MetaMask.')
-    }
-
-    const transport = custom(window.ethereum!)
+    const privateKey = this.loadOrCreatePrivateKey()
+    const account = privateKeyToAccount(privateKey)
+    const transport = http(hardhat.rpcUrls.default.http[0])
 
     this._walletClient = createWalletClient({
+      account,
       chain: hardhat,
       transport,
     })
@@ -46,12 +52,7 @@ class EvmWalletManager {
       transport,
     })
 
-    const addresses = await this._walletClient.requestAddresses()
-    if (addresses.length === 0) {
-      throw new Error('No accounts returned by wallet.')
-    }
-
-    this._address = addresses[0]
+    this._address = account.address
     return { isConnected: true, address: this._address }
   }
 

@@ -2,7 +2,7 @@ const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ??
   "http://localhost:9999";
 
 interface LeaderboardEntry {
-  evm_address: string;
+  midnight_address: string;
   total_points: string;
   games_played: number;
   games_won: number;
@@ -139,7 +139,7 @@ export class LeaderboardManager {
 
     this.tableBody.innerHTML = entries
       .map((e, i) => {
-        const addr = e.evm_address;
+        const addr = e.midnight_address;
         const short = `${addr.slice(0, 6)}…${addr.slice(-4)}`;
         const pts = Number(e.total_points).toLocaleString();
         return `<tr>

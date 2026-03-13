@@ -55,6 +55,57 @@ interface MidnightConfig {
 
 let _cachedConfig: MidnightConfig | null = null;
 
+// ---------------------------------------------------------------------------
+// Module-level singletons — avoids re-fetching ZK keys on every vote
+// ---------------------------------------------------------------------------
+
+let _zkConfigProvider: FetchZkConfigProvider | null = null;
+let _compiledContract: any = null;
+let _privateStateProvider: any = null;
+let _publicDataProvider: any = null;
+
+function getZkConfigProvider(): FetchZkConfigProvider {
+  if (!_zkConfigProvider) {
+    _zkConfigProvider = new FetchZkConfigProvider(
+      window.location.origin,
+      fetch.bind(globalThis),
+    );
+  }
+  return _zkConfigProvider;
+}
+
+function getCompiledContract(): any {
+  if (!_compiledContract) {
+    _compiledContract = (CompiledContract.withCompiledFileAssets as any)(
+      (CompiledContract.withWitnesses as any)(
+        CompiledContract.make("contract-werewolf", WerewolfContract),
+        witnesses,
+      ),
+      window.location.origin,
+    );
+  }
+  return _compiledContract;
+}
+
+function getPrivateStateProvider(): any {
+  if (!_privateStateProvider) {
+    _privateStateProvider = levelPrivateStateProvider({
+      privateStoragePasswordProvider: async () => "PAIMA_VOTE_STORAGE_PASSWORD",
+    } as any);
+  }
+  return _privateStateProvider;
+}
+
+function getPublicDataProvider(config: MidnightConfig): any {
+  if (!_publicDataProvider) {
+    _publicDataProvider = indexerPublicDataProvider(
+      config.indexerUrl,
+      config.indexerWsUrl,
+    );
+  }
+  return _publicDataProvider;
+}
+
 
 async function getMidnightConfig(): Promise<MidnightConfig> {
   if (_cachedConfig) return _cachedConfig;
@@ -219,10 +270,7 @@ export async function submitVoteOnChain(
     __delegatedBalanceHook: undefined as any,
   };
 
-  // Keys are static artifacts served by Vite from the shared managed/keys dir.
-  // The SDK validates verifier keys for ALL circuits on join, so all keys must
-  // be available — the Vite serveContractArtifacts middleware handles this.
-  const zkConfigProvider = new FetchZkConfigProvider(window.location.origin, fetch.bind(globalThis));
+  const zkConfigProvider = getZkConfigProvider();
 
   const initialPrivateState = buildVotePrivateState(
     bundle,
@@ -231,39 +279,15 @@ export async function submitVoteOnChain(
   );
 
   const providers = {
-    privateStateProvider: levelPrivateStateProvider({
-      privateStoragePasswordProvider: async () => "PAIMA_VOTE_STORAGE_PASSWORD",
-    } as any),
+    privateStateProvider: getPrivateStateProvider(),
     zkConfigProvider,
-    proofProvider: httpClientProofProvider(
-      config.proofServerUrl,
-      zkConfigProvider,
-    ),
-    publicDataProvider: indexerPublicDataProvider(
-      config.indexerUrl,
-      config.indexerWsUrl,
-    ),
+    proofProvider: httpClientProofProvider(config.proofServerUrl, zkConfigProvider),
+    publicDataProvider: getPublicDataProvider(config),
     walletProvider: provider,
     midnightProvider: provider,
   };
 
-  // Build compiled contract descriptor.
-  // withCompiledFileAssets sets the path for ZK artifact fetching; unused in the
-  // delegated hook flow since proof generation happens on the batcher side.
-  // Typed as `any` to avoid overly-strict CompiledContract<Contract<…>> generic
-  // inference — the runtime shape is correct and checked by the Midnight SDK.
-  // Typed as `any` to avoid overly-strict CompiledContract<Contract<…>> generic
-  // inference — the runtime shape is correct and validated by the Midnight SDK.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const compiledContract: any =
-    (CompiledContract.withCompiledFileAssets as any)(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (CompiledContract.withWitnesses as any)(
-        CompiledContract.make("contract-werewolf", WerewolfContract),
-        witnesses,
-      ),
-      window.location.origin,
-    );
+  const compiledContract = getCompiledContract();
 
   // Join and call circuit with retry for indexer lag.
   // "expected a cell, received null" means games.lookup(gameId) returned null —

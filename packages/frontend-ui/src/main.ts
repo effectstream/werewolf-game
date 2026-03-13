@@ -182,7 +182,7 @@ async function bootGame(): Promise<GameManagers> {
   // Start the game view polling service
   const poller = new GameViewPoller(gameId, (view) => {
     // Capture alive snapshot BEFORE applying the new view (used for diff below)
-    const prevAlive = [...gameState.previousAlive]
+    const prevAlive = [...gameState.playerAlive]
     const prevPhase = gameState.phase
 
     gameState.applyGameView(view)

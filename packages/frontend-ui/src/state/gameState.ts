@@ -82,12 +82,6 @@ class GameState {
   voteCount: number = 0
   /** Internal key to detect round/phase changes for auto-reset */
   private votedRoundPhaseKey: string = ''
-  /**
-   * Snapshot of playerAlive from the previous game-view poll.
-   * Used to detect alive→dead transitions for elimination announcements.
-   */
-  previousAlive: boolean[] = []
-
   private listeners: (() => void)[] = []
 
   /** True when all alive players have voted — voting is closed for this round. */
@@ -189,8 +183,6 @@ class GameState {
       console.log('[gameState] playerAlive changed!')
       console.log('[gameState]   Previous:', this.playerAlive)
       console.log('[gameState]   New:', newAlive)
-      // Snapshot previous state before overwriting (used for elimination announcements)
-      this.previousAlive = [...this.playerAlive]
       this.playerAlive = newAlive
       changed = true
     }

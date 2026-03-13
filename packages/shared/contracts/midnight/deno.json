@@ -15,10 +15,10 @@
         "midnight-faucet:start": "deno run -A faucet.ts"
     },
     "imports": {
-        "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.8.1",
-        "@paimaexample/npm-midnight-indexer": "npm:@paimaexample/npm-midnight-indexer@0.8.1",
-        "@paimaexample/npm-midnight-node": "npm:@paimaexample/npm-midnight-node@0.8.1",
-        "@paimaexample/npm-midnight-proof-server": "npm:@paimaexample/npm-midnight-proof-server@0.8.1",
+        "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.8.4",
+        "@paimaexample/npm-midnight-indexer": "npm:@paimaexample/npm-midnight-indexer@0.8.4",
+        "@paimaexample/npm-midnight-node": "npm:@paimaexample/npm-midnight-node@0.8.4",
+        "@paimaexample/npm-midnight-proof-server": "npm:@paimaexample/npm-midnight-proof-server@0.8.4",
         "@midnight-ntwrk/ledger-v7": "npm:@midnight-ntwrk/ledger-v7@7.0.0",
         "@midnight-ntwrk/compact-js": "npm:@midnight-ntwrk/compact-js@2.4.0",
         "@midnight-ntwrk/compact-runtime": "npm:@midnight-ntwrk/compact-runtime@0.14.0",

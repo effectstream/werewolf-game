@@ -30,8 +30,9 @@ function bytesToHex(bytes: Uint8Array): string {
 
 /**
  * Derives a deterministic Ed25519 signing keypair for a given game from the
- * player's EVM wallet. The player signs the fixed message `"werewolf:{gameId}"`
- * with MetaMask (EIP-191 personal_sign). The resulting ECDSA signature bytes
+ * player's EVM wallet. The local wallet signs the fixed message
+ * `"werewolf:{gameId}"` (EIP-191 personal_sign semantics). The resulting
+ * ECDSA signature bytes
  * are SHA-256 hashed to produce a 32-byte seed for `nacl.sign.keyPair.fromSeed`.
  *
  * Because EVM ECDSA uses RFC 6979 deterministic k-generation, the same wallet
@@ -44,7 +45,6 @@ async function deriveGameKeypair(
   walletClient: WalletClient,
 ): Promise<nacl.SignKeyPair> {
   const evmSig = await walletClient.signMessage({
-    account: evmAddress,
     message: `werewolf:${gameId}`,
   })
   // evmSig is 0x-prefixed 130-char hex (65 bytes). Strip the 0x prefix.
@@ -90,7 +90,7 @@ export class LobbyScreen {
         <p class="lobby-subtitle">Midnight &times; EVM</p>
 
         <section class="lobby-wallet-section">
-          <button id="lobbyWalletBtn" class="ui-btn lobby-btn">Connect Browser Wallets</button>
+          <button id="lobbyWalletBtn" class="ui-btn lobby-btn">Connect Wallet</button>
           <div id="lobbyWalletInfo" class="lobby-wallet-info" hidden>
             <span id="lobbyEvmAddress" class="lobby-address lobby-address--evm"></span>
             <br />
@@ -106,77 +106,77 @@ export class LobbyScreen {
             <button id="lobbyFindBtn" class="ui-btn lobby-btn">Find Game</button>
           </div>
           <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
-          <div id="lobbyAvatarSection" class="lobby-avatar-section" hidden>
-            <div class="lobby-avatar-panel">
-              <div>
-                <h3 class="lobby-section-title">Character Preview</h3>
-                <p class="lobby-avatar-copy">Choose how your villager looks before joining the lobby.</p>
-              </div>
-              <div id="lobbyAvatarPreview" class="lobby-avatar-preview" aria-label="Avatar preview"></div>
-            </div>
-            <div class="lobby-avatar-controls">
-              <div class="lobby-avatar-group">
-                <span class="lobby-avatar-label">Skin Tone</span>
-                <div class="lobby-swatch-row" data-avatar-group="skinTone">
-                  ${SKIN_TONES.map((color, index) => `
-                    <button
-                      type="button"
-                      class="lobby-swatch-btn"
-                      data-avatar-option="skinTone:${index}"
-                      aria-label="Skin tone ${index + 1}"
-                      style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
-                    ></button>
-                  `).join('')}
-                </div>
-              </div>
-              <div class="lobby-avatar-group">
-                <span class="lobby-avatar-label">Shirt Color</span>
-                <div class="lobby-swatch-row" data-avatar-group="shirtColor">
-                  ${SHIRT_COLORS.map((color, index) => `
-                    <button
-                      type="button"
-                      class="lobby-swatch-btn"
-                      data-avatar-option="shirtColor:${index}"
-                      aria-label="Shirt color ${index + 1}"
-                      style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
-                    ></button>
-                  `).join('')}
-                </div>
-              </div>
-              <div class="lobby-avatar-group">
-                <span class="lobby-avatar-label">Hair Color</span>
-                <div class="lobby-swatch-row" data-avatar-group="hairColor">
-                  ${HAIR_COLORS.map((color, index) => `
-                    <button
-                      type="button"
-                      class="lobby-swatch-btn"
-                      data-avatar-option="hairColor:${index}"
-                      aria-label="Hair color ${index + 1}"
-                      style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
-                    ></button>
-                  `).join('')}
-                </div>
-              </div>
-              <div class="lobby-avatar-group">
-                <span class="lobby-avatar-label">Hair Style</span>
-                <div class="lobby-style-row" data-avatar-group="hairStyle">
-                  ${HAIR_STYLES.map((style, index) => `
-                    <button
-                      type="button"
-                      class="lobby-style-btn"
-                      data-avatar-option="hairStyle:${index}"
-                      aria-label="${HAIR_STYLE_LABELS[style]}"
-                    >${HAIR_STYLE_LABELS[style]}</button>
-                  `).join('')}
-                </div>
-              </div>
-            </div>
-          </div>
           <input id="lobbyNicknameInput" class="lobby-input" type="text" placeholder="Nickname (min 3 characters)" hidden />
           <button id="lobbyJoinBtn" class="ui-btn lobby-btn lobby-btn--primary" hidden>Join Game</button>
         </section>
 
         <p id="lobbyStatus" class="lobby-status"></p>
+      </div>
+      <div id="lobbyAvatarSection" class="lobby-avatar-card" hidden>
+        <div class="lobby-avatar-panel">
+          <div>
+            <h3 class="lobby-section-title">Character Preview</h3>
+            <p class="lobby-avatar-copy">Choose how your villager looks before joining the lobby.</p>
+          </div>
+          <div id="lobbyAvatarPreview" class="lobby-avatar-preview" aria-label="Avatar preview"></div>
+        </div>
+        <div class="lobby-avatar-controls">
+          <div class="lobby-avatar-group">
+            <span class="lobby-avatar-label">Skin Tone</span>
+            <div class="lobby-swatch-row" data-avatar-group="skinTone">
+              ${SKIN_TONES.map((color, index) => `
+                <button
+                  type="button"
+                  class="lobby-swatch-btn"
+                  data-avatar-option="skinTone:${index}"
+                  aria-label="Skin tone ${index + 1}"
+                  style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
+                ></button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="lobby-avatar-group">
+            <span class="lobby-avatar-label">Shirt Color</span>
+            <div class="lobby-swatch-row" data-avatar-group="shirtColor">
+              ${SHIRT_COLORS.map((color, index) => `
+                <button
+                  type="button"
+                  class="lobby-swatch-btn"
+                  data-avatar-option="shirtColor:${index}"
+                  aria-label="Shirt color ${index + 1}"
+                  style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
+                ></button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="lobby-avatar-group">
+            <span class="lobby-avatar-label">Hair Color</span>
+            <div class="lobby-swatch-row" data-avatar-group="hairColor">
+              ${HAIR_COLORS.map((color, index) => `
+                <button
+                  type="button"
+                  class="lobby-swatch-btn"
+                  data-avatar-option="hairColor:${index}"
+                  aria-label="Hair color ${index + 1}"
+                  style="--swatch-color: #${color.toString(16).padStart(6, '0')}"
+                ></button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="lobby-avatar-group">
+            <span class="lobby-avatar-label">Hair Style</span>
+            <div class="lobby-style-row" data-avatar-group="hairStyle">
+              ${HAIR_STYLES.map((style, index) => `
+                <button
+                  type="button"
+                  class="lobby-style-btn"
+                  data-avatar-option="hairStyle:${index}"
+                  aria-label="${HAIR_STYLE_LABELS[style]}"
+                >${HAIR_STYLE_LABELS[style]}</button>
+              `).join('')}
+            </div>
+          </div>
+        </div>
       </div>
     `
 
@@ -280,17 +280,12 @@ export class LobbyScreen {
   }
 
   /**
-   * Connects both the EVM wallet (MetaMask / any EIP-1193 provider) and the
+   * Connects both the locally-managed EVM wallet and the
    * Midnight wallet (Lace browser extension). Both are required — if either
    * fails the flow stops with an error.
    */
   private async handleConnectWallet(): Promise<void> {
-    if (!evmWallet.isAvailable()) {
-      this.setStatus('No EVM wallet detected. Please install MetaMask and reload.', true)
-      return
-    }
-
-    this.setLoading(this.walletBtn, true, 'Connect Browser Wallets')
+    this.setLoading(this.walletBtn, true, 'Connect Wallet')
     this.setStatus('Connecting EVM wallet…')
 
     // ── 1. EVM wallet ─────────────────────────────────────────────────────────
@@ -301,7 +296,7 @@ export class LobbyScreen {
       this.evmAddressEl.textContent = `EVM: ${evmAddress}`
       console.log('[LobbyScreen] EVM wallet connected:', evmAddress)
     } catch (err) {
-      this.setLoading(this.walletBtn, false, 'Connect Browser Wallets')
+      this.setLoading(this.walletBtn, false, 'Connect Wallet')
       this.setStatus(`EVM wallet connection failed: ${(err as Error).message}`, true)
       return
     }
@@ -310,7 +305,7 @@ export class LobbyScreen {
     this.setStatus('Connecting Midnight wallet…')
 
     if (!midnightWallet.isAvailable()) {
-      this.setLoading(this.walletBtn, false, 'Connect Browser Wallets')
+      this.setLoading(this.walletBtn, false, 'Connect Wallet')
       this.setStatus('Midnight wallet not found. Please install the Lace extension and reload.', true)
       return
     }
@@ -324,7 +319,7 @@ export class LobbyScreen {
       this.midnightAddressEl.textContent = `Midnight: ${displayAddr}`
       console.log('[LobbyScreen] Midnight wallet connected:', shielded)
     } catch (err) {
-      this.setLoading(this.walletBtn, false, 'Connect Browser Wallets')
+      this.setLoading(this.walletBtn, false, 'Connect Wallet')
       this.setStatus(`Midnight wallet connection failed: ${(err as Error).message}`, true)
       return
     }
@@ -455,8 +450,8 @@ export class LobbyScreen {
 
     try {
       // ── 1. Derive deterministic Ed25519 keypair from EVM wallet ───────────
-      // Player signs "werewolf:{gameId}" — MetaMask will prompt once here.
-      this.setStatus('Deriving game keypair… (sign prompt 1/2)')
+      // Local wallet signs "werewolf:{gameId}" for deterministic key derivation.
+      this.setStatus('Deriving game keypair… (local signature 1/2)')
       const keypair = await deriveGameKeypair(address, this.currentGame.id, walletClient)
       const publicKeyHex = bytesToHex(keypair.publicKey)
       gameState.playerSignKeypair = keypair
@@ -464,8 +459,8 @@ export class LobbyScreen {
       console.log('[LobbyScreen] derived Ed25519 publicKeyHex:', publicKeyHex)
 
       // ── 2. Submit join via batcher (EVM signature) ────────────────────────
-      // MetaMask will prompt a second time here for the batcher message.
-      this.setStatus('Signing batcher message… (sign prompt 2/2)')
+      // Local wallet signs the batcher message without an extension prompt.
+      this.setStatus('Signing batcher message… (local signature 2/2)')
       console.log('[LobbyScreen] calling BatcherService.joinGame', {
         address,
         gameId: this.currentGame.id,
@@ -481,7 +476,7 @@ export class LobbyScreen {
         nickname,
         appearanceCode,
         midnightAddress,
-        ({ message }) => walletClient.signMessage({ account: address, message }),
+        ({ message }) => walletClient.signMessage({ message }),
       )
       console.log('[LobbyScreen] batcher joinGame result:', batcherResult)
 
@@ -578,7 +573,7 @@ export class LobbyScreen {
 
   /**
    * Rejoins a game after a page refresh by re-deriving the Ed25519 keypair
-   * deterministically from the player's EVM wallet (one MetaMask prompt) and
+   * deterministically from the player's EVM wallet and
    * then restoring or re-fetching the bundle.
    *
    * Three cases:
@@ -594,8 +589,8 @@ export class LobbyScreen {
       return
     }
 
-    // Re-derive the Ed25519 keypair — MetaMask will prompt once.
-    this.setStatus('Deriving game keypair… (sign prompt)')
+    // Re-derive the Ed25519 keypair via the local EVM signer.
+    this.setStatus('Deriving game keypair… (local signature)')
     const walletClient = evmWallet.getWalletClient()
 
     let keypair: nacl.SignKeyPair
