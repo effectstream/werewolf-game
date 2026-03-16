@@ -152,20 +152,6 @@ export const witnesses = {
     return [privateState, data.encryptedRoles[index]];
   },
 
-  wit_getAdminKey: (
-    { privateState }: WitnessContext<Ledger, PrivateState>,
-    gameId: number | bigint,
-  ): [PrivateState, CoinPublicKey] => {
-    const key = String(gameId);
-    const data = privateState.setupData.get(key);
-
-    if (!data || !data.adminKey) {
-      throw new Error(`Witness Error: Admin key missing for gameId ${key}`);
-    }
-
-    return [privateState, data.adminKey];
-  },
-
   wit_getInitialRoot: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
     gameId: number | bigint,
@@ -198,7 +184,9 @@ export const witnesses = {
 
     // Use admin vote public key for encryption when present (game creator's vote key), else adminKey. Nacl expects 32 bytes.
     const rawEncKey = setup.adminVotePublicKey?.bytes ?? setup.adminKey.bytes;
-    const encReceiverPubKey = rawEncKey.length >= 32 ? rawEncKey.slice(0, 32) : rawEncKey;
+    const encReceiverPubKey = rawEncKey.length >= 32
+      ? rawEncKey.slice(0, 32)
+      : rawEncKey;
 
     const encryptedBytes = encryptPayload(
       action.targetNumber,

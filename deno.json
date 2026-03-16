@@ -4,18 +4,23 @@
   ],
   "nodeModulesDir": "auto",
   "tasks": {
-    "build:evm": "deno task -f @example-midnight/evm-contracts build:mod",
+    "build:evm": "deno task -f @werewolf-game/evm-contracts build:mod",
     "build:midnight": "deno task -f @example-midnight/my-midnight-contract compact",
-    "dev": "deno task -f @example-midnight/node dev",
-    "testnet": "deno task -f @example-midnight/node dev:testnet",
+    "dev": "deno task -f @werewolf-game/node dev",
+    "testnet": "deno task -f @werewolf-game/node dev:testnet",
     "start:frontend": "deno task -f @example-midnight/frontend dev",
-    "check": "deno task -f @example-midnight/node check"
+    "check": "deno task -f @werewolf-game/node check"
   },
   "imports": {
     // TODO: This is a workaround for a missing dependency.
-    "@paimaexample/tui": "jsr:@paimaexample/tui@0.7.0",
-    "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.7.0",
-    "@paimaexample/evm-contracts": "jsr:@paimaexample/evm-contracts@0.7.0"
+    "@paimaexample/tui": "jsr:@paimaexample/tui@0.8.4",
+    "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.8.4",
+    "@paimaexample/evm-contracts": "jsr:@paimaexample/evm-contracts@0.8.4",
+    // Workarounds for broken imports in JSR packages
+    "npm:/@sinclair/typebox@0.34.41/value": "npm:@sinclair/typebox@0.34.41/value",
+    "npm:@cardano-foundation/cardano-verify-datasignature@1.0.11": "npm:@cardano-foundation/cardano-verify-datasignature@^1.0.11",
+    "tweetnacl": "npm:tweetnacl@1.0.3", // TODO: This is a workaround for a missing dependency.
+    "prando": "npm:prando@^6.0.1"
   },
   "lint": {
     "rules": {
@@ -31,5 +36,30 @@
         "no-slow-types" // would be nice to have, but this is a lot of work
       ]
     }
-  }
+  },
+  "allowScripts": [
+    "npm:@reown/appkit@1.8.17-wc-circular-dependencies-fix.0",
+    "npm:@scarf/scarf@1.4.0",
+    "npm:@swc/core@1.15.13",
+    "npm:@swc/core@1.15.18",
+    "npm:bufferutil@4.1.0",
+    "npm:classic-level@3.0.0",
+    "npm:cpu-features@0.0.10",
+    "npm:es5-ext@0.10.64",
+    "npm:esbuild@0.25.12",
+    "npm:esbuild@0.25.7",
+    "npm:esbuild@0.27.3",
+    "npm:fsevents@2.3.3",
+    "npm:keccak@3.0.4",
+    "npm:msgpackr-extract@3.0.3",
+    "npm:protobufjs@7.2.4",
+    "npm:protobufjs@7.5.4",
+    "npm:puppeteer@24.37.5",
+    "npm:puppeteer@24.38.0",
+    "npm:secp256k1@3.8.1",
+    "npm:secp256k1@4.0.4",
+    "npm:ssh2@1.17.0",
+    "npm:utf-8-validate@5.0.10",
+    "npm:utf-8-validate@6.0.6"
+  ]
 }

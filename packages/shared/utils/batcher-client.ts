@@ -18,11 +18,12 @@ type DelegatedTxStage = "unproven" | "unbound" | "finalized";
  * leverages the __delegatedBalanceHook mechanism already built into the
  * createWalletAndMidnightProvider provider from contract.ts.
  *
- * The Midnight Compact Runtime evaluates the circuit and builds the unproven
- * transaction locally. The provider now attempts wallet balancing first with
- * `payFees: false`, and only falls back to `__delegatedBalanceHook` if wallet
- * balancing fails. In delegated fallback mode, we intercept the transaction and
- * send it to the batcher, which then completes balancing/finalizing/submitting.
+ * The Midnight SDK evaluates the circuit locally and runs proofProvider.proveTx()
+ * to generate the ZK proof, producing an UnboundTransaction before calling
+ * balanceTx. We intercept at balanceTx, serialize the UnboundTransaction (proof
+ * embedded, no dust yet), and POST it to the batcher with txStage "unbound".
+ * The batcher then calls balanceUnboundTransaction() to add dust fees and produce
+ * a single cohesive FinalizedTransaction.
  */
 export class BatcherClient {
   private readonly batcherUrl: string;
@@ -68,7 +69,7 @@ export class BatcherClient {
     const header = new TextDecoder().decode(prefixBytes);
 
     const markerMatch = header.match(
-      /midnight:transaction\[v\d+\]\(signature\[v\d+\],([^,]+),([^)]+)\):/,
+      /midnight:(?:transaction|intent)\[v\d+\]\(signature\[v\d+\],([^,]+),([^)]+)\):/,
     );
 
     if (!markerMatch) {
@@ -108,16 +109,11 @@ export class BatcherClient {
       _newCoins?: any,
       _ttl?: Date,
     ) => {
-      let serializedTx = toHex(tx.serialize());
-
-      // Attempt to bind the transaction if the method exists
-      if (typeof tx.bind === "function") {
-        try {
-          serializedTx = toHex(tx.bind().serialize());
-        } catch (e) {
-          console.warn(`[BatcherClient] Failed to bind ${circuitName} tx`, e);
-        }
-      }
+      // tx is an UnboundTransaction: the SDK already ran proofProvider.proveTx()
+      // before calling balanceTx. Serialize it directly without calling bind() so
+      // the batcher receives an "unbound" stage tx and can do proper dust balancing
+      // via balanceUnboundTransaction() rather than the less-efficient finalized path.
+      const serializedTx = toHex(tx.serialize());
 
       const txStage = this.detectTxStage(serializedTx);
 
@@ -149,7 +145,7 @@ export class BatcherClient {
   private async postToBatcher(
     serializedTx: string,
     circuitId: string,
-    txStage: DelegatedTxStage = "finalized",
+    txStage: DelegatedTxStage = "unbound",
   ): Promise<void> {
     console.log(
       `🔍 [BatcherClient] Posting to Batcher at ${this.batcherUrl}/send-input...`,
@@ -268,6 +264,48 @@ export class BatcherClient {
     await this.callDelegated(
       "forceEndGame",
       () => this.contract.callTx.forceEndGame(gameId, masterSecret),
+    );
+  }
+
+  // --- Player Actions ---
+
+  async nightAction(gameId: bigint): Promise<void> {
+    await this.callDelegated("nightAction", () =>
+      this.contract.callTx.nightAction(gameId)
+    );
+  }
+
+  async voteDay(gameId: bigint): Promise<void> {
+    await this.callDelegated("voteDay", () =>
+      this.contract.callTx.voteDay(gameId)
+    );
+  }
+
+  async revealPlayerRole(
+    gameId: bigint,
+    playerIdx: bigint,
+    role: bigint,
+    salt: Uint8Array,
+  ): Promise<void> {
+    await this.callDelegated("revealPlayerRole", () =>
+      this.contract.callTx.revealPlayerRole(gameId, playerIdx, role, salt)
+    );
+  }
+  // TODO: Implement in the batcher a way of returning the value
+  // resulted from the transaction (aka circuit output)
+  async verifyFairness(
+    gameId: bigint,
+    masterSecret: Uint8Array,
+    playerIdx: bigint,
+    assignedRole: bigint,
+  ): Promise<void> {
+    await this.callDelegated("verifyFairness", () =>
+      this.contract.callTx.verifyFairness(
+        gameId,
+        masterSecret,
+        playerIdx,
+        assignedRole,
+      )
     );
   }
 }

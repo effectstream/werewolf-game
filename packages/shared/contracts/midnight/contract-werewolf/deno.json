@@ -6,10 +6,11 @@
     "./contract": "./src/managed/contract/index.js"
   },
   "tasks": {
-    "compact": "compact compile +0.28.0 src/game.compact src/managed",
-    "compact:fast": "compact compile +0.28.0 --skip-zk src/game.compact src/managed",
+    "compact": "compact compile +0.29.0 src/game.compact src/managed",
+    "compact:fast": "compact compile +0.29.0 --skip-zk src/game.compact src/managed",
     "contract:compile": "deno task compact",
-    "test": "deno -A test/ww.test.ts"
+    "test": "deno -A test/ww.test.ts",
+    "test:simulation": "deno -A test/ww.simulation.ts"
   },
   "imports": {
     "eciesjs": "npm:eciesjs@^0.4.16",

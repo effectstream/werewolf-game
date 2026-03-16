@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
 import { loginMidnight } from "./interface.ts";
+import { GameChat } from "./components/GameChat.tsx";
 import { callWerewolfMethod, connectToContract } from "./contracts/contract.ts";
 import { fromHex } from "@midnight-ntwrk/compact-runtime";
 import {
@@ -8,18 +9,50 @@ import {
   pureCircuits,
 } from "../../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 import { BatcherClient } from "../../../../shared/utils/batcher-client.ts";
+import { werewolfIdCodec } from "../../../../shared/utils/werewolf-id-codec.ts";
 import nacl from "tweetnacl";
+import { useEvmWallet } from "./contexts/EvmWalletContext.tsx";
+import { WalletModal } from "./components/WalletModal.tsx";
+import { BatcherService } from "./services/batcherService.ts";
+import { createWalletClient, custom } from "viem";
+import { hardhat } from "viem/chains";
+
+const NODE_API_URL = "http://localhost:9999";
+const CHAT_SERVER_HTTP_URL =
+  (import.meta.env.VITE_CHAT_SERVER_URL as string | undefined)
+    ?.replace(/^ws/, "http") ?? "http://localhost:3001";
+
+// Component to display game ID with human-readable name and hover tooltip
+function GameIdDisplay({ gameId }: { gameId: bigint | number }) {
+  const readableId = werewolfIdCodec.encode(gameId);
+  const rawId = typeof gameId === "bigint"
+    ? gameId.toString()
+    : gameId.toString();
+
+  return (
+    <span
+      title={`Raw Game ID: ${rawId}`}
+      className="game-id-display"
+      style={{
+        cursor: "help",
+        borderBottom: "1px dotted",
+        borderBottomColor: "#888",
+      }}
+    >
+      {readableId}
+    </span>
+  );
+}
 
 // Suppress Effect version mismatch warnings
 const originalWarn = console.warn;
 console.warn = (...args: any[]) => {
-  const message = args.join(' ');
-  if (message.includes('Executing an Effect versioned')) {
+  const message = args.join(" ");
+  if (message.includes("Executing an Effect versioned")) {
     return; // Suppress this specific warning
   }
   originalWarn.apply(console, args);
 };
-
 
 const MAX_PLAYERS = 16;
 
@@ -97,6 +130,7 @@ type PlayerLocalState = {
   alive: boolean;
   commitment: Uint8Array;
   leaf: Uint8Array;
+  nickname?: string;
 };
 
 type PlayerBundle = {
@@ -142,15 +176,17 @@ type WitnessPrivateState = {
   encryptionKeypair?: { secretKey: Uint8Array; publicKey: Uint8Array };
 };
 
-
 type GameState = {
   gameId: bigint;
   masterSecret: Uint8Array;
   masterSecretCommitment: Uint8Array;
-  /** Nacl box secret key for admin vote decryption */
+  /** Nacl box secret key for admin vote decryption (Curve25519) */
   adminVoteSecretKey: Uint8Array;
   adminVotePublicKeyHex: string;
   adminVotePublicKeyBytes: Uint8Array;
+  /** Nacl sign secret key for votes_for_round request signing (Ed25519) */
+  adminSignSecretKey: Uint8Array;
+  adminSignPublicKeyHex: string;
   players: PlayerLocalState[];
   tree: RuntimeMerkleTree;
   round: number;
@@ -243,13 +279,13 @@ const roleName = (role: number) => {
 const phaseName = (phase: number) => {
   switch (phase) {
     case Phase.Lobby:
-      return "Lobby";
+      return "LOBBY";
     case Phase.Night:
-      return "Night";
+      return "NIGHT";
     case Phase.Day:
-      return "Day";
+      return "DAY";
     case Phase.Finished:
-      return "Finished";
+      return "FINISHED";
     default:
       return `Unknown(${phase})`;
   }
@@ -452,6 +488,16 @@ function App() {
   const [midnightAddress, setMidnightAddress] = useState("");
   const [status, setStatus] = useState<string>("");
   const [error, setError] = useState<string>("");
+
+  // EVM wallet integration
+  const {
+    isConnected: evmConnected,
+    address: evmAddress,
+    wallet: evmWallet,
+    isModalOpen,
+    openModal,
+    closeModal,
+  } = useEvmWallet();
   const [txTimer, setTxTimer] = useState<{
     start: number | null;
     elapsed: number;
@@ -480,6 +526,40 @@ function App() {
   const [dayVoteInputs, setDayVoteInputs] = useState<string[]>([]);
   const [nightEliminationInput, setNightEliminationInput] = useState("0");
   const [dayEliminationInput, setDayEliminationInput] = useState("0");
+  const [copied, setCopied] = useState(false);
+  const [chatRoomReady, setChatRoomReady] = useState(false);
+  // Voter indices who have submitted votes in the current round/phase
+  const [votedPlayerIndices, setVotedPlayerIndices] = useState<number[]>([]);
+  // Track which round:phase keys we have already auto-submitted to avoid double submission
+  // Using a ref so the polling interval does not need to be recreated on each update
+  const autoSubmittedKeysRef = useRef<Set<string>>(new Set());
+  // Progress while the auto-submit loop is sending votes to the contract one-by-one
+  const [submitProgress, setSubmitProgress] = useState<
+    {
+      done: number;
+      total: number;
+    } | null
+  >(null);
+  // Decrypted vote breakdown for the current round (voter → target)
+  const [voteTally, setVoteTally] = useState<
+    { voter: number; target: number }[]
+  >([]);
+  // Human-readable outcome of the last resolved round
+  const [lastOutcome, setLastOutcome] = useState<string | null>(null);
+  // Store player nicknames from the API
+  const [playerNicknames, setPlayerNicknames] = useState<Map<number, string>>(
+    new Map(),
+  );
+  // Track received votes for display (voter index -> target index)
+  const [receivedVotes, setReceivedVotes] = useState<Map<number, number>>(
+    new Map(),
+  );
+
+  // Helper function to get player display name (nickname or "Player X")
+  const getPlayerName = (playerId: number): string => {
+    const nickname = playerNicknames.get(playerId);
+    return nickname || `Player ${playerId}`;
+  };
 
   const runtimeWitnesses = useMemo(
     () => ({
@@ -501,12 +581,6 @@ function App() {
         const id = String(gameId);
         throw new Error(
           `Witness not configured in frontend (encrypted role ${n} for ${id}).`,
-        );
-      },
-      wit_getAdminKey: (_: unknown, gameId: number | bigint) => {
-        const id = String(gameId);
-        throw new Error(
-          `Witness not configured in frontend (admin key for ${id}).`,
         );
       },
       wit_getInitialRoot: (_: unknown, gameId: number | bigint) => {
@@ -583,6 +657,313 @@ function App() {
     }, 1000);
     return () => globalThis.clearInterval(intervalId);
   }, [txTimer.start]);
+
+  const fetchPlayerNicknames = async (gameId: bigint) => {
+    try {
+      const res = await fetch(
+        `${NODE_API_URL}/api/game_players?gameId=${gameId}`,
+      );
+      if (!res.ok) return;
+      const data = await res.json() as {
+        players: { playerId: number; nickname: string }[];
+      };
+      const nicknameMap = new Map<number, string>();
+      for (const p of data.players) {
+        if (p.playerId !== undefined && p.nickname) {
+          nicknameMap.set(p.playerId, p.nickname);
+        }
+      }
+      setPlayerNicknames(nicknameMap);
+    } catch (err) {
+      console.error("Failed to fetch player nicknames:", err);
+    }
+  };
+
+  // Poll /api/vote_status every 6 seconds. When all alive players have submitted
+  // encrypted votes, fetch them, decrypt each with adminVoteSecretKey + player's
+  // encKeypair.publicKey, then stage + submit each via the batcher (nightAction /
+  // voteDay). This mirrors handleSubmitNightActions / handleSubmitDayVotes but uses
+  // the player-submitted targets from the DB instead of manual UI inputs.
+  useEffect(() => {
+    if (
+      !game || game.phase === Phase.Finished ||
+      !midnightWallet?.contract?.werewolf
+    ) {
+      return;
+    }
+
+    const phaseStr = game.phase === Phase.Night ? "NIGHT" : "DAY";
+    const pollKey = `${game.gameId}:${game.round}:${phaseStr}`;
+
+    // Fetch player nicknames when game changes
+    void fetchPlayerNicknames(game.gameId);
+
+    // Clear per-round state when entering a new round/phase
+    setVotedPlayerIndices([]);
+    setVoteTally([]);
+    setReceivedVotes(new Map());
+    setSubmitProgress(null);
+    setLastOutcome(null);
+
+    const poll = async () => {
+      try {
+        // Always fetch current votes so the UI stays up to date.
+        // Sign the request with the admin Ed25519 signing key so the server can
+        // authenticate the moderator before returning sensitive vote data.
+        const pollTimestamp = Math.floor(Date.now() / 1000);
+        const pollMsg = new TextEncoder().encode(
+          `${game.round}:${phaseStr}:${pollTimestamp}`,
+        );
+        const pollSig = nacl.sign.detached(pollMsg, game.adminSignSecretKey);
+        const pollSigHex = bytesToHex(pollSig);
+        const votesRes = await fetch(
+          `${NODE_API_URL}/api/votes_for_round?gameId=${game.gameId}&round=${game.round}&phase=${
+            encodeURIComponent(phaseStr)
+          }&timestamp=${pollTimestamp}&signature=${pollSigHex}`,
+        );
+        if (!votesRes.ok) {
+          if (votesRes.status === 403) {
+            console.warn(
+              "[poll] votes_for_round returned 403 — signature invalid or timestamp expired.",
+            );
+          }
+          return;
+        }
+        const { votes } = await votesRes.json() as {
+          votes: {
+            voterIndex: number;
+            encryptedVoteHex: string;
+            merklePathJson: string;
+          }[];
+        };
+
+        // Update which players have voted so the UI can show it
+        setVotedPlayerIndices(votes.map((v) => v.voterIndex));
+
+        // Decrypt and display votes as they come in (even before all votes are in)
+        const receivedVotesMap = new Map<number, number>();
+        for (const vote of votes) {
+          const player = game.players.find((p) => p.id === vote.voterIndex);
+          if (!player || !player.alive) continue;
+
+          // Decrypt the vote to show target
+          const cipherHex = vote.encryptedVoteHex.startsWith("0x")
+            ? vote.encryptedVoteHex.slice(2)
+            : vote.encryptedVoteHex;
+          const cipherBytes = new Uint8Array(
+            cipherHex.match(/.{2}/g)!.map((h: string) => parseInt(h, 16)),
+          );
+          // Derive the player's Curve25519 public key from their leafSecret (sk).
+          // voteService.ts uses sk directly as the private key, so scalarMult.base(sk)
+          // gives the matching public key for the Diffie-Hellman shared-secret derivation.
+          const sessionKey = deriveSessionKey(
+            game.adminVoteSecretKey,
+            nacl.scalarMult.base(player.sk),
+            game.round,
+          );
+          const plaintext = xorPayload(cipherBytes.slice(0, 3), sessionKey);
+          const { target: targetIdx, round: voteRound } = unpackData(plaintext);
+
+          if (voteRound === game.round) {
+            receivedVotesMap.set(vote.voterIndex, targetIdx);
+          }
+        }
+        setReceivedVotes(receivedVotesMap);
+
+        // Only auto-submit once per round/phase when all alive players have voted
+        if (autoSubmittedKeysRef.current.has(pollKey)) return;
+
+        const alivePlayerCount = game.players.filter((p) => p.alive).length;
+        if (alivePlayerCount === 0 || votes.length < alivePlayerCount) return;
+
+        // Mark as submitted before async work to prevent race conditions
+        autoSubmittedKeysRef.current.add(pollKey);
+
+        console.log(
+          `[autoVote] All ${votes.length}/${alivePlayerCount} votes in for ${phaseStr} round ${game.round}. Fetching and submitting.`,
+        );
+
+        const targets: number[] = [];
+        const tallyEntries: { voter: number; target: number }[] = [];
+        const batcherClient = getBatcherClient();
+
+        // Determine how many valid votes we'll process for the progress indicator
+        const validVoteCount = votes.filter((v) =>
+          game.players.find((p) =>
+            p.id === v.voterIndex && p.alive
+          )
+        ).length;
+        setSubmitProgress({ done: 0, total: validVoteCount });
+
+        for (const vote of votes) {
+          const player = game.players.find((p) => p.id === vote.voterIndex);
+          if (!player || !player.alive) continue;
+
+          // Decrypt the stored encrypted vote to recover the target index
+          const cipherHex = vote.encryptedVoteHex.startsWith("0x")
+            ? vote.encryptedVoteHex.slice(2)
+            : vote.encryptedVoteHex;
+          const cipherBytes = new Uint8Array(
+            cipherHex.match(/.{2}/g)!.map((h: string) => parseInt(h, 16)),
+          );
+          // Derive the player's Curve25519 public key from their leafSecret (sk).
+          // voteService.ts uses sk directly as the private key, so scalarMult.base(sk)
+          // gives the matching public key for the Diffie-Hellman shared-secret derivation.
+          const sessionKey = deriveSessionKey(
+            game.adminVoteSecretKey,
+            nacl.scalarMult.base(player.sk),
+            game.round,
+          );
+          const plaintext = xorPayload(cipherBytes.slice(0, 3), sessionKey);
+          const { target: targetIdx, round: voteRound } = unpackData(plaintext);
+
+          if (voteRound !== game.round) {
+            console.warn(
+              `[autoVote] Vote round mismatch: expected ${game.round}, got ${voteRound}`,
+            );
+            continue;
+          }
+
+          const path = game.tree.getProof(player.id, player.leaf);
+          await stageNextAction(
+            game.gameId,
+            {
+              targetNumber: targetIdx,
+              random: Math.floor(Math.random() * 1000),
+              merklePath: path,
+              leafSecret: player.sk,
+            },
+            player.encKeypair,
+            game.adminVotePublicKeyBytes,
+          );
+
+          if (game.phase === Phase.Night) {
+            await batcherClient.nightAction(game.gameId);
+          } else {
+            await batcherClient.voteDay(game.gameId);
+          }
+
+          targets.push(targetIdx);
+          tallyEntries.push({ voter: vote.voterIndex, target: targetIdx });
+          setSubmitProgress({
+            done: tallyEntries.length,
+            total: validVoteCount,
+          });
+        }
+
+        setVoteTally(tallyEntries);
+        setSubmitProgress(null);
+
+        if (game.phase === Phase.Night) {
+          setNightVotes(targets);
+          setStatus(
+            `[Auto] Night actions submitted for ${targets.length} players.`,
+          );
+        } else {
+          setDayVotes(targets);
+          setStatus(
+            `[Auto] Day votes submitted for ${targets.length} players.`,
+          );
+        }
+
+        // Auto-resolve: wait briefly for ledger to settle then resolve the phase
+        if (targets.length > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+
+          const isNight = game.phase === Phase.Night;
+          const result = resolveVotes(targets, game.players, isNight);
+          const hasDeath = result.hasElimination &&
+            aliveCount(game.players) > 1;
+          const resolvedTargetIdx = result.targetIdx;
+
+          if (isNight) {
+            await batcherClient.resolveNight(
+              game.gameId,
+              BigInt(game.round + 1),
+              BigInt(resolvedTargetIdx),
+              hasDeath,
+              game.tree.getRoot(),
+            );
+            const nextPlayers = game.players.map((p) =>
+              hasDeath && p.id === resolvedTargetIdx
+                ? { ...p, alive: false }
+                : p
+            );
+            const outcome = getOutcome(nextPlayers);
+            setGame((prev) => {
+              if (
+                !prev || prev.round !== game.round || prev.phase !== game.phase
+              ) return prev;
+              return {
+                ...prev,
+                players: nextPlayers,
+                phase: outcome ? Phase.Finished : Phase.Day,
+              };
+            });
+            setNightVotes([]);
+            setLastOutcome(
+              `Night ${game.round}: ${getPlayerName(resolvedTargetIdx)} ${
+                hasDeath ? "died" : "survived"
+              } — ${result.info}`,
+            );
+            setStatus(
+              outcome
+                ? `[Auto] Night resolved. ${result.info} ${outcome} Game finished.`
+                : `[Auto] Night resolved. ${result.info} ${
+                  getPlayerName(resolvedTargetIdx)
+                } ${hasDeath ? "died" : "survived"}.`,
+            );
+          } else {
+            await batcherClient.resolveDay(
+              game.gameId,
+              BigInt(resolvedTargetIdx),
+              hasDeath,
+            );
+            const nextPlayers = game.players.map((p) =>
+              hasDeath && p.id === resolvedTargetIdx
+                ? { ...p, alive: false }
+                : p
+            );
+            const outcome = getOutcome(nextPlayers);
+            setGame((prev) => {
+              if (
+                !prev || prev.round !== game.round || prev.phase !== game.phase
+              ) return prev;
+              return {
+                ...prev,
+                players: nextPlayers,
+                round: prev.round + 1,
+                phase: outcome ? Phase.Finished : Phase.Night,
+              };
+            });
+            setDayVotes([]);
+            setLastOutcome(
+              `Day ${game.round}: ${getPlayerName(resolvedTargetIdx)} ${
+                hasDeath ? "eliminated" : "survived"
+              } — ${result.info}`,
+            );
+            setStatus(
+              outcome
+                ? `[Auto] Day resolved. ${result.info} ${outcome} Game finished.`
+                : `[Auto] Day resolved. ${result.info} ${
+                  getPlayerName(resolvedTargetIdx)
+                } ${hasDeath ? "eliminated" : "survived"}.`,
+            );
+          }
+        }
+      } catch (err: any) {
+        console.error("[autoVote] Failed:", err);
+      }
+    };
+
+    const intervalId = globalThis.setInterval(poll, 6000);
+    return () => globalThis.clearInterval(intervalId);
+  }, [
+    game?.gameId,
+    game?.round,
+    game?.phase,
+    midnightWallet?.contract?.werewolf,
+  ]);
 
   const parseBytes32 = (value: string, label: string) => {
     const trimmed = value.trim();
@@ -850,20 +1231,13 @@ function App() {
     if (!votesMap || typeof votesMap.member !== "function") {
       throw new Error("Ledger roundEncryptedVotes map not available.");
     }
-    const roundPrefix = padBytes32(
-      phase === Phase.Day ? "day-round" : "night-round",
-    );
-    const gameIdBytes = (runtimeContract as any)._persistentHash_3(gameId);
-    const roundHash = runtimeContract._persistentHash_3(BigInt(round));
-    const countKey = runtimeContract._hash2_0(
-      (runtimeContract as any)._hash2_0(gameIdBytes, roundPrefix),
-      roundHash,
-    );
+    const roundKey = { gameId: gameId, round: BigInt(round) };
     const emptyVote = new Uint8Array(3); // Bytes<3>
-    if (!votesMap.member(countKey)) {
+    if (!votesMap.member(roundKey)) {
       return Array.from({ length: MAX_PLAYERS }, () => emptyVote);
     }
-    const roundVec = votesMap.lookup(countKey) as Uint8Array[];
+    const roundVec2 = votesMap.lookup(roundKey) as Uint8Array[][];
+    const roundVec = phase === Phase.Night ? roundVec2[0] : roundVec2[1];
     return Array.from(
       { length: MAX_PLAYERS },
       (_, idx) => roundVec[idx] ?? emptyVote,
@@ -990,6 +1364,18 @@ function App() {
     return args.map((value, idx) => normalizeLedgerArg(value, `arg${idx + 1}`));
   };
 
+  const getBatcherClient = () => {
+    if (
+      !midnightWallet?.contract?.werewolf || !midnightProviders?.walletProvider
+    ) {
+      throw new Error("Midnight wallet or providers not ready.");
+    }
+    return new BatcherClient(
+      midnightWallet.contract.werewolf,
+      midnightProviders.walletProvider,
+    );
+  };
+
   const handleLedgerMapCall = (
     method: "isEmpty" | "size" | "member" | "lookup" | "iterator",
   ) => {
@@ -1074,12 +1460,15 @@ function App() {
     }
   };
 
-
   const handleCreateGame = async () => {
     setError("");
     setStatus("");
     if (!midnightWallet?.contract?.werewolf) {
       setError("Connect Midnight wallet first.");
+      return;
+    }
+    if (!evmConnected || !evmAddress) {
+      setError("Connect EVM wallet first.");
       return;
     }
 
@@ -1095,12 +1484,23 @@ function App() {
         playerCount - 1,
       );
 
+      if (playerCount < 5) {
+        throw new Error("Minimum 5 players required.");
+      }
+      if (werewolfCount < 2) {
+        throw new Error("Minimum 2 werewolves required.");
+      }
+
       const adminKeyBytes = getAdminKeyBytes();
       const gameId = randomGameId();
       const adminVoteKeypair = nacl.box.keyPair();
       const adminVotePublicKeyBytes = new Uint8Array(33);
       adminVotePublicKeyBytes.set(adminVoteKeypair.publicKey);
       const adminVotePublicKeyHex = bytesToHex(adminVotePublicKeyBytes);
+      // Separate Ed25519 signing keypair for authenticating votes_for_round requests.
+      // Must NOT use adminVoteKeypair (Curve25519) with nacl.sign — incompatible key types.
+      const adminSignKeypair = nacl.sign.keyPair();
+      const adminSignPublicKeyHex = bytesToHex(adminSignKeypair.publicKey);
       const masterSecret = randomBytes32();
       const masterSecretCommitment = new Uint8Array(
         pureCircuits.testComputeHash(masterSecret),
@@ -1145,6 +1545,55 @@ function App() {
       );
       const initialRoot = tree.getRoot();
 
+      // Compute player bundles inline so they can be sent to the Node API
+      // immediately, before setGame() is called (which would update the useMemo).
+      const bundlesToSend: PlayerBundle[] = players.map((player) => {
+        const proof = tree.getProof(player.id, player.leaf);
+        return {
+          gameId: gameId.toString(),
+          playerId: player.id,
+          leafSecret: bytesToHex(player.sk),
+          merklePath: proof.path.map((entry) => ({
+            sibling: { field: entry.sibling.field.toString() },
+            goes_left: entry.goes_left,
+          })),
+          adminVotePublicKeyHex,
+          role: player.role,
+        } satisfies PlayerBundle;
+      });
+
+      // --- Pretty Logging for Game Setup ---
+      console.group("🎲 Game Setup Details");
+      console.log("Game ID:", gameId.toString());
+      console.log("Game Phrase:", werewolfIdCodec.encode(gameId));
+      console.log(
+        "Master Secret Commitment:",
+        bytesToHex(masterSecretCommitment),
+      );
+      console.log(
+        "Merkle Tree Root:",
+        bytesToHex(
+          new Uint8Array(
+            pureCircuits.testComputeHash(
+              fromHex(initialRoot.field.toString(16).padStart(64, "0")),
+            ),
+          ),
+        ),
+      ); // Actually the root field itself is more useful
+      console.log("Merkle Tree Root Field:", initialRoot.field.toString());
+
+      const playerLogs = players.map((p) => ({
+        ID: p.id,
+        Role: roleName(p.role),
+        "Public Key": bytesToHex(p.pk).slice(0, 10) + "...",
+        "Secret Key": bytesToHex(p.sk).slice(0, 10) + "...",
+        "Enc PubKey": bytesToHex(p.encKeypair.publicKey).slice(0, 10) + "...",
+        Commitment: bytesToHex(p.commitment).slice(0, 10) + "...",
+        Leaf: bytesToHex(p.leaf).slice(0, 10) + "...",
+      }));
+      console.table(playerLogs);
+      console.groupEnd();
+
       await stageSetupData(
         gameId,
         adminKeyBytes,
@@ -1155,10 +1604,7 @@ function App() {
 
       setStatus("Creating game (via batcher)…");
 
-      const batcherClient = new BatcherClient(
-        midnightWallet.contract.werewolf,
-        midnightProviders.walletProvider,
-      );
+      const batcherClient = getBatcherClient();
       await batcherClient.createGame(
         gameId,
         adminVotePublicKeyBytes,
@@ -1167,6 +1613,91 @@ function App() {
         BigInt(werewolfCount),
       );
 
+      // Create an EIP-1193 compatible wrapper for the Paima wallet provider.
+      const providerConnection = evmWallet?.provider.getConnection() as {
+        api: {
+          request: (args: { method: string; params?: any[] }) => Promise<any>;
+        };
+      } | undefined;
+      console.log("Provider connection:", providerConnection);
+
+      if (!providerConnection) {
+        throw new Error(
+          "EVM wallet provider not available. Please reconnect your wallet.",
+        );
+      }
+
+      const evmProvider = {
+        request: async (
+          { method, params }: { method: string; params?: any[] },
+        ) => {
+          console.log("EIP-1193 request:", method, params);
+          return await providerConnection.api.request({ method, params });
+        },
+      };
+
+      const walletApiClient = createWalletClient({
+        account: evmAddress as `0x${string}`,
+        chain: hardhat,
+        transport: custom(evmProvider),
+      });
+
+      setStatus("Registering game with backend…");
+      const apiResponse = await fetch(
+        `${NODE_API_URL}/api/create_game`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            gameId: gameId.toString(),
+            maxPlayers: playerCount,
+            adminSignPublicKeyHex,
+            playerBundles: bundlesToSend,
+          }),
+        },
+      );
+
+      if (!apiResponse.ok) {
+        throw new Error(
+          `API registration failed: ${apiResponse.status} ${apiResponse.statusText}`,
+        );
+      }
+
+      const apiData = await apiResponse.json();
+      console.log("API Response:", apiData);
+
+      // Create game on EVM chain via batcher (paimaL2 target)
+      setStatus("Creating game on EVM chain via batcher…");
+
+      // Send to batcher with target "paimaL2"
+      await BatcherService.createGame(
+        evmAddress,
+        gameId,
+        playerCount,
+        ({ message }) =>
+          walletApiClient.signMessage({ message: message as any }),
+      );
+
+      console.log("Game created on EVM chain via batcher");
+
+      // Pre-invite the moderator (trusted node) into the game chat room.
+      // Must succeed before <GameChat> is mounted — we gate on chatRoomReady.
+      setStatus("Creating chat room…");
+      const chatRes = await fetch(`${CHAT_SERVER_HTTP_URL}/create-room`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId: Number(gameId),
+          moderatorHash: midnightAddress,
+        }),
+      });
+      if (!chatRes.ok) {
+        throw new Error(
+          `Chat server error: ${chatRes.status} ${await chatRes.text()}`,
+        );
+      }
+      setChatRoomReady(true);
+
       setGame({
         gameId,
         masterSecret,
@@ -1174,6 +1705,8 @@ function App() {
         adminVoteSecretKey: adminVoteKeypair.secretKey,
         adminVotePublicKeyHex,
         adminVotePublicKeyBytes,
+        adminSignSecretKey: adminSignKeypair.secretKey,
+        adminSignPublicKeyHex,
         players,
         tree,
         round: 1,
@@ -1193,7 +1726,13 @@ function App() {
       setDayEliminationInput("0");
       setRevealPlayerIdx(0);
       setStatus(
-        `Game created.\n\nGameId: ${gameId}\nPlayers: ${playerCount}\nWerewolves: ${werewolfCount}`,
+        `Game created successfully.
+
+GameId: ${werewolfIdCodec.encode(gameId)}
+Players: ${playerCount}
+Werewolves: ${werewolfCount}
+Midnight: ✅
+EVM: ✅`,
       );
     } catch (e: any) {
       console.error("Create game failed:", e);
@@ -1272,11 +1811,8 @@ function App() {
           player.encKeypair,
           game.adminVotePublicKeyBytes,
         );
-        await callWerewolfMethod(
-          midnightWallet.contract.werewolf,
-          "nightAction",
-          [game.gameId],
-        );
+        const batcherClient = getBatcherClient();
+        await batcherClient.nightAction(game.gameId);
         targets.push(decodeVoteTarget(payloadBytes));
       }
 
@@ -1311,10 +1847,7 @@ function App() {
         const hasDeath = aliveCount(game.players) > 1 &&
           game.players[targetIdx]?.alive;
 
-        const batcherClient = new BatcherClient(
-          midnightWallet.contract.werewolf,
-          midnightProviders.walletProvider,
-        );
+        const batcherClient = getBatcherClient();
         await batcherClient.resolveNight(
           game.gameId,
           BigInt(game.round + 1),
@@ -1331,14 +1864,22 @@ function App() {
         setGame({
           ...game,
           players: nextPlayers,
-          round: game.round + 1,
           phase: outcome ? Phase.Finished : Phase.Day,
         });
         setNightVotes([]);
+        setLastOutcome(
+          `Night ${game.round}: ${getPlayerName(targetIdx)} ${
+            hasDeath ? "died" : "survived"
+          } — Trusted node override.`,
+        );
         setStatus(
           outcome
-            ? `Night resolved. Trusted node eliminated P${targetIdx}. ${outcome}`
-            : `Night resolved. Trusted node eliminated P${targetIdx}.`,
+            ? `Night resolved. Trusted node eliminated ${
+              getPlayerName(targetIdx)
+            }. ${outcome}`
+            : `Night resolved. Trusted node eliminated ${
+              getPlayerName(targetIdx)
+            }.`,
         );
         return;
       }
@@ -1380,10 +1921,7 @@ function App() {
       const hasDeath = result.hasElimination && aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
 
-      const batcherClient = new BatcherClient(
-        midnightWallet.contract.werewolf,
-        midnightProviders.walletProvider,
-      );
+      const batcherClient = getBatcherClient();
       await batcherClient.resolveNight(
         game.gameId,
         BigInt(game.round + 1),
@@ -1400,14 +1938,18 @@ function App() {
       setGame({
         ...game,
         players: nextPlayers,
-        round: game.round + 1,
         phase: outcome ? Phase.Finished : Phase.Day,
       });
       setNightVotes([]);
+      setLastOutcome(
+        `Night ${game.round}: ${getPlayerName(targetIdx)} ${
+          hasDeath ? "died" : "survived"
+        } — ${result.info}`,
+      );
       setStatus(
         outcome
           ? `Night resolved. ${result.info} ${outcome} Game finished.`
-          : `Night resolved. ${result.info} Player ${targetIdx} ${
+          : `Night resolved. ${result.info} ${getPlayerName(targetIdx)} ${
             hasDeath ? "died" : "survived"
           }.`,
       );
@@ -1466,9 +2008,8 @@ function App() {
           player.encKeypair,
           game.adminVotePublicKeyBytes,
         );
-        await callWerewolfMethod(midnightWallet.contract.werewolf, "voteDay", [
-          game.gameId,
-        ]);
+        const batcherClient = getBatcherClient();
+        await batcherClient.voteDay(game.gameId);
         targets.push(decodeVoteTarget(payloadBytes));
       }
 
@@ -1514,11 +2055,8 @@ function App() {
         playerProfile.encKeypair,
         hexToBytes(playerProfile.adminVotePublicKeyHex),
       );
-      await callWerewolfMethod(
-        midnightWallet.contract.werewolf,
-        "nightAction",
-        [playerProfile.gameId],
-      );
+      const batcherClient = getBatcherClient();
+      await batcherClient.nightAction(playerProfile.gameId);
 
       setPlayerLastEncryptedHex("");
       setStatus("Night action submitted.");
@@ -1561,11 +2099,8 @@ function App() {
         playerProfile.encKeypair,
         hexToBytes(playerProfile.adminVotePublicKeyHex),
       );
-      await callWerewolfMethod(
-        midnightWallet.contract.werewolf,
-        "voteDay",
-        [playerProfile.gameId],
-      );
+      const batcherClient = getBatcherClient();
+      await batcherClient.voteDay(playerProfile.gameId);
 
       setPlayerLastEncryptedHex("");
       setStatus("Day vote submitted.");
@@ -1595,10 +2130,7 @@ function App() {
         const hasElimination = aliveCount(game.players) > 1 &&
           game.players[targetIdx]?.alive;
 
-        const batcherClient = new BatcherClient(
-          midnightWallet.contract.werewolf,
-          midnightProviders.walletProvider,
-        );
+        const batcherClient = getBatcherClient();
         await batcherClient.resolveDay(
           game.gameId,
           BigInt(targetIdx),
@@ -1613,13 +2145,23 @@ function App() {
         setGame({
           ...game,
           players: nextPlayers,
+          round: game.round + 1,
           phase: outcome ? Phase.Finished : Phase.Night,
         });
         setDayVotes([]);
+        setLastOutcome(
+          `Day ${game.round}: ${getPlayerName(targetIdx)} ${
+            hasElimination ? "eliminated" : "survived"
+          } — Trusted node override.`,
+        );
         setStatus(
           outcome
-            ? `Day resolved. Trusted node eliminated P${targetIdx}. ${outcome}`
-            : `Day resolved. Trusted node eliminated P${targetIdx}.`,
+            ? `Day resolved. Trusted node eliminated ${
+              getPlayerName(targetIdx)
+            }. ${outcome}`
+            : `Day resolved. Trusted node eliminated ${
+              getPlayerName(targetIdx)
+            }.`,
         );
         return;
       }
@@ -1658,10 +2200,7 @@ function App() {
       const hasElimination = result.hasElimination &&
         aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
-      const batcherClient = new BatcherClient(
-        midnightWallet.contract.werewolf,
-        midnightProviders.walletProvider,
-      );
+      const batcherClient = getBatcherClient();
       await batcherClient.resolveDay(
         game.gameId,
         BigInt(targetIdx),
@@ -1676,13 +2215,19 @@ function App() {
       setGame({
         ...game,
         players: nextPlayers,
+        round: game.round + 1,
         phase: outcome ? Phase.Finished : Phase.Night,
       });
       setDayVotes([]);
+      setLastOutcome(
+        `Day ${game.round}: ${getPlayerName(targetIdx)} ${
+          hasElimination ? "eliminated" : "survived"
+        } — ${result.info}`,
+      );
       setStatus(
         outcome
           ? `Day resolved. ${result.info} ${outcome} Game finished.`
-          : `Day resolved. ${result.info} Player ${targetIdx} ${
+          : `Day resolved. ${result.info} ${getPlayerName(targetIdx)} ${
             hasElimination ? "eliminated" : "survived"
           }.`,
       );
@@ -1711,15 +2256,12 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
-      await callWerewolfMethod(
-        midnightWallet.contract.werewolf,
-        "revealPlayerRole",
-        [
-          game.gameId,
-          BigInt(player.id),
-          BigInt(player.role),
-          player.salt,
-        ],
+      const batcherClient = getBatcherClient();
+      await batcherClient.revealPlayerRole(
+        game.gameId,
+        BigInt(player.id),
+        BigInt(player.role),
+        player.salt,
       );
       setStatus(`Revealed player ${player.id} role: ${roleName(player.role)}.`);
     } catch (e: any) {
@@ -1747,6 +2289,8 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
+      // Use direct local call for verification to get the return value immediately.
+      // TODO: Batcher delegation swallows the return value.
       const result = await callWerewolfMethod(
         midnightWallet.contract.werewolf,
         "verifyFairness",
@@ -1778,10 +2322,7 @@ function App() {
     setLoading(true);
     setTxTimer({ start: Date.now(), elapsed: 0 });
     try {
-      const batcherClient = new BatcherClient(
-        midnightWallet.contract.werewolf,
-        midnightProviders.walletProvider,
-      );
+      const batcherClient = getBatcherClient();
       await batcherClient.forceEndGame(game.gameId, game.masterSecret);
       setGame({ ...game, phase: Phase.Finished });
       setStatus("Force ended the game (via batcher).");
@@ -1796,6 +2337,7 @@ function App() {
 
   const handleResetGame = () => {
     setGame(null);
+    setChatRoomReady(false);
     setNightVotes([]);
     setDayVotes([]);
     setNightVoteInputs([]);
@@ -1806,307 +2348,486 @@ function App() {
     setStatus("Game state cleared.");
   };
 
+  const handleCopyGameCode = async () => {
+    if (!game) return;
+    const gameCode = werewolfIdCodec.encode(game.gameId);
+    try {
+      await navigator.clipboard.writeText(gameCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy game code:", err);
+      setError("Failed to copy game code to clipboard.");
+    }
+  };
+
   return (
     <div className="page">
-      <div className="card">
-        <div className="title">Midnight dApp</div>
-        <div className="subtitle">Werewolf game (Trusted Node view)</div>
+      <div className="app-container">
+        <div className="main-content">
+          <div className="card">
+            <div className="title">Midnight dApp</div>
+            <div className="subtitle">Werewolf game (Trusted Node view)</div>
 
-        <div className="actions">
-          <button
-            type="button"
-            className="btn"
-            onClick={handleConnectMidnight}
-            disabled={loading || Boolean(midnightAddress)}
-            title={midnightAddress ? "Wallet already connected" : undefined}
-          >
-            {midnightAddress
-              ? "Midnight Wallet Connected"
-              : "Connect Midnight Wallet"}
-          </button>
-
-          <button
-            type="button"
-            className="btn"
-            onClick={handleAddFunds}
-            disabled={loading || !midnightAddress}
-            title={!midnightAddress ? "Connect wallet first" : undefined}
-          >
-            Add funds
-          </button>
-
-          <button
-            type="button"
-            className="btn"
-            onClick={handleRefreshLedgerState}
-            disabled={loading || !midnightAddress}
-            title={!midnightAddress ? "Connect wallet first" : undefined}
-          >
-            Refresh ledger
-          </button>
-        </div>
-
-        {game && (
-          <div className="info">
-            <div className="label">Game info</div>
-            <div className="mono">
-              {`GameId: 0x${game.gameId.toString()}\nRound: ${game.round}\nPhase: ${
-                phaseName(game.phase)
-              }\nPlayers: ${game.playerCount}\nWerewolves: ${game.werewolfCount}`}
-            </div>
-          </div>
-        )}
-
-        <div className="columns">
-          <div className="column">
-            <div className="column-title">Trusted Node</div>
-            <div className="form">
-              <div className="label">Game setup</div>
-              <div className="field">
-                <div className="label">Players (max {MAX_PLAYERS})</div>
-                <input
-                  className="input"
-                  type="number"
-                  min={2}
-                  max={MAX_PLAYERS}
-                  value={playerCountInput}
-                  onChange={(event) => setPlayerCountInput(event.target.value)}
-                  disabled={loading}
-                />
+            {game && (
+              <div className="game-code-banner">
+                <div className="game-code-label">Game Code</div>
+                <div className="game-code-container">
+                  <span className="game-code-text">
+                    {werewolfIdCodec.encode(game.gameId)}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-copy"
+                    onClick={handleCopyGameCode}
+                    disabled={loading}
+                    title="Copy game code to clipboard"
+                  >
+                    {copied ? "✓ Copied!" : "📋 Copy"}
+                  </button>
+                </div>
               </div>
-              <div className="field">
-                <div className="label">Werewolves</div>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={MAX_PLAYERS - 1}
-                  value={werewolfCountInput}
-                  onChange={(event) =>
-                    setWerewolfCountInput(event.target.value)}
-                  disabled={loading}
-                />
-              </div>
+            )}
 
+            <div className="actions">
               <button
                 type="button"
-                className="btn btn-primary"
-                onClick={handleCreateGame}
-                disabled={loading || !midnightAddress}
-                title={!midnightAddress ? "Connect wallet first" : undefined}
+                className="btn"
+                onClick={handleConnectMidnight}
+                disabled={loading || Boolean(midnightAddress)}
+                title={midnightAddress ? "Wallet already connected" : undefined}
               >
-                Create + setup game
+                {midnightAddress
+                  ? "Midnight Wallet Connected"
+                  : "Connect Midnight Wallet"}
               </button>
 
               <button
                 type="button"
                 className="btn"
-                onClick={handleResetGame}
-                disabled={loading}
+                onClick={openModal}
+                disabled={loading || Boolean(evmAddress)}
+                title={evmAddress ? "Wallet already connected" : undefined}
               >
-                Reset local game state
+                {evmAddress ? "EVM Wallet Connected" : "Connect EVM Wallet"}
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                onClick={handleAddFunds}
+                disabled={loading || !midnightAddress}
+                title={!midnightAddress ? "Connect wallet first" : undefined}
+              >
+                Add funds
+              </button>
+
+              <button
+                type="button"
+                className="btn"
+                onClick={handleRefreshLedgerState}
+                disabled={loading || !midnightAddress}
+                title={!midnightAddress ? "Connect wallet first" : undefined}
+              >
+                Refresh ledger
               </button>
             </div>
 
             {game && (
-              <div className="form">
-                <div className="label">Night resolution</div>
-                <div className="field">
-                  <div className="label">Eliminate player index</div>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={game.players.length - 1}
-                    value={nightEliminationInput}
-                    onChange={(event) =>
-                      setNightEliminationInput(event.target.value)}
-                    disabled={loading}
-                  />
+              <div className="info">
+                <div className="label">Game info</div>
+                <div className="mono">
+                  {`GameId: `}
+                  <GameIdDisplay gameId={game.gameId} />
+                  {"\n"}
+                  {`Round: ${game.round}\nPhase: ${
+                    phaseName(game.phase)
+                  }\nPlayers: ${game.playerCount}\nWerewolves: ${game.werewolfCount}`}
                 </div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleResolveNight}
-                  disabled={loading || game.phase !== Phase.Night}
-                >
-                  Resolve night
-                </button>
               </div>
             )}
 
-            {game && (
-              <div className="form">
-                <div className="label">Day resolution</div>
-                <div className="field">
-                  <div className="label">Eliminate player index</div>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={game.players.length - 1}
-                    value={dayEliminationInput}
-                    onChange={(event) =>
-                      setDayEliminationInput(event.target.value)}
-                    disabled={loading}
-                  />
-                </div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleResolveDay}
-                  disabled={loading || game.phase !== Phase.Day}
-                >
-                  Resolve day
-                </button>
-              </div>
-            )}
-
-            {game && (
-              <div className="form">
-                <div className="label">Admin control</div>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={handleForceEndGame}
-                  disabled={loading}
-                >
-                  Force end game
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="column">
-            <div className="column-title">Player Votes</div>
-            {game
-              ? (
-                <>
-                  <div className="form">
-                    <div className="label">Night votes</div>
-                    {game.players.map((player) => (
-                      <div className="field" key={`night-${player.id}`}>
-                        <div className="label">
-                          P{player.id} {player.alive ? "(alive)" : "(dead)"}
-                        </div>
-                        <input
-                          className="input"
-                          type="number"
-                          min={0}
-                          max={game.players.length - 1}
-                          value={nightVoteInputs[player.id] ?? "0"}
-                          onChange={(event) =>
-                            setNightVoteInputs((prev) => {
-                              const next = normalizeVoteInputs(
-                                prev,
-                                game.players.length,
-                              );
-                              next[player.id] = event.target.value;
-                              return next;
-                            })}
-                          disabled={loading || !player.alive}
-                        />
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      onClick={handleSubmitNightActions}
-                      disabled={loading || game.phase !== Phase.Night}
-                    >
-                      Submit night actions
-                    </button>
-                    {nightVotes.length > 0 && (
-                      <div className="mono">
-                        Night votes: {nightVotes.join(", ")}
-                      </div>
-                    )}
+            <div className="columns">
+              <div className="column">
+                <div className="column-title">Trusted Node</div>
+                <div className="form">
+                  <div className="label">Game setup</div>
+                  <div className="field">
+                    <div className="label">Players (max {MAX_PLAYERS})</div>
+                    <input
+                      className="input"
+                      type="number"
+                      min={2}
+                      max={MAX_PLAYERS}
+                      value={playerCountInput}
+                      onChange={(event) =>
+                        setPlayerCountInput(event.target.value)}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="field">
+                    <div className="label">Werewolves</div>
+                    <input
+                      className="input"
+                      type="number"
+                      min={1}
+                      max={MAX_PLAYERS - 1}
+                      value={werewolfCountInput}
+                      onChange={(event) =>
+                        setWerewolfCountInput(event.target.value)}
+                      disabled={loading}
+                    />
                   </div>
 
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={handleCreateGame}
+                    disabled={loading || !midnightAddress || !evmConnected}
+                    title={!midnightAddress || !evmConnected
+                      ? "Connect both wallets first"
+                      : undefined}
+                  >
+                    Create + setup game
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={handleResetGame}
+                    disabled={loading}
+                  >
+                    Reset local game state
+                  </button>
+                </div>
+
+                {game && (
                   <div className="form">
-                    <div className="label">Day votes</div>
-                    {game.players.map((player) => (
-                      <div className="field" key={`day-${player.id}`}>
-                        <div className="label">
-                          P{player.id} {player.alive ? "(alive)" : "(dead)"}
-                        </div>
-                        <input
-                          className="input"
-                          type="number"
-                          min={0}
-                          max={game.players.length - 1}
-                          value={dayVoteInputs[player.id] ?? "0"}
-                          onChange={(event) =>
-                            setDayVoteInputs((prev) => {
-                              const next = normalizeVoteInputs(
-                                prev,
-                                game.players.length,
-                              );
-                              next[player.id] = event.target.value;
-                              return next;
-                            })}
-                          disabled={loading || !player.alive}
-                        />
-                      </div>
-                    ))}
+                    <div className="label">Night resolution</div>
+                    <div className="field">
+                      <div className="label">Eliminate player index</div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={game.players.length - 1}
+                        value={nightEliminationInput}
+                        onChange={(event) =>
+                          setNightEliminationInput(event.target.value)}
+                        disabled={loading}
+                      />
+                    </div>
                     <button
                       type="button"
-                      className="btn btn-primary"
-                      onClick={handleSubmitDayVotes}
-                      disabled={loading || game.phase !== Phase.Day}
+                      className="btn"
+                      onClick={handleResolveNight}
+                      disabled={loading || game.phase !== Phase.Night ||
+                        submitProgress !== null}
                     >
-                      Submit day votes
+                      Resolve night
                     </button>
-                    {dayVotes.length > 0 && (
-                      <div className="mono">
-                        Day votes: {dayVotes.join(", ")}
-                      </div>
-                    )}
                   </div>
-                </>
-              )
-              : <div className="mono">Create a game to enter votes.</div>}
+                )}
+
+                {game && (
+                  <div className="form">
+                    <div className="label">Day resolution</div>
+                    <div className="field">
+                      <div className="label">Eliminate player index</div>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        max={game.players.length - 1}
+                        value={dayEliminationInput}
+                        onChange={(event) =>
+                          setDayEliminationInput(event.target.value)}
+                        disabled={loading}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={handleResolveDay}
+                      disabled={loading || game.phase !== Phase.Day ||
+                        submitProgress !== null}
+                    >
+                      Resolve day
+                    </button>
+                  </div>
+                )}
+
+                {game && (
+                  <div className="form">
+                    <div className="label">Admin control</div>
+                    <button
+                      type="button"
+                      className="btn"
+                      onClick={handleForceEndGame}
+                      disabled={loading}
+                    >
+                      Force end game
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="column">
+                <div className="column-title">Player Votes</div>
+                {game
+                  ? (
+                    <>
+                      <div className="form">
+                        <div className="label">
+                          {game.phase === Phase.Night
+                            ? "Night votes"
+                            : "Day votes"}
+                        </div>
+                        {game.players.map((player) => {
+                          const voteTarget = receivedVotes.get(player.id);
+                          const hasVoted = votedPlayerIndices.includes(
+                            player.id,
+                          );
+                          return (
+                            <div className="field" key={`vote-${player.id}`}>
+                              <div className="label">
+                                {getPlayerName(player.id)}{" "}
+                                {player.alive ? "(alive)" : "(dead)"}
+                              </div>
+                              <div
+                                className={`vote-display ${
+                                  !player.alive
+                                    ? "vote-display-dead"
+                                    : hasVoted
+                                    ? "vote-display-received"
+                                    : "vote-display-waiting"
+                                }`}
+                              >
+                                {hasVoted && voteTarget !== undefined
+                                  ? (
+                                    <span className="vote-display-text">
+                                      Voted for{" "}
+                                      <strong>
+                                        {getPlayerName(voteTarget)}
+                                      </strong>
+                                    </span>
+                                  )
+                                  : player.alive
+                                  ? (
+                                    <span className="vote-display-text">
+                                      Waiting for vote...
+                                    </span>
+                                  )
+                                  : (
+                                    <span className="vote-display-text vote-display-dead">
+                                      No vote (dead)
+                                    </span>
+                                  )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {receivedVotes.size > 0 && (
+                          <div className="mono">
+                            {game.phase === Phase.Night ? "NIGHT" : "DAY"}{" "}
+                            votes received:{" "}
+                            {receivedVotes.size}/{game.players.filter((p) =>
+                              p.alive
+                            ).length}
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  )
+                  : <div className="mono">Create a game to enter votes.</div>}
+              </div>
+            </div>
+
+            {game && (
+              <div className="info">
+                <div className="label">Players</div>
+                <div className="mono">
+                  {game.players
+                    .map(
+                      (player) =>
+                        `P${player.id}: ${roleName(player.role)} (${
+                          player.alive ? "alive" : "dead"
+                        })`,
+                    )
+                    .join("\n")}
+                </div>
+              </div>
+            )}
+
+            {game && game.phase !== Phase.Finished && (
+              <div className="info">
+                <div className="label">
+                  Vote status — {game.phase === Phase.Night ? "NIGHT" : "DAY"}
+                  {" "}
+                  round {game.round} ({votedPlayerIndices.length}/
+                  {game.players.filter((p) => p.alive).length} voted)
+                </div>
+                <div className="vote-status-grid">
+                  {game.players.map((player) => {
+                    const hasVoted = votedPlayerIndices.includes(player.id);
+                    return (
+                      <div
+                        key={player.id}
+                        className={`vote-status-cell ${
+                          !player.alive
+                            ? "vote-cell-dead"
+                            : hasVoted
+                            ? "vote-cell-voted"
+                            : "vote-cell-waiting"
+                        }`}
+                        title={`${getPlayerName(player.id)} (${
+                          roleName(player.role)
+                        }) — ${
+                          !player.alive
+                            ? "dead"
+                            : hasVoted
+                            ? "voted"
+                            : "waiting"
+                        }`}
+                      >
+                        {getPlayerName(player.id)}
+                        {!player.alive ? " ✕" : hasVoted ? " ✓" : " …"}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Submission progress bar */}
+                {submitProgress !== null && (
+                  <div className="submit-progress">
+                    <div className="submit-progress-label">
+                      Submitting votes to chain: {submitProgress.done} /{" "}
+                      {submitProgress.total}
+                    </div>
+                    <div className="submit-progress-track">
+                      <div
+                        className="submit-progress-fill"
+                        style={{
+                          width: `${
+                            submitProgress.total > 0
+                              ? Math.round(
+                                (submitProgress.done / submitProgress.total) *
+                                  100,
+                              )
+                              : 0
+                          }%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Vote tally breakdown */}
+                {voteTally.length > 0 && (() => {
+                  const counts = new Map<number, number>();
+                  for (const { target } of voteTally) {
+                    counts.set(target, (counts.get(target) ?? 0) + 1);
+                  }
+                  const maxCount = Math.max(...counts.values());
+                  const sorted = [...counts.entries()].sort((a, b) =>
+                    b[1] - a[1]
+                  );
+                  return (
+                    <div className="vote-tally">
+                      <div className="vote-tally-title">Vote tally</div>
+                      {sorted.map(([targetIdx, count]) => (
+                        <div key={targetIdx} className="vote-tally-row">
+                          <span className="vote-tally-player">
+                            {getPlayerName(targetIdx)}
+                          </span>
+                          <span className="vote-tally-bar-wrap">
+                            <span
+                              className={`vote-tally-bar${
+                                count === maxCount
+                                  ? " vote-tally-bar-winner"
+                                  : ""
+                              }`}
+                              style={{
+                                width: `${
+                                  Math.round((count / voteTally.length) * 100)
+                                }%`,
+                              }}
+                            />
+                          </span>
+                          <span className="vote-tally-count">{count}</span>
+                        </div>
+                      ))}
+                      <div className="vote-tally-breakdown">
+                        {voteTally.map(({ voter, target }) =>
+                          `${getPlayerName(voter)}→${getPlayerName(target)}`
+                        ).join("  ")}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
+            {/* Last resolution outcome panel */}
+            {lastOutcome && (
+              <div
+                className={`outcome-panel${
+                  lastOutcome.includes("survived") ||
+                    lastOutcome.includes("No valid")
+                    ? " outcome-panel-safe"
+                    : " outcome-panel-death"
+                }`}
+              >
+                <span className="outcome-panel-icon">
+                  {lastOutcome.includes("died") ||
+                      lastOutcome.includes("eliminated")
+                    ? "💀"
+                    : "🛡️"}
+                </span>
+                <span className="outcome-panel-text">{lastOutcome}</span>
+              </div>
+            )}
+
+            {midnightAddress && (
+              <div className="info">
+                <div className="label">Connected addresses</div>
+                <div className="mono">Midnight: {midnightAddress}</div>
+                {evmAddress && <div className="mono">EVM: {evmAddress}</div>}
+                {midnightWallet?.contractAddress?.werewolf && (
+                  <>
+                    <div className="label">Contract address</div>
+                    <div className="mono">
+                      {midnightWallet.contractAddress.werewolf}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {loading && txTimer.start != null && (
+              <div className="timer-banner">
+                Transaction running… {txTimer.elapsed}s elapsed.
+              </div>
+            )}
+            {error && <pre className="message message-error">{error}</pre>}
+            {status && <pre className="message message-ok">{status}</pre>}
+            {isModalOpen && <WalletModal onClose={closeModal} />}
           </div>
         </div>
-
-        {game && (
-          <div className="info">
-            <div className="label">Players</div>
-            <div className="mono">
-              {game.players
-                .map(
-                  (player) =>
-                    `P${player.id}: ${roleName(player.role)} (${
-                      player.alive ? "alive" : "dead"
-                    })`,
-                )
-                .join("\n")}
-            </div>
-          </div>
+        {game && midnightAddress && chatRoomReady && (
+          <>
+            <GameChat
+              gameId={game.gameId}
+              midnightAddressHash={midnightAddress}
+            />
+            <GameChat
+              gameId={game.gameId}
+              midnightAddressHash={midnightAddress}
+              channel="werewolf"
+              label="Werewolf Chat"
+            />
+          </>
         )}
-
-        {midnightAddress && (
-          <div className="info">
-            <div className="label">Connected address</div>
-            <div className="mono">{midnightAddress}</div>
-            {midnightWallet?.contractAddress?.werewolf && (
-              <>
-                <div className="label">Contract address</div>
-                <div className="mono">
-                  {midnightWallet.contractAddress.werewolf}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {loading && txTimer.start != null && (
-          <div className="timer-banner">
-            Transaction running… {txTimer.elapsed}s elapsed.
-          </div>
-        )}
-        {error && <pre className="message message-error">{error}</pre>}
-        {status && <pre className="message message-ok">{status}</pre>}
       </div>
     </div>
   );

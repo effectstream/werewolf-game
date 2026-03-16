@@ -7,37 +7,39 @@ import "./WerewolfTypes";
 import "./Werewolf" prefix Werewolf_;
 import "./Crypto" prefix Crypto_;
 
-export { 
-    Role, 
-    Phase, 
-    GameState 
+export {
+    Role,
+    Phase,
+    GameState,
+    PlayerKey,
+    VoteKey
 };
 
-export { 
-    Werewolf_games, 
-    Werewolf_playerAlive, 
-    Werewolf_playerRoleCommitments, 
-    Werewolf_playerEncryptedRoles, 
-    Werewolf_voteNullifiers, 
+export {
+    Werewolf_games,
+    Werewolf_playerAlive,
+    Werewolf_playerRoleCommitments,
+    Werewolf_playerEncryptedRoles,
+    Werewolf_voteNullifiers,
     Werewolf_gameSecrets,
-    Werewolf_roundEncryptedVotes
+    Werewolf_roundVotes
 };
 
 constructor() {}
 
 // Merged Create + Setup
 export circuit createGame(
-    gameId: Uint<32>, 
+    gameId: Uint<32>,
     adminVotePublicKey: Bytes<33>,
     masterSecretCommitment: Bytes<32>,
     actualCount: Uint<32>,
     werewolfCount: Uint<32>
 ): [] {
-    return Werewolf_createAndSetupGame(
-        disclose(gameId), 
+    return Werewolf_createGame(
+        disclose(gameId),
         disclose(adminVotePublicKey),
-        disclose(masterSecretCommitment), 
-        disclose(actualCount), 
+        disclose(masterSecretCommitment),
+        disclose(actualCount),
         disclose(werewolfCount)
     );
 }
@@ -46,7 +48,7 @@ export circuit forceEndGame(
     gameId: Uint<32>,
     masterSecret: Bytes<32>
 ): [] {
-    return Werewolf_endGame(gameId, masterSecret);
+    return Werewolf_forceEndGame(gameId, masterSecret);
 }
 
 // New Punish Circuit
@@ -54,37 +56,37 @@ export circuit adminPunishPlayer(
     gameId: Uint<32>,
     playerIdx: Uint<32>
 ): [] {
-    return Werewolf_punishPlayer(gameId, playerIdx);
+    return Werewolf_adminPunishPlayer(gameId, playerIdx);
 }
 
-// Action using Witness
+// Action using Witness — returns the public nullifier so callers can look up the vote
 export circuit nightAction(
     gameId: Uint<32>
-): [] {
-    return Werewolf_submitNightAction(gameId);
+): Bytes<32> {
+    return Werewolf_nightAction(gameId);
 }
 
 export circuit resolveNightPhase(
     gameId: Uint<32>,
     newRound: Uint<32>,
-    deadPlayerIdx: Uint<32>, 
+    deadPlayerIdx: Uint<32>,
     hasDeath: Boolean,
     newMerkleRoot: MerkleTreeDigest
 ): [] {
-    return Werewolf_resolveNight(
-        gameId, 
-        newRound, 
-        deadPlayerIdx, 
-        hasDeath, 
+    return Werewolf_resolveNightPhase(
+        gameId,
+        newRound,
+        deadPlayerIdx,
+        hasDeath,
         newMerkleRoot
     );
 }
 
-// Action using Witness
+// Action using Witness — returns the public nullifier so callers can look up the vote
 export circuit voteDay(
     gameId: Uint<32>
-): [] {
-    return Werewolf_castDayVote(gameId);
+): Bytes<32> {
+    return Werewolf_voteDay(gameId);
 }
 
 export circuit resolveDayPhase(
@@ -92,7 +94,7 @@ export circuit resolveDayPhase(
     eliminatedIdx: Uint<32>,
     hasElimination: Boolean
 ): [] {
-    return Werewolf_resolveDay(gameId, eliminatedIdx, hasElimination);
+    return Werewolf_resolveDayPhase(gameId, eliminatedIdx, hasElimination);
 }
 
 export circuit revealPlayerRole(
@@ -101,7 +103,7 @@ export circuit revealPlayerRole(
     role: Uint<8>,
     salt: Bytes<32>
 ): [] {
-    return Werewolf_revealRole(gameId, playerIdx, role, salt);
+    return Werewolf_revealPlayerRole(gameId, playerIdx, role, salt);
 }
 
 export circuit verifyFairness(
@@ -110,21 +112,14 @@ export circuit verifyFairness(
     playerIdx: Uint<32>,
     assignedRole: Uint<8>
 ): Boolean {
-    return Werewolf_verifyGameSetup(
-        gameId, 
-        masterSecret, 
-        playerIdx, 
+    return Werewolf_verifyFairness(
+        gameId,
+        masterSecret,
+        playerIdx,
         assignedRole
     );
 }
 
-export circuit getEncryptedVotesForRound(
-    gameId: Uint<32>,
-    phase: Phase,
-    round: Uint<32>
-): Vector<16, Bytes<3>> {
-    return Werewolf_getEncryptedVotesForRound(gameId, phase, round);
-}
 
 // ============================================
 // HELPERS & TEST UTILS
@@ -138,14 +133,17 @@ export circuit getGameState(gameId: Uint<32>): GameState {
 
 export circuit isPlayerAlive(gameId: Uint<32>, playerIdx: Uint<32>): Boolean {
     const gid = disclose(gameId);
-    const aliveVec = Werewolf_playerAlive.lookup(gid);
-    return Werewolf_selectBool(aliveVec, disclose(playerIdx));
+    const pid = disclose(playerIdx);
+    const pk = PlayerKey { gameId: gid, playerIdx: pid };
+    if (!Werewolf_playerAlive.member(pk)) return false;
+    return Werewolf_playerAlive.lookup(pk);
 }
 
-export circuit getAdminKey(gameId: Uint<32>): ZswapCoinPublicKey {
-    const gid = disclose(gameId);
-    assert(Werewolf_games.member(gid), "Game not found");
-    return std_ownPublicKey();
+// Returns the game's admin public key (Bytes<33>) so players can encrypt
+// votes/actions to the admin. This is the unique keypair created for the
+// game (passed into createGame as adminVotePublicKey), not the Midnight key.
+export circuit getAdminKey(gameId: Uint<32>): Bytes<33> {
+    return Werewolf_getGameAdminPublicKey(gameId);
 }
 
 export circuit getGameAdminPublicKey(gameId: Uint<32>): Bytes<33> {
@@ -178,20 +176,20 @@ export circuit testLeafDigest(data: Bytes<32>): MerkleTreeDigest {
         domain_sep: pad(6, "mdn:lh"),
         data: data
     };
-    return MerkleTreeDigest { 
+    return MerkleTreeDigest {
         field: std_degradeToTransient(std_persistentHash<LeafPreimage>(preimage))
     };
 }
 
 export circuit testNodeDigest(left: MerkleTreeDigest, right: MerkleTreeDigest): MerkleTreeDigest {
-    return MerkleTreeDigest { 
-        field: std_transientHash<[Field, Field]>([left.field, right.field]) 
+    return MerkleTreeDigest {
+        field: std_transientHash<[Field, Field]>([left.field, right.field])
     };
 }
 
 export circuit testVerifyMerkleProof(
-    root: MerkleTreeDigest, 
-    leaf: Bytes<32>, 
+    root: MerkleTreeDigest,
+    leaf: Bytes<32>,
     path: MerkleTreePath<10, Bytes<32>>
 ): Boolean {
     return Crypto_verifyMerkleProof(root, leaf, path);

@@ -1,6 +1,8 @@
 /** Types generated for queries found in "src/sql/sm_example.sql" */
 import { PreparedQuery } from '@pgtyped/runtime';
 
+export type NumberOrString = number | string;
+
 /** 'EvmMidnightTableExists' parameters type */
 export type IEvmMidnightTableExistsParams = void;
 
@@ -32,7 +34,7 @@ export const evmMidnightTableExists = new PreparedQuery<IEvmMidnightTableExistsP
 
 /** 'InsertEvmMidnight' parameters type */
 export interface IInsertEvmMidnightParams {
-  block_height: number;
+  block_height: NumberOrString;
   contract_address: string;
   owner: string;
   token_id: string;
@@ -67,7 +69,7 @@ export const insertEvmMidnight = new PreparedQuery<IInsertEvmMidnightParams,IIns
 
 /** 'InsertEvmMidnightProperty' parameters type */
 export interface IInsertEvmMidnightPropertyParams {
-  block_height: number;
+  block_height: NumberOrString;
   contract_address: string;
   property_name: string;
   token_id: string;
@@ -109,7 +111,7 @@ export interface IGetEvmMidnightByTokenIdParams {
 
 /** 'GetEvmMidnightByTokenId' return type */
 export interface IGetEvmMidnightByTokenIdResult {
-  block_height: number;
+  block_height: string;
   contract_address: string;
   id: number;
   owner: string | null;
@@ -140,9 +142,9 @@ export type IGetEvmMidnightParams = void;
 
 /** 'GetEvmMidnight' return type */
 export interface IGetEvmMidnightResult {
-  block_height: number;
+  block_height: string;
   owner: string | null;
-  property_block_height: number;
+  property_block_height: string;
   property_name: string;
   token_id: string;
   value: string;

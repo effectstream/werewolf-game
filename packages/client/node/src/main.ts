@@ -7,16 +7,16 @@ import "@midnight-ntwrk/onchain-runtime";
 
 import { init, start } from "@paimaexample/runtime";
 import { main, suspend } from "effection";
-import { config as nodeConfig } from "@example-midnight/data-types/config";
+import { config as nodeConfig } from "@werewolf-game/data-types/config";
 import {
   type SyncProtocolWithNetwork,
   toSyncProtocolWithNetwork,
   withEffectstreamStaticConfig,
 } from "@paimaexample/config";
-import { migrationTable } from "@example-midnight/database";
+import { migrationTable } from "@werewolf-game/database";
+import { grammar } from "@werewolf-game/data-types/grammar";
 import { gameStateTransitions } from "./state-machine.ts";
 import { apiRouter } from "./api.ts";
-import { grammar } from "@example-midnight/data-types/grammar";
 
 main(function* () {
   yield* init();
