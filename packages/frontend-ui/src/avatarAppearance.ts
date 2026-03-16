@@ -98,3 +98,32 @@ export function appearanceToPlayerConfig(
     hairStyle: HAIR_STYLES[selection.hairStyle],
   }
 }
+
+const AVATAR_STORAGE_KEY = 'werewolf-avatar-selection'
+
+export function saveAvatarSelection(selection: AvatarSelection): void {
+  try {
+    localStorage.setItem(AVATAR_STORAGE_KEY, JSON.stringify(selection))
+  } catch (err) {
+    console.warn('[avatarAppearance] Failed to save avatar selection:', err)
+  }
+}
+
+export function loadAvatarSelection(): AvatarSelection {
+  try {
+    const stored = localStorage.getItem(AVATAR_STORAGE_KEY)
+    if (!stored) return { ...DEFAULT_AVATAR_SELECTION }
+
+    const parsed = JSON.parse(stored) as Partial<AvatarSelection>
+    
+    return {
+      skinTone: typeof parsed.skinTone === 'number' ? parsed.skinTone : DEFAULT_AVATAR_SELECTION.skinTone,
+      shirtColor: typeof parsed.shirtColor === 'number' ? parsed.shirtColor : DEFAULT_AVATAR_SELECTION.shirtColor,
+      hairColor: typeof parsed.hairColor === 'number' ? parsed.hairColor : DEFAULT_AVATAR_SELECTION.hairColor,
+      hairStyle: typeof parsed.hairStyle === 'number' ? parsed.hairStyle : DEFAULT_AVATAR_SELECTION.hairStyle,
+    }
+  } catch (err) {
+    console.warn('[avatarAppearance] Failed to load avatar selection, using default:', err)
+    return { ...DEFAULT_AVATAR_SELECTION }
+  }
+}
