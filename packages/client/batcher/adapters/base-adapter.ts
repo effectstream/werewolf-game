@@ -421,7 +421,13 @@ import type {
               shieldedSecretKeys: this.walletResult.walletZswapSecretKeys,
               dustSecretKey: this.walletResult.walletDustSecretKey,
             },
-            { ttl: createTtl() },
+            {
+              ttl: createTtl(),
+              // Werewolf contract calls do not need unshielded in-place balancing on
+              // the already-proved base transaction. The current wallet SDK tries to
+              // clone those intents as pre-proof and crashes on `proof` headers.
+              tokenKindsToBalance: ["shielded", "dust"],
+            },
           );
         } else if (txStage === "finalized") {
           balancedRecipe = await this.walletResult.wallet.balanceFinalizedTransaction(
@@ -475,10 +481,44 @@ import type {
         throw error;
       }
   
-      const signedRecipe = await this.walletResult.wallet.signRecipe(
-        balancedRecipe,
-        (payload: Uint8Array) => this.walletResult!.unshieldedKeystore.signData(payload),
-      );
+      const signSegment = (payload: Uint8Array) =>
+        this.walletResult!.unshieldedKeystore.signData(payload);
+      let signedRecipe: FacadeBalancingRecipe;
+      switch (balancedRecipe.type) {
+        case "UNPROVEN_TRANSACTION":
+          signedRecipe = {
+            ...balancedRecipe,
+            transaction: await this.walletResult.wallet.signUnprovenTransaction(
+              balancedRecipe.transaction,
+              signSegment,
+            ),
+          };
+          break;
+        case "UNBOUND_TRANSACTION":
+          // The base transaction is already proved. Re-signing it forces the wallet
+          // SDK down the same broken clone path that expects pre-proof intents.
+          signedRecipe = balancedRecipe.balancingTransaction
+            ? {
+              ...balancedRecipe,
+              balancingTransaction: await this.walletResult.wallet
+                .signUnprovenTransaction(
+                  balancedRecipe.balancingTransaction,
+                  signSegment,
+                ),
+            }
+            : balancedRecipe;
+          break;
+        case "FINALIZED_TRANSACTION":
+          signedRecipe = {
+            ...balancedRecipe,
+            balancingTransaction: await this.walletResult.wallet
+              .signUnprovenTransaction(
+                balancedRecipe.balancingTransaction,
+                signSegment,
+              ),
+          };
+          break;
+      }
   
       console.log("🚀 Finalizing and submitting transaction...");
       console.log("signedRecipe", signedRecipe);
@@ -531,28 +571,26 @@ import type {
             if (!recipe.balancingTransaction) {
               return await this.walletResult!.wallet.finalizeRecipe(recipe);
             }
-    
-            // Pad the balancing transaction with a shielded self-transfer.
-            // This adds INPUT_PROOF_SIZE + OUTPUT_PROOF_SIZE = 9,664 bytes to
-            // est_size(), giving +19.3ms of allowed_time_to_dismiss budget
-            // while adding only ~1.8ms to the actual compute cost.
-            let balancingTx = recipe.balancingTransaction;
-            try {
-              balancingTx = await this.addShieldedPadding(balancingTx);
-            } catch (e) {
-              console.warn(
-                "[finalizeWithProver] Shielded padding unavailable, submitting without padding. " +
-                "Ensure the batcher wallet has shielded NIGHT tokens.",
-                e,
-              );
-            }
-    
+
+            // Do NOT apply addShieldedPadding here.
+            //
+            // The shielded self-transfer used for padding requires a ZK proof for its
+            // shielded output. The wallet façade generates this proof internally, so
+            // paddingRecipe.transaction arrives as UnboundTransaction (proof state, not
+            // proof-preimage). Merging an UnprovenTransaction with an UnboundTransaction
+            // promotes the result to proof state. proveTx then receives a proof-state tx
+            // and the proof-server rejects it: "expected proof-preimage, got proof".
+            //
+            // Shielded padding is only safe in the UNPROVEN_TRANSACTION path where the
+            // entire tx (circuit + dust + padding) is still unproven and proved together
+            // in a single proveTx call. For UNBOUND_TRANSACTION the main circuit is
+            // already proved; only the dust balancing tx needs proving here.
             const proven = await (this.proofProvider as any).proveTx(
-              balancingTx,
+              recipe.balancingTransaction,  // dust only — UnprovenTransaction (proof-preimage)
               { zkConfig },
             );
-            const merged = recipe.baseTransaction.merge(proven.bind());
-            return merged.bind() as FinalizedTransaction;
+            const finalizedBaseTx = recipe.baseTransaction.bind();
+            return finalizedBaseTx.merge(proven.bind()) as FinalizedTransaction;
           }
           case "FINALIZED_TRANSACTION": {
 

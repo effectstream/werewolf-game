@@ -5,8 +5,8 @@
  * 1. Build wallet facade (provides coin/encryption keys)
  * 2. Create intercepting providers (capture serialized tx, abort submission)
  * 3. Connect to the deployed werewolf contract via findDeployedContract
- * 4. Call the circuit — interceptor captures the tx
- * 5. POST the serialized tx to the batcher for balancing/submission
+ * 4. Call the circuit — interceptor captures the UnboundTransaction at balanceTx
+ * 5. POST the serialized UnboundTransaction to the batcher (txStage "unbound") for dust balancing and submission
  */
 
 import type { ContractAddress } from "@midnight-ntwrk/compact-runtime";
@@ -150,17 +150,18 @@ function createProviders(params: {
       return walletResult.zswapSecretKeys.encryptionPublicKey;
     },
     balanceTx(tx: UnboundTransaction): Promise<FinalizedTransaction> {
+      // Serialize the UnboundTransaction directly — no empty bind().
+      // The batcher receives it as txStage "unbound" and calls
+      // balanceUnboundTransaction() to add dust and produce a single
+      // cohesive FinalizedTransaction, rather than an empty-commitment bind
+      // followed by a separate merged balancing transaction.
+      const serialized = toHex((tx as any).serialize());
       console.log(
-        `[midnight-circuit] [${label}] Capturing FinalizedTransaction...`,
-      );
-      const bound = tx.bind();
-      const serialized = toHex(bound.serialize());
-      console.log(
-        `[midnight-circuit] [${label}] Serialized tx hex length:`,
+        `[midnight-circuit] [${label}] Captured UnboundTransaction hex length:`,
         serialized.length,
       );
       onSerializedTx(serialized);
-      return Promise.resolve(bound);
+      throw new DelegatedBalancingSentError();  // abort SDK pipeline immediately
     },
     submitTx() {
       throw new DelegatedBalancingSentError();
@@ -318,7 +319,7 @@ export async function callMidnightCircuit(
       addressType: 0,
       input: JSON.stringify({
         tx: serializedTx,
-        txStage: "finalized",
+        txStage: "unbound",
         circuitId,
       }),
       timestamp: Date.now(),

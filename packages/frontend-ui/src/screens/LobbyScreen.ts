@@ -598,7 +598,7 @@ export class LobbyScreen {
         appearanceCode,
         midnightAddress,
         ({ message }) =>
-          walletClient.signMessage({ account: address, message }),
+          walletClient.signMessage({ message, account: undefined }),
       );
       console.log("[LobbyScreen] batcher joinGame result:", batcherResult);
 
