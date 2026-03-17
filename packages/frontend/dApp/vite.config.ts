@@ -70,9 +70,9 @@ export default defineConfig({
       "@midnight-ntwrk/onchain-runtime": "@midnight-ntwrk/onchain-runtime-v2",
       "npm:@midnight-ntwrk/compact-runtime@0.14.0":
         "@midnight-ntwrk/compact-runtime",
-      "npm:@midnight-ntwrk/midnight-js-contracts@3.0.0":
+      "npm:@midnight-ntwrk/midnight-js-contracts@3.2.0":
         "@midnight-ntwrk/midnight-js-contracts",
-      "npm:@midnight-ntwrk/ledger-v7@7.0.0": "@midnight-ntwrk/ledger-v7",
+      "npm:@midnight-ntwrk/ledger-v7@7.0.3": "@midnight-ntwrk/ledger-v7",
     },
   },
 

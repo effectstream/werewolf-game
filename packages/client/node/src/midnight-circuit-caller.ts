@@ -12,8 +12,8 @@
 import type { ContractAddress } from "@midnight-ntwrk/compact-runtime";
 import { Contract as WerewolfContract } from "../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 import {
-  witnesses,
   type PrivateState,
+  witnesses,
 } from "../../../shared/contracts/midnight/contract-werewolf/src/witnesses.ts";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -23,7 +23,10 @@ import type {
   UnboundTransaction,
   WalletProvider,
 } from "@midnight-ntwrk/midnight-js-types";
-import { findDeployedContract, getPublicStates } from "@midnight-ntwrk/midnight-js-contracts";
+import {
+  findDeployedContract,
+  getPublicStates,
+} from "@midnight-ntwrk/midnight-js-contracts";
 import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
 import {
   assertIsContractAddress,
@@ -37,7 +40,6 @@ import {
 } from "@paimaexample/midnight-contracts";
 import { readMidnightContract } from "@paimaexample/midnight-contracts/read-contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
-import type { FinalizedTransaction } from "@midnight-ntwrk/ledger-v7";
 import { CompiledContract } from "@midnight-ntwrk/compact-js";
 import { resolve } from "node:path";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
@@ -48,8 +50,7 @@ import { ledger as contractLedger } from "../../../shared/contracts/midnight/con
 // Constants
 // ---------------------------------------------------------------------------
 
-const DELEGATED_SENTINEL =
-  "Delegated balancing flow handed off to batcher";
+const DELEGATED_SENTINEL = "Delegated balancing flow handed off to batcher";
 
 const PRIVATE_STATE_ID = "werewolfNodePrivateState";
 
@@ -133,6 +134,20 @@ export function getManagedPath(): string {
   );
 }
 
+function getPrivateStoragePassword(): string {
+  const password = Deno.env.get("MIDNIGHT_STORAGE_PASSWORD");
+  if (!password) {
+    // Local-development fallback must satisfy provider complexity checks.
+    return "DevPassword1x2x3x4!";
+  }
+  if (password.length < 16) {
+    throw new Error(
+      "MIDNIGHT_STORAGE_PASSWORD must be at least 16 characters long.",
+    );
+  }
+  return password;
+}
+
 function createProviders(params: {
   walletResult: WalletResult;
   label: string;
@@ -141,6 +156,10 @@ function createProviders(params: {
 }): any {
   const { walletResult, label, networkUrls, onSerializedTx } = params;
   const managedPath = getManagedPath();
+  const accountId = (walletResult as any).unshieldedKeystore
+    ?.getBech32Address?.()
+    ?.asString?.() ??
+    String((walletResult as any).zswapSecretKeys?.coinPublicKey ?? label);
 
   const interceptingProvider: WalletProvider & MidnightProvider = {
     getCoinPublicKey() {
@@ -149,7 +168,7 @@ function createProviders(params: {
     getEncryptionPublicKey() {
       return walletResult.zswapSecretKeys.encryptionPublicKey;
     },
-    balanceTx(tx: UnboundTransaction): Promise<FinalizedTransaction> {
+    balanceTx(tx: UnboundTransaction, _ttl?: Date) {
       // Serialize the UnboundTransaction directly — no empty bind().
       // The batcher receives it as txStage "unbound" and calls
       // balanceUnboundTransaction() to add dust and produce a single
@@ -161,7 +180,7 @@ function createProviders(params: {
         serialized.length,
       );
       onSerializedTx(serialized);
-      throw new DelegatedBalancingSentError();  // abort SDK pipeline immediately
+      throw new DelegatedBalancingSentError(); // abort SDK pipeline immediately
     },
     submitTx() {
       throw new DelegatedBalancingSentError();
@@ -177,6 +196,8 @@ function createProviders(params: {
     privateStateProvider: levelPrivateStateProvider({
       midnightDbName,
       privateStateStoreName,
+      privateStoragePasswordProvider: () => getPrivateStoragePassword(),
+      accountId,
       walletProvider: interceptingProvider,
     } as any),
     publicDataProvider: indexerPublicDataProvider(
@@ -271,12 +292,17 @@ export async function callMidnightCircuit(
 
   // 6. Build compiled contract
   const managedPath = getManagedPath();
-  const compiledContract: any = CompiledContract.make(
+  let compiledContract: any = CompiledContract.make(
     "contract-werewolf",
     WerewolfContract as any,
-  ).pipe(
-    (CompiledContract as any).withWitnesses(witnesses),
-    (CompiledContract as any).withCompiledFileAssets(managedPath),
+  );
+  compiledContract = (CompiledContract as any).withWitnesses(
+    compiledContract,
+    witnesses,
+  );
+  compiledContract = (CompiledContract as any).withCompiledFileAssets(
+    compiledContract,
+    managedPath,
   );
 
   // 7. Connect to deployed contract with resolved private state

@@ -423,7 +423,7 @@ const connectToWallet = async (networkId: string): Promise<ConnectedAPI> => {
   console.log(`Connecting to wallet: ${name} (version ${api.apiVersion})`);
 
   // KEY: Hardcoded Password Provider
-  const passwordProvider = async () => "PAIMA_STORAGE_PASSWORD";
+  const passwordProvider = async () => "PAIMA_STORAGE_PASSWORD_1x2x3x4!";
 
   const apiWithPassword: any = { ...api };
   if (typeof apiWithPassword.connect !== "function") {
