@@ -100,6 +100,7 @@ export class LobbyScreen {
   private avatarSection!: HTMLDivElement;
   private avatarPreviewEl!: HTMLDivElement;
   private joinBtn!: HTMLButtonElement;
+  private laceModalBackdrop!: HTMLDivElement;
 
   private currentGame: GameInfo | null = null;
   private derivedNickname: string | null = null;
@@ -220,6 +221,29 @@ export class LobbyScreen {
           </div>
         </div>
       </div>
+
+    <div id="laceInstallBackdrop" class="lace-install-backdrop" hidden>
+      <div class="lace-install-modal" role="dialog" aria-modal="true" aria-labelledby="laceInstallTitle">
+        <div class="lace-install-icon">🐺</div>
+        <h2 id="laceInstallTitle" class="lace-install-title">Lace Wallet Required</h2>
+        <p class="lace-install-body">
+          This game uses the <strong>Midnight Network</strong> and requires the
+          <strong>Lace</strong> browser extension to manage your shielded wallet.
+        </p>
+        <p class="lace-install-body">
+          Install Lace from the Chrome Web Store, then reload this page.
+        </p>
+        <div class="lace-install-actions">
+          <a
+            href="https://chromewebstore.google.com/detail/lace/gafhhkghbfjjkeiendhlofajokpaflmk"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="ui-btn lace-install-cta"
+          >Install Lace</a>
+          <button type="button" id="laceInstallClose" class="ui-btn lace-install-dismiss">Close</button>
+        </div>
+      </div>
+    </div>
     `;
 
     this.walletBtn = this.container.querySelector<HTMLButtonElement>(
@@ -264,6 +288,19 @@ export class LobbyScreen {
     this.statusEl = this.container.querySelector<HTMLParagraphElement>(
       "#lobbyStatus",
     )!;
+
+    this.laceModalBackdrop = this.container.querySelector<HTMLDivElement>(
+      "#laceInstallBackdrop",
+    )!;
+    this.container.querySelector<HTMLButtonElement>("#laceInstallClose")!
+      .addEventListener("click", () => {
+        this.laceModalBackdrop.hidden = true;
+      });
+    this.laceModalBackdrop.addEventListener("click", (e) => {
+      if (e.target === this.laceModalBackdrop) {
+        this.laceModalBackdrop.hidden = true;
+      }
+    });
 
     this.walletBtn.addEventListener("click", () => this.handleConnectWallet());
     this.findBtn.addEventListener("click", () => this.handleFindGame());
@@ -395,10 +432,7 @@ export class LobbyScreen {
 
     if (!midnightWallet.isAvailable()) {
       this.setLoading(this.walletBtn, false, "Connect Wallet");
-      this.setStatus(
-        "Midnight wallet not found. Please install the Lace extension and reload.",
-        true,
-      );
+      this.laceModalBackdrop.hidden = false;
       return;
     }
 
