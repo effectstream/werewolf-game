@@ -1,3 +1,5 @@
+import { deriveNicknameFromMidnightAddress } from "../services/nicknameGenerator.ts";
+
 const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ??
   "http://localhost:9999";
 
@@ -29,19 +31,26 @@ export class LeaderboardManager {
 
     this.panel = this.createPanel();
     document.body.appendChild(this.panel);
-    this.tableBody = this.panel.querySelector<HTMLTableSectionElement>("#leaderboard-tbody")
-      ?? document.createElement("tbody");
+    this.tableBody =
+      this.panel.querySelector<HTMLTableSectionElement>("#leaderboard-tbody") ??
+        document.createElement("tbody");
 
-    const closeBtn = this.panel.querySelector<HTMLButtonElement>("#leaderboard-close");
+    const closeBtn = this.panel.querySelector<HTMLButtonElement>(
+      "#leaderboard-close",
+    );
     if (closeBtn) {
       closeBtn.addEventListener("click", () => this.hide());
     }
 
-    this.toggleBtn = document.querySelector<HTMLButtonElement>("#leaderboard-toggle");
+    this.toggleBtn = document.querySelector<HTMLButtonElement>(
+      "#leaderboard-toggle",
+    );
     if (this.toggleBtn) {
       this.toggleBtn.addEventListener("click", () => this.toggle());
     } else {
-      console.warn("[leaderboard] Toggle button not found; panel can still be shown programmatically.");
+      console.warn(
+        "[leaderboard] Toggle button not found; panel can still be shown programmatically.",
+      );
     }
   }
 
@@ -70,14 +79,15 @@ export class LeaderboardManager {
           <thead>
             <tr>
               <th>#</th>
-              <th>EVM Address</th>
+              <th>Nickname</th>
+              <th>Midnight Address</th>
               <th>Points</th>
               <th>W/P</th>
               <th>Rounds</th>
             </tr>
           </thead>
           <tbody id="leaderboard-tbody">
-            <tr><td colspan="5" class="leaderboard-loading">Loading…</td></tr>
+            <tr><td colspan="6" class="leaderboard-loading">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -125,7 +135,7 @@ export class LeaderboardManager {
       this.render(data.entries);
     } catch (err) {
       this.tableBody.innerHTML =
-        `<tr><td colspan="5" class="leaderboard-error">Failed to load leaderboard.</td></tr>`;
+        `<tr><td colspan="6" class="leaderboard-error">Failed to load leaderboard.</td></tr>`;
       console.warn("[leaderboard] fetch failed:", err);
     }
   }
@@ -133,7 +143,7 @@ export class LeaderboardManager {
   private render(entries: LeaderboardEntry[]) {
     if (entries.length === 0) {
       this.tableBody.innerHTML =
-        `<tr><td colspan="5" class="leaderboard-empty">No entries yet.</td></tr>`;
+        `<tr><td colspan="6" class="leaderboard-empty">No entries yet.</td></tr>`;
       return;
     }
 
@@ -142,8 +152,10 @@ export class LeaderboardManager {
         const addr = e.midnight_address;
         const short = `${addr.slice(0, 6)}…${addr.slice(-4)}`;
         const pts = Number(e.total_points).toLocaleString();
+        const nickname = deriveNicknameFromMidnightAddress(addr);
         return `<tr>
           <td class="lb-rank">${i + 1}</td>
+          <td class="lb-nick">${nickname}</td>
           <td class="lb-addr" title="${addr}">${short}</td>
           <td class="lb-pts">${pts}</td>
           <td class="lb-wins">${e.games_won}/${e.games_played}</td>

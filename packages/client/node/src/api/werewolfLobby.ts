@@ -506,13 +506,42 @@ export async function getVotesForRoundHandler(
   };
 }
 
-/** Derive the winning faction from persisted columns. Returns null while the game is active. */
+/**
+ * Derive the winning faction from persisted columns. Returns null while the
+ * game is active.
+ *
+ * Prefer the accurate path using werewolf_indices + alive_vector when available
+ * (populated by state-machine from in-memory bundles on game finish). Fall back
+ * to the on-chain werewolf_count / villager_count only when indices are absent
+ * (e.g. old rows or server-restart before game finish).
+ *
+ * Note: on-chain werewolfCount / villagerCount are *initial* team sizes — they
+ * are NOT decremented by adminPunishPlayer or the resolve circuits, only by the
+ * manual revealPlayerRole circuit. Relying on them produces incorrect results
+ * (e.g. all-punished draw shows as WEREWOLVES win).
+ */
 function winnerOf(
   finished: boolean,
   werewolfCount: number,
   villagerCount: number,
+  aliveVector?: boolean[],
+  werewolfIndices?: number[],
 ): "VILLAGERS" | "WEREWOLVES" | "DRAW" | null {
   if (!finished) return null;
+  // Accurate path: use role-aware alive counts when werewolf_indices is known.
+  if (aliveVector && werewolfIndices && werewolfIndices.length > 0) {
+    const aliveWolves = werewolfIndices.filter((i) => aliveVector[i]).length;
+    const aliveVillagers = aliveVector.filter(
+      (alive, i) => alive && !werewolfIndices.includes(i),
+    ).length;
+    if (aliveWolves === 0 && aliveVillagers === 0) return "DRAW";
+    return aliveWolves === 0 ? "VILLAGERS" : "WEREWOLVES";
+  }
+  // All-dead draw detectable without role info.
+  if (aliveVector && aliveVector.length > 0 && aliveVector.every((a) => !a)) {
+    return "DRAW";
+  }
+  // Fallback: on-chain counts (inaccurate for punishments but kept for compat).
   if (werewolfCount === 0 && villagerCount === 0) return "DRAW";
   return werewolfCount === 0 ? "VILLAGERS" : "WEREWOLVES";
 }
@@ -549,7 +578,7 @@ export async function getGameViewHandler(dbConn: Pool, gameId: number) {
     villagerCount: row.villager_count,
     players,
     finished: row.finished,
-    winner: winnerOf(row.finished, Number(row.werewolf_count), Number(row.villager_count)),
+    winner: winnerOf(row.finished, Number(row.werewolf_count), Number(row.villager_count), aliveVector, werewolfIndicesRaw),
     werewolfIndices,
     updatedBlock: typeof row.updated_block === "string"
       ? Number(row.updated_block)

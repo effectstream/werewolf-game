@@ -123,8 +123,16 @@ stm.addStateTransition(
         );
       }
 
-      // Upsert the denormalised game view used by the frontend.
-      // werewolf_indices is only populated when the game is finished (future work).
+      // Populate werewolf_indices from in-memory bundles when the game finishes
+      // so the frontend API can accurately determine the winner from
+      // alive_vector + werewolf_indices rather than the on-chain werewolfCount /
+      // villagerCount fields (which are initial team sizes and only decremented
+      // by the manual revealPlayerRole circuit, not by punishments or resolves).
+      const bundles = getAllBundlesForGame(gameId);
+      const werewolfIndices = gameView.isFinished && bundles.length > 0
+        ? bundles.filter((b) => b.role === 1).map((b) => b.playerId)
+        : [];
+
       yield* World.resolve(upsertGameView, {
         game_id: gameId,
         phase: gameView.phase,
@@ -135,7 +143,7 @@ stm.addStateTransition(
         villager_count: gameView.villagerCount,
         alive_vector: JSON.stringify([...gameView.aliveVector]),
         finished: gameView.isFinished,
-        werewolf_indices: JSON.stringify([]),
+        werewolf_indices: JSON.stringify(werewolfIndices),
         updated_block: blockHeight,
       });
 
@@ -143,13 +151,26 @@ stm.addStateTransition(
       // isFinished must be checked explicitly: parity wins end the game while
       // aliveCount > 0 (e.g. 2 wolves, 2 villagers → game over, 4 still alive).
       if (gameView.isFinished || gameView.aliveCount === 0) {
+        // Derive the correct winner from in-memory bundles + alive state.
+        // We cannot use gameView.winner (derived from on-chain werewolfCount /
+        // villagerCount) because those fields are not maintained during gameplay.
+        let correctWinner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null = gameView.winner;
+        if (bundles.length > 0 && gameView.isFinished) {
+          const aliveSet = new Set(gameView.aliveIndices);
+          const aliveWolves = bundles.filter((b) => b.role === 1 && aliveSet.has(b.playerId)).length;
+          const aliveVillagers = bundles.filter((b) => b.role !== 1 && aliveSet.has(b.playerId)).length;
+          if (aliveWolves === 0 && aliveVillagers === 0) correctWinner = "DRAW";
+          else if (aliveWolves === 0) correctWinner = "VILLAGERS";
+          else correctWinner = "WEREWOLVES";
+        }
+
         console.log(
           `[midnight] game=${gameId} skipping round-state logic` +
-            ` (finished=${gameView.isFinished} winner=${gameView.winner} aliveCount=${gameView.aliveCount})`,
+            ` (finished=${gameView.isFinished} winner=${correctWinner} aliveCount=${gameView.aliveCount})`,
         );
 
         // Trigger leaderboard calculation once per game on the first finished block.
-        if (gameView.isFinished && gameView.winner) {
+        if (gameView.isFinished && correctWinner) {
           const dbViewRows = (yield* World.resolve(getGameView, {
             game_id: gameId,
           })) as IGetGameViewResult[];
@@ -160,7 +181,7 @@ stm.addStateTransition(
             });
             void calculateAndPersistScores(
               gameId,
-              gameView.winner as "VILLAGERS" | "WEREWOLVES" | "DRAW",
+              correctWinner,
               blockHeight,
               getDbPool(),
             ).catch((err) =>

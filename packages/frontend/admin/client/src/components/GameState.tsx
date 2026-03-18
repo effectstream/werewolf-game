@@ -44,7 +44,17 @@ export function GameState() {
         </div>
       )}
 
-      {gv && (
+      {gv?.finished && (
+        <div className={`winner-banner winner-${(gv.winner ?? "draw").toLowerCase()}`}>
+          {gv.winner === "VILLAGERS"
+            ? "🏘️ Villagers Win"
+            : gv.winner === "WEREWOLVES"
+            ? "🐺 Werewolves Win"
+            : "🤝 Draw"}
+        </div>
+      )}
+
+      {gv && !gv.finished && (
         <div className="vote-progress">
           <label>Votes</label>
           <span>
