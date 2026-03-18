@@ -37,6 +37,7 @@ import { resolvePhaseFromLedger } from "./vote-resolver.ts";
 import { fetchCurrentLedgerVotes } from "./midnight-circuit-caller.ts";
 import { getDbPool } from "./db-pool.ts";
 import { calculateAndPersistScores } from "./leaderboard.ts";
+import { executePendingPunishments, checkGameOverAfterPunishment } from "./punishment-executor.ts";
 
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
@@ -159,7 +160,7 @@ stm.addStateTransition(
             });
             void calculateAndPersistScores(
               gameId,
-              gameView.winner as "VILLAGERS" | "WEREWOLVES",
+              gameView.winner as "VILLAGERS" | "WEREWOLVES" | "DRAW",
               blockHeight,
               getDbPool(),
             ).catch((err) =>
@@ -445,19 +446,40 @@ stm.addStateTransition(
       );
     }
 
-    // Trigger contract-level phase resolution with whatever votes are on the
-    // ledger.  fetchCurrentLedgerVotes reads the live Midnight state so this
-    // works even after a server restart (no in-memory cache dependency).
+    // Execute punishments on-chain, then resolve the phase with whatever
+    // votes are on the ledger. Punishments must land before resolution so
+    // that aliveCount reflects punished players.
     if (!isResolutionTriggered(gameId, round, phase)) {
       setResolutionTriggered(gameId, round, phase);
-      void fetchCurrentLedgerVotes(gameId, round, phase)
-        .then((votes) => resolvePhaseFromLedger(gameId, round, phase, votes))
-        .catch((err) =>
+      void (async () => {
+        try {
+          // 1. Execute adminPunishPlayer for each queued punishment
+          const punished = await executePendingPunishments(gameId);
+          console.log(
+            `[timeout] Executed ${punished} punishment(s) for game=${gameId}`,
+          );
+
+          // 2. Check if punishments alone ended the game (e.g., all players timed out)
+          if (punished > 0) {
+            const gameEnded = await checkGameOverAfterPunishment(gameId);
+            if (gameEnded) {
+              console.log(
+                `[timeout] Game=${gameId} ended after punishments — skipping phase resolution`,
+              );
+              return;
+            }
+          }
+
+          // 3. Proceed with normal phase resolution using live ledger votes
+          const votes = await fetchCurrentLedgerVotes(gameId, round, phase);
+          await resolvePhaseFromLedger(gameId, round, phase, votes);
+        } catch (err) {
           console.error(
-            `[timeout] Phase resolution failed game=${gameId} round=${round} phase=${phase}:`,
+            `[timeout] Punishment+resolution failed game=${gameId} round=${round} phase=${phase}:`,
             err,
-          )
-        );
+          );
+        }
+      })();
     }
 
     yield* World.resolve(resolveRound, { game_id: gameId, round, phase });

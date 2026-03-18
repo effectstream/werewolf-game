@@ -24,7 +24,7 @@ const POINTS_WIN_BONUS = 50;
 
 export async function calculateAndPersistScores(
   gameId: number,
-  winner: "VILLAGERS" | "WEREWOLVES",
+  winner: "VILLAGERS" | "WEREWOLVES" | "DRAW",
   blockHeight: number,
   dbConn: Pool,
 ): Promise<void> {
