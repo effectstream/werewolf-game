@@ -68,5 +68,8 @@ export function initLayout() {
       <div id="announcementText" class="announcement-text"></div>
     </div>
     <div id="toastContainer" class="toast-container"></div>
+    <button id="soundToggleBtn" class="sound-toggle-btn" aria-label="Toggle sound">
+      <span class="sound-icon"></span>
+    </button>
   `
 }
