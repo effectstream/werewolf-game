@@ -96,6 +96,30 @@ export default defineConfig({
     open: true,
   },
   plugins: [
+    {
+      name: "patch-midnight-private-state-provider",
+      enforce: "pre",
+      transform(code: string, id: string) {
+        if (
+          !id.includes(
+            "@midnight-ntwrk/midnight-js-level-private-state-provider",
+          ) ||
+          !code.includes("timingSafeEqual")
+        ) {
+          return;
+        }
+
+        const patchedCode = code
+          .replace(/,\s*timingSafeEqual(?=[,\s}])/g, "")
+          .replace(/timingSafeEqual\s*,\s*/g, "");
+
+        return {
+          code:
+            `${patchedCode}\nfunction timingSafeEqual(a, b) { if (a.length !== b.length) return false; let result = 0; for (let i = 0; i < a.length; i++) result |= a[i] ^ b[i]; return result === 0; }\n`,
+          map: null,
+        };
+      },
+    },
     react(),
     deno(),
     nodePolyfills({
@@ -195,6 +219,7 @@ export default defineConfig({
       "@midnight-ntwrk/onchain-runtime-v2",
       "@midnight-ntwrk/onchain-runtime",
       "@midnight-ntwrk/midnight-js-node-zk-config-provider",
+      "@midnight-ntwrk/midnight-js-level-private-state-provider",
     ],
     include: [
       // "@midnight-ntwrk/midnight-js-network-id",

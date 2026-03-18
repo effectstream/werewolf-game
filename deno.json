@@ -21,8 +21,9 @@
     "npm:@cardano-foundation/cardano-verify-datasignature@1.0.11": "npm:@cardano-foundation/cardano-verify-datasignature@^1.0.11",
     "tweetnacl": "npm:tweetnacl@1.0.3", // TODO: This is a workaround for a missing dependency.
     "prando": "npm:prando@^6.0.1",
-    // Force all transitive deps to use the same ledger-v7 WASM module to avoid _assertClass failures
-    "@midnight-ntwrk/ledger-v7": "npm:@midnight-ntwrk/ledger-v7@7.0.3"
+    // Force all transitive deps to use the same Midnight ledger WASM modules to avoid _assertClass failures
+    "@midnight-ntwrk/ledger-v7": "npm:@midnight-ntwrk/ledger-v7@7.0.3",
+    "@midnight-ntwrk/ledger-v8": "npm:@midnight-ntwrk/ledger-v8@8.0.2"
   },
   "lint": {
     "rules": {

@@ -69,6 +69,9 @@ import {
   type TransactionId,
   ZswapSecretKeys,
 } from "@midnight-ntwrk/ledger-v7";
+// compact-js still returns maintenance updates backed by the older ledger wasm
+// runtime, so keep a narrow compatibility bridge here when building verifier-key
+// maintenance transactions.
 import {
   Intent as LegacyIntent,
   Transaction as LegacyTransaction,
