@@ -11,6 +11,7 @@ export class AudioManager {
   private wolfHowl: HTMLAudioElement | null = null
   private soundState: SoundState = 'MUSIC_SOUNDFX'
   private soundButton: HTMLButtonElement | null = null
+  private boundToggle: (() => void) | null = null
 
   constructor() {
     this.loadSettings()
@@ -27,11 +28,22 @@ export class AudioManager {
     this.soundButton = document.querySelector<HTMLButtonElement>('#soundToggleBtn')
 
     if (this.soundButton) {
-      this.soundButton.addEventListener('click', () => this.toggleSound())
+      this.boundToggle = () => this.toggleSound()
+      this.soundButton.addEventListener('click', this.boundToggle)
       this.updateButtonAppearance()
     }
 
-    this.applySoundState()
+    this.startMusicOnInteraction()
+  }
+
+  private startMusicOnInteraction(): void {
+    const handler = () => {
+      if (this.soundState === 'MUSIC_SOUNDFX') {
+        this.backgroundMusic?.play().catch(() => {})
+      }
+    }
+    document.addEventListener('click', handler, { capture: true, once: true })
+    document.addEventListener('keydown', handler, { capture: true, once: true })
   }
 
   private loadSettings(): void {
@@ -59,10 +71,14 @@ export class AudioManager {
   }
 
   private applySoundState(): void {
-    if (this.soundState === 'MUSIC_SOUNDFX') {
-      this.backgroundMusic?.play().catch(() => {})
-    } else {
-      this.backgroundMusic?.pause()
+    switch (this.soundState) {
+      case 'MUSIC_SOUNDFX':
+        this.backgroundMusic?.play().catch(() => {})
+        break
+      case 'SOUNDFX_ONLY':
+      case 'MUTED':
+        this.backgroundMusic?.pause()
+        break
     }
   }
 
@@ -112,6 +128,10 @@ export class AudioManager {
     this.backgroundMusic?.pause()
     this.backgroundMusic = null
     this.wolfHowl = null
+    if (this.soundButton && this.boundToggle) {
+      this.soundButton.removeEventListener('click', this.boundToggle)
+    }
     this.soundButton = null
+    this.boundToggle = null
   }
 }

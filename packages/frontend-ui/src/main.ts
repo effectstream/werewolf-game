@@ -232,15 +232,10 @@ async function bootGame(): Promise<GameManagers> {
 
     gameState.applyGameView(view)
 
-    // Detect round change and play wolf howl
-    if (view.round !== prevRound) {
+    // Detect round or phase change and play wolf howl (consolidated to avoid double-play)
+    if (view.round !== prevRound || gameState.phase !== prevPhase) {
       audioManager.playWolfHowl()
       prevRound = view.round
-    }
-
-    // Detect phase change and play wolf howl
-    if (gameState.phase !== prevPhase) {
-      audioManager.playWolfHowl()
       prevPhase = gameState.phase
     }
 
