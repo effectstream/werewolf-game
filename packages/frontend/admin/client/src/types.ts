@@ -7,7 +7,7 @@ export type GameSummary = {
   werewolfCount: number;
   villagerCount: number;
   finished: boolean;
-  winner: "VILLAGERS" | "WEREWOLVES" | null;
+  winner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null;
 };
 
 export type LobbySummary = {
@@ -48,7 +48,7 @@ export type GameView = {
   werewolfCount: number;
   villagerCount: number;
   finished: boolean;
-  winner: "VILLAGERS" | "WEREWOLVES" | null;
+  winner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null;
   aliveVector: boolean[];
 };
 

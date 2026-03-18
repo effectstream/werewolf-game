@@ -26,7 +26,7 @@ export class GameView {
   readonly phase: "NIGHT" | "DAY" | "FINISHED";
   readonly isFinished: boolean;
   /** Who won the game, or null while the game is still in progress. */
-  readonly winner: "VILLAGERS" | "WEREWOLVES" | null;
+  readonly winner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null;
   readonly playerCount: number;
   /** Effective alive indices (includes all slots when useAllAlive applies). */
   readonly aliveIndices: readonly number[];
@@ -52,7 +52,7 @@ export class GameView {
     round: number;
     phase: "NIGHT" | "DAY" | "FINISHED";
     isFinished: boolean;
-    winner: "VILLAGERS" | "WEREWOLVES" | null;
+    winner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null;
     playerCount: number;
     aliveIndices: readonly number[];
     aliveCount: number;
@@ -125,8 +125,12 @@ export class GameView {
 
     // Determine the winner once, from the source of truth, so downstream code
     // never needs to re-derive it from raw counts.
-    const winner: "VILLAGERS" | "WEREWOLVES" | null = isFinished
-      ? werewolfCount === 0 ? "VILLAGERS" : "WEREWOLVES"
+    const winner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null = isFinished
+      ? (werewolfCount === 0 && villagerCount === 0)
+        ? "DRAW"
+        : werewolfCount === 0
+          ? "VILLAGERS"
+          : "WEREWOLVES"
       : null;
 
     return new GameView({

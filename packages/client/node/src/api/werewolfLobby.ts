@@ -510,8 +510,10 @@ export async function getVotesForRoundHandler(
 function winnerOf(
   finished: boolean,
   werewolfCount: number,
-): "VILLAGERS" | "WEREWOLVES" | null {
+  villagerCount: number,
+): "VILLAGERS" | "WEREWOLVES" | "DRAW" | null {
   if (!finished) return null;
+  if (werewolfCount === 0 && villagerCount === 0) return "DRAW";
   return werewolfCount === 0 ? "VILLAGERS" : "WEREWOLVES";
 }
 
@@ -547,7 +549,7 @@ export async function getGameViewHandler(dbConn: Pool, gameId: number) {
     villagerCount: row.villager_count,
     players,
     finished: row.finished,
-    winner: winnerOf(row.finished, Number(row.werewolf_count)),
+    winner: winnerOf(row.finished, Number(row.werewolf_count), Number(row.villager_count)),
     werewolfIndices,
     updatedBlock: typeof row.updated_block === "string"
       ? Number(row.updated_block)
@@ -646,7 +648,7 @@ export async function adminListGamesHandler(dbConn: Pool) {
       werewolfCount: Number(row.werewolf_count),
       villagerCount: Number(row.villager_count),
       finished: row.finished,
-      winner: winnerOf(row.finished, Number(row.werewolf_count)),
+      winner: winnerOf(row.finished, Number(row.werewolf_count), Number(row.villager_count)),
     })),
     lobbies: lobbyRes.rows.map((row: any) => ({
       gameId: Number(row.game_id),

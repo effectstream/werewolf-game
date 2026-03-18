@@ -5,7 +5,7 @@ const ROUNDS_MULTIPLIER = 10
 const WINNING_TEAM_PTS = 50
 
 export interface GameEndOptions {
-  winner: 'VILLAGERS' | 'WEREWOLVES' | null
+  winner: 'VILLAGERS' | 'WEREWOLVES' | 'DRAW' | null
   /** Player's role number: 0=villager 1=werewolf 2=seer 3=doctor. undefined = not in game. */
   playerRole: number | undefined
   roundsSurvived: number
@@ -30,15 +30,23 @@ export class GameEndModal {
       ? '🐺 Werewolves Win!'
       : winner === 'VILLAGERS'
         ? '🏡 Villagers Win!'
-        : '🏁 Game Over'
+        : winner === 'DRAW'
+          ? '⚖️ Draw — No Winner!'
+          : '🏁 Game Over'
 
-    const winnerClass = winner === 'WEREWOLVES' ? 'game-end-winner-wolf' : 'game-end-winner-village'
+    const winnerClass = winner === 'WEREWOLVES'
+      ? 'game-end-winner-wolf'
+      : winner === 'DRAW'
+        ? 'game-end-winner-draw'
+        : 'game-end-winner-village'
 
     let scoreSection = ''
     if (hasEvmAddress && playerRole !== undefined) {
-      const onWinningTeam = winner === 'WEREWOLVES'
-        ? playerRole === 1
-        : playerRole !== 1
+      const onWinningTeam = winner === 'DRAW'
+        ? false
+        : winner === 'WEREWOLVES'
+          ? playerRole === 1
+          : playerRole !== 1
       const participationPts = PARTICIPATION_PTS
       const roundsPts = ROUNDS_MULTIPLIER * roundsSurvived
       const winBonus = onWinningTeam ? WINNING_TEAM_PTS : 0

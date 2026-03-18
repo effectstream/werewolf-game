@@ -97,6 +97,11 @@ type ShieldedAddresses = Awaited<
 type ContractPrivateStateId = "werewolfPrivateState";
 
 type WerewolfContract = Werewolf.Contract;
+type WerewolfPrivateState = {
+  setupData: Map<string, unknown>;
+  encryptionKeypair?: { secretKey: Uint8Array; publicKey: Uint8Array };
+  nextAction?: unknown;
+};
 
 // Inlined common types for standalone script
 type WerewolfCircuits = ImpureCircuitId<WerewolfContract>;
@@ -144,6 +149,30 @@ import { DELEGATED_SENTINEL } from "../../../../../shared/utils/batcher-client.t
 
 const werewolfContractInstance = new Werewolf.Contract(werewolfWitnesses);
 
+const getPrivateStoragePassword = () => "PAIMA_STORAGE_PASSWORD";
+
+const createInitialPrivateState = (): WerewolfPrivateState => ({
+  setupData: new Map(),
+});
+
+const getPrivateStateAccountId = (coinPublicKey: unknown): string => {
+  if (coinPublicKey instanceof Uint8Array) {
+    return toHex(coinPublicKey);
+  }
+  if (
+    coinPublicKey &&
+    typeof coinPublicKey === "object" &&
+    "bytes" in coinPublicKey &&
+    (coinPublicKey as { bytes?: unknown }).bytes instanceof Uint8Array
+  ) {
+    return toHex((coinPublicKey as { bytes: Uint8Array }).bytes);
+  }
+  if (typeof coinPublicKey === "string" && coinPublicKey.length > 0) {
+    return coinPublicKey;
+  }
+  return "werewolf-browser-account";
+};
+
 const getWerewolfLedgerState = async (
   providers: WerewolfProviders,
   contractAddress: ContractAddress,
@@ -182,8 +211,9 @@ const joinContract = async (
     contractAddress,
     privateStateId: "werewolfPrivateState",
     compiledContract,
-    initialPrivateState: {},
+    initialPrivateState: createInitialPrivateState(),
   });
+  (providers.privateStateProvider as any).setContractAddress?.(contractAddress);
   console.log(
     `Joined contract at address: ${
       (werewolfContract as any).deployTxData.public.contractAddress
@@ -556,6 +586,7 @@ const initializeProviders = async (
     shieldedCoinPublicKey as any,
     shieldedEncryptionPublicKey as any,
   );
+  const accountId = getPrivateStateAccountId(shieldedCoinPublicKey);
 
   const zkConfigPath = window.location.origin;
   const zkConfigProvider = new FetchZkConfigProvider(
@@ -565,7 +596,9 @@ const initializeProviders = async (
 
   return {
     privateStateProvider: levelPrivateStateProvider({
-      privateStoragePasswordProvider: async () => "PAIMA_STORAGE_PASSWORD",
+      privateStoragePasswordProvider: async () => getPrivateStoragePassword(),
+      accountId,
+      walletProvider: walletAndMidnightProvider,
     } as any),
     zkConfigProvider,
     proofProvider: httpClientProofProvider(

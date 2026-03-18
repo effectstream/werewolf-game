@@ -464,9 +464,10 @@ export async function resolvePhaseFromLedger(
       (b) => b.role !== 1 && postAlive.has(b.playerId),
     ).length;
 
-    const gameOver = aliveWolves === 0 || aliveWolves >= aliveVillagers;
+    const isDraw = aliveWolves === 0 && aliveVillagers === 0;
+    const gameOver = isDraw || aliveWolves === 0 || aliveWolves >= aliveVillagers;
     if (gameOver) {
-      const winner = aliveWolves === 0 ? "VILLAGERS" : "WEREWOLVES";
+      const winner = isDraw ? "DRAW" : aliveWolves === 0 ? "VILLAGERS" : "WEREWOLVES";
       console.log(
         `[vote-resolver] Game over (ledger): wolves=${aliveWolves} villagers=${aliveVillagers}` +
           ` winner=${winner} — submitting forceEndGame for game=${gameId}`,
@@ -625,9 +626,10 @@ export async function resolvePhaseFromVotes(
       (b) => b.role !== 1 && postAlive.has(b.playerId),
     ).length;
 
-    const gameOver = aliveWolves === 0 || aliveWolves >= aliveVillagers;
+    const isDraw = aliveWolves === 0 && aliveVillagers === 0;
+    const gameOver = isDraw || aliveWolves === 0 || aliveWolves >= aliveVillagers;
     if (gameOver) {
-      const winner = aliveWolves === 0 ? "VILLAGERS" : "WEREWOLVES";
+      const winner = isDraw ? "DRAW" : aliveWolves === 0 ? "VILLAGERS" : "WEREWOLVES";
       console.log(
         `[vote-resolver] Game over detected: wolves=${aliveWolves} villagers=${aliveVillagers}` +
           ` winner=${winner} — submitting forceEndGame for game=${gameId}`,
