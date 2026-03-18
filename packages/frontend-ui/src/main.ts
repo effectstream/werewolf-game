@@ -26,6 +26,7 @@ import { GameViewPoller, VoteStatusPoller } from './services/gameViewPoller'
 import { saveSession, clearSession } from './services/sessionStore'
 import { appearanceToPlayerConfig } from './avatarAppearance'
 import type { PlayerConfig } from './models/PlayerConfigInterface'
+import { AudioManager } from './services/audioManager'
 
 /** Shows a full-screen announcement overlay for 4 seconds then fades out */
 function showAnnouncement(message: string): void {
@@ -57,6 +58,7 @@ interface GameManagers {
   playerEntities: PlayerEntities
   poller: GameViewPoller
   votePoller: VoteStatusPoller
+  audioManager: AudioManager
 }
 
 type LobbyPlayer = {
@@ -106,6 +108,7 @@ function destroyGame(managers: GameManagers): void {
   managers.playerEntities.destroy()
   managers.poller.stop()
   managers.votePoller.stop()
+  managers.audioManager.destroy()
 }
 
 async function bootGame(): Promise<GameManagers> {
@@ -163,6 +166,8 @@ async function bootGame(): Promise<GameManagers> {
   const rolePicker = new RolePicker()
   const leaderboardManager = new LeaderboardManager()
   const gameEndModal = new GameEndModal()
+  const audioManager = new AudioManager()
+  audioManager.init()
 
   // Track the highest round in which the local player was alive (rounds survived).
   let highestAliveRound = 0
@@ -218,12 +223,21 @@ async function bootGame(): Promise<GameManagers> {
   const cameraControls = new CameraControls(gameScene.camera, gameScene.renderer.domElement)
 
   // Start the game view polling service
+  let prevRound = gameState.round
+  let prevPhase = gameState.phase
+
   const poller = new GameViewPoller(gameId, (view) => {
     // Capture alive snapshot BEFORE applying the new view (used for diff below)
     const prevAlive = [...gameState.playerAlive]
-    const prevPhase = gameState.phase
 
     gameState.applyGameView(view)
+
+    // Detect round or phase change and play wolf howl (consolidated to avoid double-play)
+    if (view.round !== prevRound || gameState.phase !== prevPhase) {
+      audioManager.playWolfHowl()
+      prevRound = view.round
+      prevPhase = gameState.phase
+    }
 
     // Track rounds survived for the local player (highest round where they were alive).
     const localPlayerId = gameState.playerBundle?.playerId
@@ -302,6 +316,7 @@ async function bootGame(): Promise<GameManagers> {
     playerEntities,
     poller,
     votePoller,
+    audioManager,
   }
 }
 
