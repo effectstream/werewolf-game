@@ -997,6 +997,11 @@ body {
   width: 28px;
 }
 
+.lb-nick {
+  font-weight: 600;
+  color: #c8d8ff;
+}
+
 .lb-addr {
   font-family: monospace;
   font-size: 12px;

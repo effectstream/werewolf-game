@@ -121,6 +121,7 @@
     "npm:@paimaexample/grafana-loki@*": "0.8.1",
     "npm:@paimaexample/npm-midnight-indexer@*": "0.9.0",
     "npm:@paimaexample/npm-midnight-indexer@0.9.0": "0.9.0",
+    "npm:@paimaexample/npm-midnight-node@*": "0.9.0",
     "npm:@paimaexample/npm-midnight-node@0.9.0": "0.9.0",
     "npm:@paimaexample/npm-midnight-proof-server@*": "0.9.0",
     "npm:@paimaexample/npm-midnight-proof-server@0.9.0": "0.9.0",
