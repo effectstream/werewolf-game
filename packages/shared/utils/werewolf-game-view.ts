@@ -125,12 +125,27 @@ export class GameView {
 
     // Determine the winner once, from the source of truth, so downstream code
     // never needs to re-derive it from raw counts.
+    //
+    // NOTE: werewolfCount / villagerCount in GameState are *initial* team sizes —
+    // they are only decremented by the manual revealPlayerRole circuit, not by
+    // adminPunishPlayer or the resolve circuits. Therefore we cannot rely on them
+    // to derive the winner. Instead we use the live alive indices:
+    //   • rawAliveCount === 0  → all players were eliminated → DRAW
+    //   • werewolfCount === 0  → not reachable without revealPlayerRole, but kept
+    //                            for backward-compat with any manual-reveal flow
+    //   • fallback             → "WEREWOLVES" (werewolves reached parity)
+    // For accurate VILLAGERS vs WEREWOLVES detection when rawAliveCount > 0, the
+    // frontend API uses werewolf_indices + alive_vector (populated by state-machine
+    // from in-memory bundles). GameView.winner is therefore only used for
+    // triggering the leaderboard; the API response uses the more accurate value.
     const winner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null = isFinished
-      ? (werewolfCount === 0 && villagerCount === 0)
+      ? rawAliveCount === 0
         ? "DRAW"
-        : werewolfCount === 0
-          ? "VILLAGERS"
-          : "WEREWOLVES"
+        : (werewolfCount === 0 && villagerCount === 0)
+          ? "DRAW"
+          : werewolfCount === 0
+            ? "VILLAGERS"
+            : "WEREWOLVES"
       : null;
 
     return new GameView({
