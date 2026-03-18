@@ -257,6 +257,16 @@ export class BatcherClient {
     );
   }
 
+  async adminPunishPlayer(
+    gameId: bigint,
+    playerIdx: bigint,
+  ): Promise<void> {
+    await this.callDelegated(
+      "adminPunishPlayer",
+      () => this.contract.callTx.adminPunishPlayer(gameId, playerIdx),
+    );
+  }
+
   async forceEndGame(
     gameId: bigint,
     masterSecret: Uint8Array,

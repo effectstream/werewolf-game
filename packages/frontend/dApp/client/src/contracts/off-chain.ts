@@ -80,14 +80,14 @@ function getBalanceMap(
   const balances = publicStates.contractState.balance;
   const balanceKeys = balances?.keys()!;
   try {
-    for (const balanceKey of balanceKeys) {
+    for (const balanceKey of balanceKeys as Iterable<any>) {
       // Get Address from Map Key
-      const addressEither = convertToEither(balanceKey.value as any);
+      const addressEither = convertToEither((balanceKey as any).value as any);
       const address = addressEither.is_left
         ? addressEither.left.bytes
         : addressEither.right.bytes;
       // Get Token Balance from Map Value
-      const cell = balances!.get(balanceKey!)!.asCell();
+      const cell = (balances as any).get(balanceKey!)!.asCell();
       // Set in Map
       balanceMap.set(address, convertToBigInt(cell!.value[0]));
     }

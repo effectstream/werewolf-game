@@ -4,6 +4,10 @@ import { Buffer } from "node:buffer";
 import * as Rx from "rxjs";
 import { HDWallet, Roles } from "@midnight-ntwrk/wallet-sdk-hd";
 import { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+import {
+  MidnightBech32m,
+  UnshieldedAddress,
+} from "@midnight-ntwrk/wallet-sdk-address-format";
 import { ShieldedWallet } from "@midnight-ntwrk/wallet-sdk-shielded";
 import { DustWallet } from "@midnight-ntwrk/wallet-sdk-dust-wallet";
 import {
@@ -135,15 +139,15 @@ export function createWalletConfiguration(
     provingServerUrl: new URL(networkUrls.proofServer),
     relayURL: new URL(networkUrls.node.replace("http", "ws")),
     networkId: networkId,
-  };
+  } as DefaultV1Configuration;
 }
 
 export function buildShieldedWallet(
   config: DefaultV1Configuration,
   seed: Uint8Array,
-): ReturnType<ReturnType<typeof ShieldedWallet>["startWithShieldedSeed"]> {
+): ReturnType<ReturnType<typeof ShieldedWallet>["startWithSeed"]> {
   const shieldedBuilder = ShieldedWallet(config);
-  return shieldedBuilder.startWithShieldedSeed(seed);
+  return shieldedBuilder.startWithSeed(seed);
 }
 
 export function buildDustWallet(
@@ -209,18 +213,22 @@ export async function buildWalletFacade(
   const unshieldedKeystore = createKeystore(unshieldedSeed, networkId);
   const unshieldedAddress = unshieldedKeystore.getBech32Address().asString();
 
-  const wallet = new WalletFacade(
-    shieldedWallet as any,
-    unshieldedWallet as any,
-    dustWallet,
-  );
+  const wallet = await WalletFacade.init({
+    configuration: walletConfig as any,
+    shielded: async () => shieldedWallet as any,
+    unshielded: async () => unshieldedWallet as any,
+    dust: async () => dustWallet as any,
+  });
 
   const zswapSecretKeys = ZswapSecretKeys.fromSeed(shieldedSeed);
   const walletZswapSecretKeys = ZswapSecretKeys.fromSeed(shieldedSeed);
   const dustSecretKey = DustSecretKey.fromSeed(dustSeed);
   const walletDustSecretKey = DustSecretKey.fromSeed(dustSeed);
 
-  await wallet.start(walletZswapSecretKeys, walletDustSecretKey);
+  await wallet.start(
+    walletZswapSecretKeys as any,
+    walletDustSecretKey as any,
+  );
 
   const dustState = await Rx.firstValueFrom(dustWallet.state) as any;
 
@@ -534,6 +542,7 @@ export async function waitForDustFunds(
             `Dust wallet sync progress: complete=${complete ?? "unknown"}`,
           );
         } catch (_err) {
+          // Ignore transient dust wallet state shapes while polling.
         }
       }),
       Rx.filter((state: any) => {
@@ -557,6 +566,7 @@ export async function waitForDustFunds(
             );
           }
         } catch (_err) {
+          // Ignore malformed intermediate snapshots and keep waiting.
         }
         return 0n;
       }),
@@ -702,18 +712,22 @@ const transfer = async (
 
   try {
     const ttl = new Date(Date.now() + TTL_DURATION_MS);
+    const decodedReceiverAddress = MidnightBech32m.parse(receiverAddress).decode(
+      UnshieldedAddress,
+      resolveNetworkId(),
+    );
     const recipe = await walletResult.wallet.transferTransaction(
       [{
         type: "unshielded",
         outputs: [{
           amount,
           type: tokenId,
-          receiverAddress,
+          receiverAddress: decodedReceiverAddress,
         }],
       }],
       {
-        shieldedSecretKeys: walletResult.walletZswapSecretKeys,
-        dustSecretKey: walletResult.walletDustSecretKey,
+        shieldedSecretKeys: walletResult.walletZswapSecretKeys as any,
+        dustSecretKey: walletResult.walletDustSecretKey as any,
       },
       { ttl },
     );

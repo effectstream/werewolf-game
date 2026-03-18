@@ -13,14 +13,17 @@
   },
   "imports": {
     // TODO: This is a workaround for a missing dependency.
-    "@paimaexample/tui": "jsr:@paimaexample/tui@0.8.4",
-    "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.8.4",
-    "@paimaexample/evm-contracts": "jsr:@paimaexample/evm-contracts@0.8.4",
+    "@paimaexample/tui": "jsr:@paimaexample/tui@0.9.0",
+    "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.9.0",
+    "@paimaexample/evm-contracts": "jsr:@paimaexample/evm-contracts@0.9.0",
     // Workarounds for broken imports in JSR packages
     "npm:/@sinclair/typebox@0.34.41/value": "npm:@sinclair/typebox@0.34.41/value",
     "npm:@cardano-foundation/cardano-verify-datasignature@1.0.11": "npm:@cardano-foundation/cardano-verify-datasignature@^1.0.11",
     "tweetnacl": "npm:tweetnacl@1.0.3", // TODO: This is a workaround for a missing dependency.
-    "prando": "npm:prando@^6.0.1"
+    "prando": "npm:prando@^6.0.1",
+    // Force all transitive deps to use the same Midnight ledger WASM modules to avoid _assertClass failures
+    "@midnight-ntwrk/ledger-v7": "npm:@midnight-ntwrk/ledger-v7@7.0.3",
+    "@midnight-ntwrk/ledger-v8": "npm:@midnight-ntwrk/ledger-v8@8.0.2"
   },
   "lint": {
     "rules": {

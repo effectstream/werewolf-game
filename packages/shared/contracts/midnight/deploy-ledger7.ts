@@ -4,21 +4,24 @@ import {
   setNetworkId,
 } from "@midnight-ntwrk/midnight-js-network-id";
 import { Buffer } from "node:buffer";
+import * as Rx from "rxjs";
 import type {
   MidnightProvider,
   WalletProvider,
 } from "@midnight-ntwrk/midnight-js-types";
 import {
-  submitInsertVerifierKeyTx,
-} from "@midnight-ntwrk/midnight-js-contracts";
-import {
   CompiledContract,
   ContractExecutable,
 } from "@midnight-ntwrk/compact-js";
 import {
+  asContractAddress,
   exitResultOrError,
   makeContractExecutableRuntime,
 } from "@midnight-ntwrk/midnight-js-types";
+import {
+  ImpureCircuitId,
+  VerifierKey,
+} from "@midnight-ntwrk/compact-js/effect/Contract";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import { NodeZkConfigProvider } from "@midnight-ntwrk/midnight-js-node-zk-config-provider";
@@ -29,35 +32,50 @@ import { sampleSigningKey } from "@midnight-ntwrk/compact-runtime";
 import { SucceedEntirely } from "@midnight-ntwrk/midnight-js-types";
 
 import {
-  buildWalletFacade,
+  buildUnshieldedWallet,
+  createWalletConfiguration,
+  deriveSeedForRole,
   getInitialShieldedState,
   registerNightForDust,
   resolveWalletSyncTimeoutMs,
   syncAndWaitForFunds,
   waitForDustFunds,
-  type WalletResult,
+  type WalletResult as FaucetWalletResult,
 } from "./faucet.ts";
 
 // Declare Deno global for type-checking when not executed under Deno tooling.
 declare const Deno: typeof globalThis.Deno;
 
 // Modular wallet SDK imports
-import type { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+import { Roles } from "@midnight-ntwrk/wallet-sdk-hd";
+import { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
+import { ShieldedWallet } from "@midnight-ntwrk/wallet-sdk-shielded";
+import { DustWallet } from "@midnight-ntwrk/wallet-sdk-dust-wallet";
 import {
+  createKeystore,
+  type UnshieldedKeystore,
+} from "@midnight-ntwrk/wallet-sdk-unshielded-wallet";
+import {
+  type CoinPublicKey,
   ContractDeploy,
   ContractState as LedgerContractState,
+  DustSecretKey,
+  type EncPublicKey,
+  type FinalizedTransaction,
   Intent,
+  LedgerParameters,
   shieldedToken,
   Transaction,
-} from "@midnight-ntwrk/ledger-v7";
-import type {
-  CoinPublicKey,
-  DustSecretKey,
-  EncPublicKey,
-  FinalizedTransaction,
-  TransactionId,
+  type TransactionId,
   ZswapSecretKeys,
 } from "@midnight-ntwrk/ledger-v7";
+// compact-js still returns maintenance updates backed by the older ledger wasm
+// runtime, so keep a narrow compatibility bridge here when building verifier-key
+// maintenance transactions.
+import {
+  Intent as LegacyIntent,
+  Transaction as LegacyTransaction,
+} from "npm:@midnight-ntwrk/ledger-v7@7.0.0";
 import type { NetworkId } from "@midnight-ntwrk/wallet-sdk-abstractions";
 
 // ============================================================================
@@ -124,6 +142,17 @@ interface InitialOwner {
   right: { bytes: Uint8Array };
 }
 
+interface WalletResult {
+  wallet: WalletFacade;
+  zswapSecretKeys: ZswapSecretKeys;
+  walletZswapSecretKeys: ZswapSecretKeys;
+  dustSecretKey: DustSecretKey;
+  walletDustSecretKey: DustSecretKey;
+  dustAddress: string;
+  unshieldedAddress: string;
+  unshieldedKeystore: UnshieldedKeystore;
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -138,7 +167,7 @@ function createTtl(): Date {
 function checkEnvVariables(): void {
   if (!Deno.env.get("MIDNIGHT_STORAGE_PASSWORD")) {
     // Set a default password for local development
-    Deno.env.set("MIDNIGHT_STORAGE_PASSWORD", "devpassword12345");
+    Deno.env.set("MIDNIGHT_STORAGE_PASSWORD", "devPassword1234!");
     log.info("MIDNIGHT_STORAGE_PASSWORD not set, using default for local dev");
   }
 }
@@ -170,6 +199,21 @@ function ensureDustFeeConfig(): void {
       );
     }
   }
+}
+
+function getPrivateStoragePassword(): string {
+  const password = Deno.env.get("MIDNIGHT_STORAGE_PASSWORD");
+  if (!password) {
+    throw new Error(
+      "MIDNIGHT_STORAGE_PASSWORD is required for private state storage.",
+    );
+  }
+  if (password.length < 16) {
+    throw new Error(
+      "MIDNIGHT_STORAGE_PASSWORD must be at least 16 characters long.",
+    );
+  }
+  return password;
 }
 
 function safeStringifyProgress(value: unknown): string {
@@ -229,7 +273,7 @@ async function buildWalletAndWaitForFunds(
   networkId: NetworkId.NetworkId,
 ): Promise<WalletResult> {
   log.info("Building wallet using modular SDK");
-  const result = await buildWalletFacade(networkUrls, seed, networkId);
+  const result = await buildDeployWalletFacade(networkUrls, seed, networkId);
 
   const initialState = await getInitialShieldedState(result.wallet.shielded);
   const address = initialState.address.coinPublicKeyString();
@@ -274,6 +318,60 @@ async function buildWalletAndWaitForFunds(
   return result;
 }
 
+async function buildDeployWalletFacade(
+  networkUrls: Required<Omit<NetworkUrls, "id">>,
+  seed: string,
+  networkId: NetworkId.NetworkId,
+): Promise<WalletResult> {
+  const shieldedSeed = deriveSeedForRole(seed, Roles.Zswap);
+  const dustSeed = deriveSeedForRole(seed, Roles.Dust);
+  const unshieldedSeed = deriveSeedForRole(seed, Roles.NightExternal);
+
+  const walletConfig = createWalletConfiguration(
+    networkUrls as Required<Parameters<typeof createWalletConfiguration>[0]>,
+    networkId,
+  );
+  const shieldedWallet = ShieldedWallet(walletConfig).startWithSeed(
+    shieldedSeed,
+  );
+  const dustWallet = DustWallet({
+    ...walletConfig,
+    costParameters: {
+      additionalFeeOverhead: 300_000_000_000_000n,
+      feeBlocksMargin: 5,
+    },
+  }).startWithSeed(dustSeed, LedgerParameters.initialParameters().dust);
+  const unshieldedWallet = buildUnshieldedWallet(
+    networkUrls as Required<Parameters<typeof buildUnshieldedWallet>[0]>,
+    unshieldedSeed,
+    networkId,
+  );
+
+  const wallet = await WalletFacade.init({
+    configuration: walletConfig as any,
+    shielded: async () => shieldedWallet as any,
+    unshielded: async () => unshieldedWallet as any,
+    dust: async () => dustWallet as any,
+  });
+  const walletZswapSecretKeys = ZswapSecretKeys.fromSeed(shieldedSeed);
+  const walletDustSecretKey = DustSecretKey.fromSeed(dustSeed);
+  await wallet.start(walletZswapSecretKeys as any, walletDustSecretKey as any);
+
+  const unshieldedKeystore = createKeystore(unshieldedSeed, networkId);
+  const dustState = await Rx.firstValueFrom(dustWallet.state) as any;
+
+  return {
+    wallet,
+    zswapSecretKeys: ZswapSecretKeys.fromSeed(shieldedSeed) as any,
+    walletZswapSecretKeys: walletZswapSecretKeys as any,
+    dustSecretKey: DustSecretKey.fromSeed(dustSeed) as any,
+    walletDustSecretKey: walletDustSecretKey as any,
+    dustAddress: dustState.dustAddress,
+    unshieldedAddress: unshieldedKeystore.getBech32Address().asString(),
+    unshieldedKeystore,
+  };
+}
+
 async function ensureDustBalance(walletResult: WalletResult): Promise<void> {
   const { unshieldedBalance, dustBalance } = await syncAndWaitForFunds(
     walletResult.wallet,
@@ -289,7 +387,9 @@ async function ensureDustBalance(walletResult: WalletResult): Promise<void> {
     return;
   }
 
-  const registered = await registerNightForDust(walletResult);
+  const registered = await registerNightForDust(
+    walletResult as unknown as FaucetWalletResult,
+  );
   if (!registered) return;
 
   try {
@@ -325,8 +425,8 @@ function createWalletAndMidnightProvider(
   unshieldedKeystore: WalletResult["unshieldedKeystore"],
 ): WalletProvider & MidnightProvider {
   const secretKeys = {
-    shieldedSecretKeys: walletZswapSecretKeys,
-    dustSecretKey: walletDustSecretKey,
+    shieldedSecretKeys: walletZswapSecretKeys as any,
+    dustSecretKey: walletDustSecretKey as any,
   };
   return {
     getCoinPublicKey(): CoinPublicKey {
@@ -337,7 +437,7 @@ function createWalletAndMidnightProvider(
     },
     // v3 WalletProvider: balanceTx takes UnboundTransaction (proven), returns FinalizedTransaction
     // deno-lint-ignore no-explicit-any
-    async balanceTx(tx: any, ttl?: Date): Promise<FinalizedTransaction> {
+    async balanceTx(tx: any, ttl?: Date) {
       const txTtl = ttl ?? createTtl();
       // Balance the proven (unbound) transaction
       const recipe = await wallet.balanceUnboundTransaction(tx, secretKeys, {
@@ -357,20 +457,20 @@ function createWalletAndMidnightProvider(
         return wallet.finalizeRecipe({
           ...recipe,
           balancingTransaction: signedBalancingTx,
-        });
+        }) as any;
       }
 
       // No balancing transaction — finalize directly
-      return wallet.finalizeRecipe(recipe);
+      return wallet.finalizeRecipe(recipe) as any;
     },
-    submitTx(tx: FinalizedTransaction): Promise<TransactionId> {
-      return wallet.submitTransaction(tx).catch((error) => {
+    submitTx(tx: any) {
+      return wallet.submitTransaction(tx as any).catch((error) => {
         const messages = collectErrorMessages(error);
         log.error(`submitTx failed: ${messages.join(" | ")}`);
         throw error;
       });
     },
-  };
+  } as any;
 }
 
 /**
@@ -388,6 +488,7 @@ function configureProviders(
   zkConfigPath: string,
 ) {
   const signingKeyStoreName = `${privateStateStoreName}-signing-keys`;
+  const accountId = unshieldedKeystore.getBech32Address().asString();
   const walletAndMidnightProvider = createWalletAndMidnightProvider(
     wallet,
     zswapSecretKeys,
@@ -396,6 +497,7 @@ function configureProviders(
     walletDustSecretKey,
     unshieldedKeystore,
   );
+  const zkConfigProvider = new NodeZkConfigProvider(zkConfigPath);
   return {
     // For deployment, we use full private state config because we may need to verify
     // the deployed contract state. For batcher/transaction submission use cases,
@@ -406,14 +508,16 @@ function configureProviders(
       midnightDbName: "midnight-level-db-deploy", // Use separate DB for deployment to avoid lock conflicts
       privateStateStoreName,
       signingKeyStoreName,
+      privateStoragePasswordProvider: () => getPrivateStoragePassword(),
+      accountId,
       walletProvider: walletAndMidnightProvider, // Use wallet's encryption key for private state
     } as any), // Type assertion: runtime supports walletProvider even though types don't reflect it yet
     publicDataProvider: indexerPublicDataProvider(
       networkUrls.indexer,
       networkUrls.indexerWS,
     ),
-    zkConfigProvider: new NodeZkConfigProvider(zkConfigPath),
-    proofProvider: httpClientProofProvider(networkUrls.proofServer),
+    zkConfigProvider,
+    proofProvider: httpClientProofProvider(networkUrls.proofServer, zkConfigProvider),
     walletProvider: walletAndMidnightProvider,
     midnightProvider: walletAndMidnightProvider,
   };
@@ -439,6 +543,87 @@ function createCompiledContract(
     compiledAssetsPath,
   );
   return compiled;
+}
+
+async function submitInsertVerifierKeyTxLocal(
+  providers: ReturnType<typeof configureProviders>,
+  // deno-lint-ignore no-explicit-any
+  compiledContract: any,
+  contractAddress: string,
+  circuitId: string,
+  verifierKey: unknown,
+  walletResult: WalletResult,
+) {
+  const contractState = await providers.publicDataProvider.queryContractState(
+    contractAddress as any,
+  );
+  if (!contractState) {
+    throw new Error(
+      `No contract state found on chain for contract address '${contractAddress}'`,
+    );
+  }
+
+  const signingKey = await providers.privateStateProvider.getSigningKey(
+    contractAddress,
+  );
+  if (!signingKey) {
+    throw new Error(
+      `Signing key for contract address '${contractAddress}' not found`,
+    );
+  }
+
+  const contractExec = ContractExecutable.make(compiledContract);
+  const contractRuntime = makeContractExecutableRuntime(
+    providers.zkConfigProvider,
+    {
+      coinPublicKey: providers.walletProvider.getCoinPublicKey(),
+      signingKey,
+    },
+  );
+
+  const exitResult = await contractRuntime.runPromiseExit(
+    (contractExec as any).addOrReplaceContractOperation(
+      ImpureCircuitId(circuitId as any),
+      VerifierKey(verifierKey as Uint8Array),
+      {
+        address: asContractAddress(contractAddress),
+        contractState,
+      },
+    ),
+  );
+  const maintenanceResult = exitResultOrError(exitResult as any) as any;
+  const legacyUnprovenTx = LegacyTransaction.fromParts(
+    getNetworkId(),
+    undefined,
+    undefined,
+    LegacyIntent.new(createTtl()).addMaintenanceUpdate(
+      maintenanceResult.public.maintenanceUpdate,
+    ),
+  );
+  const unprovenTx = Transaction.deserialize(
+    "signature",
+    "pre-proof",
+    "pre-binding",
+    legacyUnprovenTx.serialize(),
+  );
+
+  const recipe = await walletResult.wallet.balanceUnprovenTransaction(
+    unprovenTx as any,
+    {
+      shieldedSecretKeys: walletResult.walletZswapSecretKeys as any,
+      dustSecretKey: walletResult.walletDustSecretKey as any,
+    },
+    { ttl: createTtl() },
+  );
+
+  const signedRecipe = await walletResult.wallet.signRecipe(
+    recipe,
+    (payload) => walletResult.unshieldedKeystore.signData(payload),
+  );
+
+  const finalizedTx = await walletResult.wallet.finalizeRecipe(signedRecipe);
+  const txId = await walletResult.wallet.submitTransaction(finalizedTx);
+  return await providers.publicDataProvider.watchForTxData(txId);
 }
 
 async function deployWithLimitedVerifierKeys(
@@ -491,7 +676,7 @@ async function deployWithLimitedVerifierKeys(
 
     log.info("Running contract initialization with full zkConfigProvider...");
     const exitResult = await contractRuntime.runPromiseExit(
-      contractExec.initialize(initialPs, ...args),
+      (contractExec as any).initialize(initialPs, ...args),
     );
 
     let initResult: any;
@@ -551,8 +736,8 @@ async function deployWithLimitedVerifierKeys(
 
     log.info("Balancing deploy transaction (unproven)...");
     const recipe = await wallet.balanceUnprovenTransaction(
-      unprovenTx,
-      balanceSecretKeys,
+      unprovenTx as any,
+      balanceSecretKeys as any,
       { ttl: createTtl() },
     );
 
@@ -586,6 +771,7 @@ async function deployWithLimitedVerifierKeys(
     );
 
     // Save private state and signing key
+    (providers.privateStateProvider as any).setContractAddress(contractAddress);
     if (config.privateStateId) {
       await providers.privateStateProvider.set(
         config.privateStateId,
@@ -652,12 +838,13 @@ async function deployWithLimitedVerifierKeys(
       let retries = 3;
       while (retries > 0) {
         try {
-          const submitResult = await submitInsertVerifierKeyTx(
-            providers as any,
+          const submitResult = await submitInsertVerifierKeyTxLocal(
+            providers,
             compiledContract,
             contractAddress,
-            circuitId as any,
-            verifierKey as any,
+            circuitId,
+            verifierKey,
+            walletResult,
           );
 
           if (submitResult.status !== SucceedEntirely) {
