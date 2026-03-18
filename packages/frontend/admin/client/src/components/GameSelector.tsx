@@ -30,6 +30,8 @@ function GameItem({
     ? "Villagers Win"
     : game.winner === "WEREWOLVES"
     ? "Werewolves Win"
+    : game.winner === "DRAW"
+    ? "Draw"
     : game.finished
     ? "Finished"
     : game.phase;

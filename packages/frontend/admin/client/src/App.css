@@ -165,6 +165,31 @@ header h1 {
   color: #4caf50;
 }
 
+/* Winner banner (shown when a game is finished) */
+.winner-banner {
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  text-align: center;
+  margin: 8px 0;
+}
+
+.winner-villagers {
+  background: #0a3d0a;
+  color: #4caf50;
+}
+
+.winner-werewolves {
+  background: #3d0a0a;
+  color: #ef5350;
+}
+
+.winner-draw {
+  background: #2d2d2d;
+  color: #aaa;
+}
+
 /* State grid */
 .state-grid {
   display: grid;
