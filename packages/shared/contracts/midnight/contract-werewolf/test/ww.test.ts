@@ -24,6 +24,10 @@ import {
   type PrivateState,
   witnesses,
 } from "../src/witnesses.ts";
+import {
+  computeRoundActionsDigest,
+  computeVoteNullifier,
+} from "../../../../utils/round-actions-digest.ts";
 
 // ============================================
 // TYPES & INTERFACES
@@ -490,6 +494,25 @@ async function runTestSuite() {
 
   // 7. RESOLVE NIGHT
   try {
+    const nightEncryptedAction = encryptPayload(
+      1,
+      1,
+      123,
+      sim.players[0].encKeypair.secretKey,
+      sim.adminVotePublicKeyBytes.slice(0, 32),
+      1,
+    );
+    const nightDigest = computeRoundActionsDigest(sim.gameId, 1, Phase.Night, [
+      {
+        nullifier: computeVoteNullifier(
+          sim.gameId,
+          1,
+          Phase.Night,
+          sim.players[0].sk,
+        ),
+        encryptedAction: nightEncryptedAction,
+      },
+    ]);
     // Kill P1
     await sim.runCircuit((ctx) =>
       circuits.resolveNightPhase(
@@ -499,6 +522,7 @@ async function runTestSuite() {
         1n, // Dead Player P1
         true, // Has Death
         root, // Keep same root for test simplicity
+        nightDigest,
       )
     );
     sim.players[1].alive = false;

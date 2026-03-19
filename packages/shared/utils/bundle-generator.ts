@@ -11,7 +11,6 @@
  */
 
 import {
-  Contract as WerewolfRuntimeContract,
   pureCircuits,
 } from "../contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 import nacl from "tweetnacl";
@@ -94,20 +93,9 @@ function shuffle<T>(items: T[], prando?: any): T[] {
 }
 
 // ---------------------------------------------------------------------------
-// RuntimeMerkleTree — builds a merkle tree using the Compact contract's
-// internal hash functions (_persistentHash_7, _degradeToTransient_0,
-// _transientHash_0).
+// RuntimeMerkleTree — builds a merkle tree using stable exported pure circuits
+// so it does not depend on regenerated private helper names.
 // ---------------------------------------------------------------------------
-
-// The Contract class exposes these as runtime methods (not typed in .d.ts)
-type ContractWithInternals = WerewolfRuntimeContract & {
-  _persistentHash_7(value: {
-    domain_sep: Uint8Array;
-    data: Uint8Array;
-  }): Uint8Array;
-  _degradeToTransient_0(x: Uint8Array): bigint;
-  _transientHash_0(value: [bigint, bigint]): bigint;
-};
 
 export class RuntimeMerkleTree {
   readonly depth: number;
@@ -115,14 +103,8 @@ export class RuntimeMerkleTree {
   readonly leafDigests: bigint[];
   readonly levels: bigint[][];
   readonly root: { field: bigint };
-  private readonly contract: ContractWithInternals;
 
-  constructor(
-    contract: WerewolfRuntimeContract,
-    leaves: Uint8Array[],
-    depth = 10,
-  ) {
-    this.contract = contract as ContractWithInternals;
+  constructor(leaves: Uint8Array[], depth = 10) {
     this.depth = depth;
     this.leaves = leaves;
 
@@ -178,46 +160,17 @@ export class RuntimeMerkleTree {
   }
 
   private computeLeafDigest(leaf: Uint8Array): bigint {
-    // "mdn:lh" as bytes
-    const domain_sep = new Uint8Array([109, 100, 110, 58, 108, 104]);
-    const bytes = this.contract._persistentHash_7({ domain_sep, data: leaf });
-    return this.contract._degradeToTransient_0(bytes);
+    return pureCircuits.testLeafDigest(leaf).field;
   }
 
   private hashPair(left: bigint, right: bigint): bigint {
-    return this.contract._transientHash_0([left, right]);
+    return pureCircuits.testNodeDigest({ field: left }, { field: right }).field;
   }
 }
 
 // ---------------------------------------------------------------------------
 // Bundle Generation
 // ---------------------------------------------------------------------------
-
-/**
- * Create a WerewolfRuntimeContract instance with stub witnesses.
- * Only used for pure functions (merkle tree hashing). Impure witnesses
- * are not needed and will throw if called.
- */
-function createRuntimeContract(): WerewolfRuntimeContract {
-  const stubWitnesses = {
-    wit_getRoleCommitment: () => {
-      throw new Error("Stub witness: wit_getRoleCommitment");
-    },
-    wit_getEncryptedRole: () => {
-      throw new Error("Stub witness: wit_getEncryptedRole");
-    },
-    wit_getAdminKey: () => {
-      throw new Error("Stub witness: wit_getAdminKey");
-    },
-    wit_getInitialRoot: () => {
-      throw new Error("Stub witness: wit_getInitialRoot");
-    },
-    wit_getActionData: () => {
-      throw new Error("Stub witness: wit_getActionData");
-    },
-  };
-  return new WerewolfRuntimeContract(stubWitnesses as any);
-}
 
 /**
  * Generate all bundles for a game after the lobby has closed.
@@ -247,8 +200,6 @@ export function generateBundles(
   }
 
   const gameIdStr = gameId.toString();
-  const contract = createRuntimeContract();
-
   // Initialize deterministic PRNG if gameSeed is provided.
   const prando = gameSeed ? new PrandoClass(toHexString(gameSeed)) : null;
 
@@ -319,7 +270,7 @@ export function generateBundles(
   }
 
   // --- Build merkle tree ---
-  const tree = new RuntimeMerkleTree(contract, playerLeaves);
+  const tree = new RuntimeMerkleTree(playerLeaves);
   const merkleRoot = tree.getRoot();
 
   // --- Package bundles ---

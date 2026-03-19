@@ -42,7 +42,10 @@ import { readMidnightContract } from "@paimaexample/midnight-contracts/read-cont
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
 import { CompiledContract } from "@midnight-ntwrk/compact-js";
 import { resolve } from "node:path";
-import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
+import {
+  WerewolfLedger,
+  type WerewolfVoteEntry,
+} from "../../../shared/utils/werewolf-ledger.ts";
 import { convertMidnightLedger } from "../../../shared/utils/paima-utils.ts";
 import { ledger as contractLedger } from "../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 
@@ -397,7 +400,7 @@ export async function fetchCurrentLedgerVotes(
   gameId: number,
   round: number,
   phase: string,
-): Promise<unknown[]> {
+): Promise<WerewolfVoteEntry[]> {
   setNetworkId(midnightNetworkConfig.id as any);
   const { contractAddress } = readMidnightContract("contract-werewolf", {
     networkId: midnightNetworkConfig.id,
@@ -417,7 +420,11 @@ export async function fetchCurrentLedgerVotes(
   const typedLedger = contractLedger(contractState as any);
   const converted = convertMidnightLedger(typedLedger);
   const werewolfLedger = WerewolfLedger.from(converted);
-  const votes = werewolfLedger.getVotesForRoundAndPhase(gameId, round, phase);
+  const votes = werewolfLedger.getVoteEntriesForRoundAndPhase(
+    gameId,
+    round,
+    phase,
+  );
   console.log(
     `[fetchCurrentLedgerVotes] game=${gameId} round=${round} phase=${phase} → ${votes.length} vote(s) in live ledger`,
   );
