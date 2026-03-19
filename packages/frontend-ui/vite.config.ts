@@ -12,6 +12,11 @@ const managedDir = resolve(
   '../shared/contracts/midnight/contract-werewolf/src/managed',
 )
 
+const threadedWasmHeaders = {
+  'Cross-Origin-Embedder-Policy': 'require-corp',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+}
+
 /**
  * Serves compiled ZK contract artifacts (keys + zkir) from the shared managed
  * directory under /keys/* and /zkir/* — matching the layout expected by
@@ -107,11 +112,17 @@ export default defineConfig({
     },
   },
 
+  worker: {
+    format: 'es',
+  },
+
   resolve: {
     // Prevent multiple instances of Midnight runtime singletons (WASM state machines
     // throw if instantiated more than once per page load)
     dedupe: [
-      '@midnight-ntwrk/onchain-runtime-v2',
+      '@midnight-ntwrk/compact-js',
+      '@midnight-ntwrk/ledger-v8',
+      '@midnight-ntwrk/onchain-runtime-v3',
       '@midnight-ntwrk/onchain-runtime',
       '@midnight-ntwrk/compact-runtime',
       '@midnight-ntwrk/midnight-js-contracts',
@@ -121,7 +132,9 @@ export default defineConfig({
   optimizeDeps: {
     // Exclude WASM packages from Vite's pre-bundling (esbuild can't handle WASM)
     exclude: [
-      '@midnight-ntwrk/onchain-runtime-v2',
+      '@paima/midnight-wasm-prover',
+      '@midnight-ntwrk/ledger-v8',
+      '@midnight-ntwrk/onchain-runtime-v3',
       '@midnight-ntwrk/onchain-runtime',
       '@midnight-ntwrk/compact-runtime',
     ],
@@ -146,6 +159,11 @@ export default defineConfig({
   },
 
   server: {
+    headers: threadedWasmHeaders,
     port: 5173,
+  },
+
+  preview: {
+    headers: threadedWasmHeaders,
   },
 })
