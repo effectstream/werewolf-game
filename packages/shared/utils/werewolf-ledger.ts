@@ -16,6 +16,32 @@ export interface GameStateRecord {
   [key: string]: unknown;
 }
 
+export interface WerewolfVoteEntry {
+  key: {
+    gameId: number;
+    phase: number;
+    round: number;
+    nullifier: Uint8Array;
+  };
+  encryptedVote: unknown;
+}
+
+export function parseLedgerBytes(value: unknown, length: number): Uint8Array {
+  if (typeof value === "string") {
+    const hex = value.startsWith("0x") ? value.slice(2) : value;
+    const bytes = new Uint8Array(length);
+    for (let i = 0; i < Math.min(length, Math.floor(hex.length / 2)); i++) {
+      bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+  }
+
+  if (value instanceof Uint8Array) return value.slice(0, length);
+  if (Array.isArray(value)) return new Uint8Array((value as number[]).slice(0, length));
+
+  return new Uint8Array(length);
+}
+
 /**
  * WerewolfLedger
  *
@@ -188,6 +214,49 @@ export class WerewolfLedger {
   }
 
   /**
+   * All vote entries for a given (gameId, round, phase) tuple, including their
+   * nullifier-bearing composite key so callers can derive a deterministic order.
+   */
+  getVoteEntriesForRoundAndPhase(
+    gameId: number,
+    round: number,
+    phase: number | string,
+  ): WerewolfVoteEntry[] {
+    const votesMap = this.parser.parseMap(
+      this.payload["Werewolf_roundVotes"],
+    );
+    const phaseNum = typeof phase === "string"
+      ? (phase.toUpperCase() === "NIGHT" || phase === "1" ? 1 : 2)
+      : phase;
+    const votes: WerewolfVoteEntry[] = [];
+
+    for (const [rawKey, value] of Object.entries(votesMap)) {
+      try {
+        const keyObj = JSON.parse(rawKey);
+        if (
+          Number(keyObj.gameId) === gameId &&
+          Number(keyObj.round) === round &&
+          Number(keyObj.phase) === phaseNum
+        ) {
+          votes.push({
+            key: {
+              gameId: Number(keyObj.gameId),
+              phase: Number(keyObj.phase),
+              round: Number(keyObj.round),
+              nullifier: parseLedgerBytes(keyObj.nullifier, 32),
+            },
+            encryptedVote: value,
+          });
+        }
+      } catch {
+        // not a JSON composite key — skip
+      }
+    }
+
+    return votes;
+  }
+
+  /**
    * All encrypted votes for a given (gameId, round, phase) tuple.
    * Iterates the `Werewolf_encryptedVotes` Map keyed by VoteKey
    * (serialised as JSON `{"gameId":N,"round":N,"phase":N,"nullifier":"..."}`)
@@ -198,28 +267,9 @@ export class WerewolfLedger {
     round: number,
     phase: number | string,
   ): unknown[] {
-    const votesMap = this.parser.parseMap(
-      this.payload["Werewolf_roundVotes"],
+    return this.getVoteEntriesForRoundAndPhase(gameId, round, phase).map((vote) =>
+      vote.encryptedVote
     );
-    const phaseNum = typeof phase === "string"
-      ? (phase.toUpperCase() === "NIGHT" || phase === "1" ? 1 : 2)
-      : phase;
-    const votes: unknown[] = [];
-    for (const [rawKey, value] of Object.entries(votesMap)) {
-      try {
-        const keyObj = JSON.parse(rawKey);
-        if (
-          Number(keyObj.gameId) === gameId &&
-          Number(keyObj.round) === round &&
-          Number(keyObj.phase) === phaseNum
-        ) {
-          votes.push(value);
-        }
-      } catch {
-        // not a JSON composite key — skip
-      }
-    }
-    return votes;
   }
 
   /**

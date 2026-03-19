@@ -10,6 +10,12 @@ import {
 } from "../../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 import { BatcherClient } from "../../../../shared/utils/batcher-client.ts";
 import { werewolfIdCodec } from "../../../../shared/utils/werewolf-id-codec.ts";
+import {
+  parseLedgerBytes,
+  WerewolfLedger,
+} from "../../../../shared/utils/werewolf-ledger.ts";
+import { computeRoundActionsDigest } from "../../../../shared/utils/round-actions-digest.ts";
+import { convertMidnightLedger } from "../../../../shared/utils/paima-utils.ts";
 import nacl from "tweetnacl";
 import { useEvmWallet } from "./contexts/EvmWalletContext.tsx";
 import { WalletModal } from "./components/WalletModal.tsx";
@@ -876,6 +882,19 @@ function App() {
             aliveCount(game.players) > 1;
           const resolvedTargetIdx = result.targetIdx;
 
+          // Fetch latest ledger to compute real digest from on-chain submissions
+          const resolveState = midnightProviders
+            ? await refreshLedgerState()
+            : ledgerState;
+          const autoRoundActionsDigest = resolveState
+            ? buildDigestFromLedgerState(
+              resolveState,
+              game.gameId,
+              game.round,
+              isNight,
+            )
+            : new Uint8Array(32);
+
           if (isNight) {
             await batcherClient.resolveNight(
               game.gameId,
@@ -883,6 +902,7 @@ function App() {
               BigInt(resolvedTargetIdx),
               hasDeath,
               game.tree.getRoot(),
+              autoRoundActionsDigest,
             );
             const nextPlayers = game.players.map((p) =>
               hasDeath && p.id === resolvedTargetIdx
@@ -918,6 +938,7 @@ function App() {
               game.gameId,
               BigInt(resolvedTargetIdx),
               hasDeath,
+              autoRoundActionsDigest,
             );
             const nextPlayers = game.players.map((p) =>
               hasDeath && p.id === resolvedTargetIdx
@@ -1221,26 +1242,44 @@ function App() {
     );
   };
 
-  const getRoundEncryptedVotes = (
-    state: any,
+  const getEncryptedVotesFromLedger = (
+    state: unknown,
     gameId: bigint,
     phase: number,
     round: number,
   ): Uint8Array[] => {
-    const votesMap = state?.roundEncryptedVotes;
-    if (!votesMap || typeof votesMap.member !== "function") {
-      throw new Error("Ledger roundEncryptedVotes map not available.");
-    }
-    const roundKey = { gameId: gameId, round: BigInt(round) };
-    const emptyVote = new Uint8Array(3); // Bytes<3>
-    if (!votesMap.member(roundKey)) {
-      return Array.from({ length: MAX_PLAYERS }, () => emptyVote);
-    }
-    const roundVec2 = votesMap.lookup(roundKey) as Uint8Array[][];
-    const roundVec = phase === Phase.Night ? roundVec2[0] : roundVec2[1];
-    return Array.from(
-      { length: MAX_PLAYERS },
-      (_, idx) => roundVec[idx] ?? emptyVote,
+    const converted = convertMidnightLedger(state);
+    const werewolfLedger = WerewolfLedger.from(converted);
+    const entries = werewolfLedger.getVoteEntriesForRoundAndPhase(
+      Number(gameId),
+      round,
+      phase,
+    );
+    return entries.map((entry) => parseLedgerBytes(entry.encryptedVote, 3));
+  };
+
+  const buildDigestFromLedgerState = (
+    state: unknown,
+    gameId: bigint,
+    round: number,
+    isNight: boolean,
+  ): Uint8Array => {
+    const converted = convertMidnightLedger(state);
+    const werewolfLedger = WerewolfLedger.from(converted);
+    const phase = isNight ? Phase.Night : Phase.Day;
+    const entries = werewolfLedger.getVoteEntriesForRoundAndPhase(
+      Number(gameId),
+      round,
+      phase,
+    );
+    return computeRoundActionsDigest(
+      gameId,
+      round,
+      phase,
+      entries.map((entry) => ({
+        nullifier: entry.key.nullifier,
+        encryptedAction: parseLedgerBytes(entry.encryptedVote, 3),
+      })),
     );
   };
 
@@ -1847,6 +1886,18 @@ EVM: ✅`,
         const hasDeath = aliveCount(game.players) > 1 &&
           game.players[targetIdx]?.alive;
 
+        const latestStateForDigest = midnightProviders
+          ? await refreshLedgerState()
+          : ledgerState;
+        const roundActionsDigest = latestStateForDigest
+          ? buildDigestFromLedgerState(
+            latestStateForDigest,
+            game.gameId,
+            game.round,
+            true,
+          )
+          : new Uint8Array(32);
+
         const batcherClient = getBatcherClient();
         await batcherClient.resolveNight(
           game.gameId,
@@ -1854,6 +1905,7 @@ EVM: ✅`,
           BigInt(targetIdx),
           hasDeath,
           game.tree.getRoot(),
+          roundActionsDigest,
         );
 
         const nextPlayers = game.players.map((p) =>
@@ -1892,7 +1944,7 @@ EVM: ✅`,
           "Ledger state unavailable. Refresh ledger state first.",
         );
       }
-      const encryptedVotes = getRoundEncryptedVotes(
+      const encryptedVotes = getEncryptedVotesFromLedger(
         latestLedgerState,
         game.gameId,
         Phase.Night,
@@ -1921,6 +1973,12 @@ EVM: ✅`,
       const hasDeath = result.hasElimination && aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
 
+      const roundActionsDigestNight = buildDigestFromLedgerState(
+        latestLedgerState,
+        game.gameId,
+        game.round,
+        true,
+      );
       const batcherClient = getBatcherClient();
       await batcherClient.resolveNight(
         game.gameId,
@@ -1928,6 +1986,7 @@ EVM: ✅`,
         BigInt(targetIdx),
         hasDeath,
         game.tree.getRoot(),
+        roundActionsDigestNight,
       );
 
       const nextPlayers = game.players.map((p) =>
@@ -2130,11 +2189,24 @@ EVM: ✅`,
         const hasElimination = aliveCount(game.players) > 1 &&
           game.players[targetIdx]?.alive;
 
+        const latestStateForDigest = midnightProviders
+          ? await refreshLedgerState()
+          : ledgerState;
+        const roundActionsDigest = latestStateForDigest
+          ? buildDigestFromLedgerState(
+            latestStateForDigest,
+            game.gameId,
+            game.round,
+            false,
+          )
+          : new Uint8Array(32);
+
         const batcherClient = getBatcherClient();
         await batcherClient.resolveDay(
           game.gameId,
           BigInt(targetIdx),
           hasElimination,
+          roundActionsDigest,
         );
 
         const nextPlayers = game.players.map((p) =>
@@ -2174,7 +2246,7 @@ EVM: ✅`,
           "Ledger state unavailable. Refresh ledger state first.",
         );
       }
-      const encryptedVotes = getRoundEncryptedVotes(
+      const encryptedVotes = getEncryptedVotesFromLedger(
         latestLedgerState,
         game.gameId,
         Phase.Day,
@@ -2200,11 +2272,18 @@ EVM: ✅`,
       const hasElimination = result.hasElimination &&
         aliveCount(game.players) > 1;
       const targetIdx = result.targetIdx;
+      const roundActionsDigestDay = buildDigestFromLedgerState(
+        latestLedgerState,
+        game.gameId,
+        game.round,
+        false,
+      );
       const batcherClient = getBatcherClient();
       await batcherClient.resolveDay(
         game.gameId,
         BigInt(targetIdx),
         hasElimination,
+        roundActionsDigestDay,
       );
 
       const nextPlayers = game.players.map((p) =>

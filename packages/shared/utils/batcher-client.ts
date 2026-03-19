@@ -227,6 +227,7 @@ export class BatcherClient {
     deadPlayerIdx: bigint,
     hasDeath: boolean,
     newMerkleRoot: { field: bigint },
+    roundActionsDigest: Uint8Array,
   ): Promise<void> {
     await this.callDelegated(
       "resolveNightPhase",
@@ -237,6 +238,7 @@ export class BatcherClient {
           deadPlayerIdx,
           hasDeath,
           newMerkleRoot,
+          roundActionsDigest,
         ),
     );
   }
@@ -245,6 +247,7 @@ export class BatcherClient {
     gameId: bigint,
     eliminatedIdx: bigint,
     hasElimination: boolean,
+    roundActionsDigest: Uint8Array,
   ): Promise<void> {
     await this.callDelegated(
       "resolveDayPhase",
@@ -253,6 +256,7 @@ export class BatcherClient {
           gameId,
           eliminatedIdx,
           hasElimination,
+          roundActionsDigest,
         ),
     );
   }

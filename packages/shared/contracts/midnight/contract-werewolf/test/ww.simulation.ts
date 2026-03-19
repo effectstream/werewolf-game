@@ -11,6 +11,7 @@ import {
   type MerkleCircuitRunner,
   TrustedNode,
 } from "./simulation-trusted-node.ts";
+import { computeRoundActionsDigest } from "../../../../utils/round-actions-digest.ts";
 
 // =============================================================================
 // 1. TYPES (orchestration only)
@@ -220,7 +221,7 @@ class Simulation {
       this.witnessRegistry.setCurrent(
         this.admin.getWitness<PrivateState, Ledger>(),
       );
-      const nightVotesList: Uint8Array[] = [];
+      const nightVoteEntries: { nullifier: Uint8Array; encryptedAction: Uint8Array }[] = [];
       const ledgerState = ledger(this.context.currentQueryContext.state);
       for (const [key, vote] of ledgerState.Werewolf_roundVotes) {
         if (
@@ -228,14 +229,23 @@ class Simulation {
           key.phase === ContractPhase.Night &&
           key.round === BigInt(round)
         ) {
-          nightVotesList.push(vote);
+          nightVoteEntries.push({
+            nullifier: key.nullifier,
+            encryptedAction: vote,
+          });
         }
       }
 
       const nightRes = this.admin.processVotesFromLedger(
-        nightVotesList,
+        nightVoteEntries.map((entry) => entry.encryptedAction),
         round,
         true,
+      );
+      const nightRoundDigest = computeRoundActionsDigest(
+        this.gameId,
+        round,
+        ContractPhase.Night,
+        nightVoteEntries,
       );
 
       const contextBeforeTree = this.context;
@@ -255,6 +265,7 @@ class Simulation {
           BigInt(nightRes.eliminatedIdx),
           nightRes.hasElimination,
           nightRoot,
+          nightRoundDigest,
         )
       );
       this.witnessRegistry.unsetCurrent();
@@ -306,7 +317,7 @@ class Simulation {
       this.witnessRegistry.setCurrent(
         this.admin.getWitness<PrivateState, Ledger>(),
       );
-      const dayVotesList: Uint8Array[] = [];
+      const dayVoteEntries: { nullifier: Uint8Array; encryptedAction: Uint8Array }[] = [];
       const ledgerStateDay = ledger(this.context.currentQueryContext.state);
       for (const [key, vote] of ledgerStateDay.Werewolf_roundVotes) {
         if (
@@ -314,14 +325,23 @@ class Simulation {
           key.phase === ContractPhase.Day &&
           key.round === BigInt(round)
         ) {
-          dayVotesList.push(vote);
+          dayVoteEntries.push({
+            nullifier: key.nullifier,
+            encryptedAction: vote,
+          });
         }
       }
 
       const dayRes = this.admin.processVotesFromLedger(
-        dayVotesList,
+        dayVoteEntries.map((entry) => entry.encryptedAction),
         round,
         false,
+      );
+      const dayRoundDigest = computeRoundActionsDigest(
+        this.gameId,
+        round,
+        ContractPhase.Day,
+        dayVoteEntries,
       );
 
       await this.runCircuit(() =>
@@ -330,6 +350,7 @@ class Simulation {
           this.gameId,
           BigInt(dayRes.eliminatedIdx),
           dayRes.hasElimination,
+          dayRoundDigest,
         )
       );
       this.witnessRegistry.unsetCurrent();

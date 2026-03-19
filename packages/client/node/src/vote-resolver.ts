@@ -23,6 +23,11 @@ import type { PrivateState } from "../../../shared/contracts/midnight/contract-w
 import { runPreparedQuery } from "@paimaexample/db";
 import { getGameView, resolveRound } from "@werewolf-game/database";
 import { getDbPool } from "./db-pool.ts";
+import {
+  computeRoundActionsDigest,
+  computeVoteNullifier,
+} from "../../../shared/utils/round-actions-digest.ts";
+import type { WerewolfVoteEntry } from "../../../shared/utils/werewolf-ledger.ts";
 
 const BATCHER_URL = Deno.env.get("BATCHER_URL") ?? "http://localhost:3334";
 
@@ -271,6 +276,55 @@ function parseLedgerBytes3(v: unknown): Uint8Array {
   return new Uint8Array(3);
 }
 
+function buildRoundActionsDigestFromLedger(
+  gameId: number,
+  round: number,
+  phase: string,
+  voteEntries: WerewolfVoteEntry[],
+): Uint8Array {
+  return computeRoundActionsDigest(
+    gameId,
+    round,
+    phase,
+    voteEntries.map((vote) => ({
+      nullifier: vote.key.nullifier,
+      encryptedAction: parseLedgerBytes3(vote.encryptedVote),
+    })),
+  );
+}
+
+function buildRoundActionsDigestFromStore(
+  gameId: number,
+  round: number,
+  phase: string,
+): Uint8Array {
+  const votes = store.getVotes(gameId, round, phase);
+  const bundlesByPlayer = new Map(
+    store.getAllBundlesForGame(gameId).map((bundle) => [bundle.playerId, bundle]),
+  );
+
+  const actions = votes.map((vote) => {
+    const bundle = bundlesByPlayer.get(vote.voterIndex);
+    if (!bundle) {
+      throw new Error(
+        `[vote-resolver] Missing bundle for voter=${vote.voterIndex} game=${gameId}`,
+      );
+    }
+
+    return {
+      nullifier: computeVoteNullifier(
+        gameId,
+        round,
+        phase,
+        hexToBytes(bundle.leafSecret),
+      ),
+      encryptedAction: hexToBytes(vote.encryptedVoteHex).slice(0, 3),
+    };
+  });
+
+  return computeRoundActionsDigest(gameId, round, phase, actions);
+}
+
 // ---------------------------------------------------------------------------
 // Ledger-based resolution (player-delegated voting path)
 // ---------------------------------------------------------------------------
@@ -289,12 +343,12 @@ export async function resolvePhaseFromLedger(
   gameId: number,
   round: number,
   phase: string,
-  encryptedVotes: unknown[],
+  voteEntries: WerewolfVoteEntry[],
 ): Promise<TallyResult> {
   const isNight = phase.toUpperCase() === "NIGHT";
 
   console.log(
-    `[vote-resolver] resolvePhaseFromLedger game=${gameId} round=${round} phase=${phase} votes=${encryptedVotes.length}`,
+    `[vote-resolver] resolvePhaseFromLedger game=${gameId} round=${round} phase=${phase} votes=${voteEntries.length}`,
   );
 
   const secrets = store.getGameSecrets(gameId);
@@ -329,8 +383,8 @@ export async function resolvePhaseFromLedger(
   const adminSecretKey = secrets.adminVoteKeypair.secretKey;
   const decrypted: DecryptedVote[] = [];
 
-  for (const raw of encryptedVotes) {
-    const ciphertext = parseLedgerBytes3(raw);
+  for (const entry of voteEntries) {
+    const ciphertext = parseLedgerBytes3(entry.encryptedVote);
 
     // Brute-force: try each player's public key until the round stamp validates
     let found = false;
@@ -355,13 +409,13 @@ export async function resolvePhaseFromLedger(
 
     if (!found) {
       console.warn(
-        `[vote-resolver] Could not decrypt ledger vote ciphertext: ${JSON.stringify(raw)}`,
+        `[vote-resolver] Could not decrypt ledger vote ciphertext for nullifier=${JSON.stringify(entry.key.nullifier)}`,
       );
     }
   }
 
   console.log(
-    `[vote-resolver] Decrypted ${decrypted.length}/${encryptedVotes.length} ledger votes:`,
+    `[vote-resolver] Decrypted ${decrypted.length}/${voteEntries.length} ledger votes:`,
     decrypted.map((v) => `voter=${v.voterIndex}→target=${v.target}`).join(", "),
   );
 
@@ -403,6 +457,12 @@ export async function resolvePhaseFromLedger(
   }
 
   const emptyPrivateState: PrivateState = { setupData: new Map() };
+  const roundActionsDigest = buildRoundActionsDigestFromLedger(
+    gameId,
+    round,
+    phase,
+    voteEntries,
+  );
 
   if (isNight) {
     await callMidnightCircuit({
@@ -417,6 +477,7 @@ export async function resolvePhaseFromLedger(
           BigInt(tally.targetIdx),
           tally.hasElimination,
           merkleRoot,
+          roundActionsDigest,
         );
       },
     });
@@ -431,6 +492,7 @@ export async function resolvePhaseFromLedger(
           BigInt(gameId),
           BigInt(tally.targetIdx),
           tally.hasElimination,
+          roundActionsDigest,
         );
       },
     });
@@ -571,6 +633,11 @@ export async function resolvePhaseFromVotes(
   // 6. Submit to contract via delegated balancing.
   // resolveNight/resolveDay use disclose() for all arguments — no witnesses needed.
   const emptyPrivateState: PrivateState = { setupData: new Map() };
+  const roundActionsDigest = buildRoundActionsDigestFromStore(
+    gameId,
+    round,
+    phase,
+  );
 
   if (isNight) {
     await callMidnightCircuit({
@@ -585,6 +652,7 @@ export async function resolvePhaseFromVotes(
           BigInt(tally.targetIdx),
           tally.hasElimination,
           merkleRoot,
+          roundActionsDigest,
         );
       },
     });
@@ -599,6 +667,7 @@ export async function resolvePhaseFromVotes(
           BigInt(gameId),
           BigInt(tally.targetIdx),
           tally.hasElimination,
+          roundActionsDigest,
         );
       },
     });

@@ -71,14 +71,16 @@ export circuit resolveNightPhase(
     newRound: Uint<32>,
     deadPlayerIdx: Uint<32>,
     hasDeath: Boolean,
-    newMerkleRoot: MerkleTreeDigest
+    newMerkleRoot: MerkleTreeDigest,
+    roundActionsDigest: Bytes<32>
 ): [] {
     return Werewolf_resolveNightPhase(
         gameId,
         newRound,
         deadPlayerIdx,
         hasDeath,
-        newMerkleRoot
+        newMerkleRoot,
+        roundActionsDigest
     );
 }
 
@@ -92,9 +94,15 @@ export circuit voteDay(
 export circuit resolveDayPhase(
     gameId: Uint<32>,
     eliminatedIdx: Uint<32>,
-    hasElimination: Boolean
+    hasElimination: Boolean,
+    roundActionsDigest: Bytes<32>
 ): [] {
-    return Werewolf_resolveDayPhase(gameId, eliminatedIdx, hasElimination);
+    return Werewolf_resolveDayPhase(
+        gameId,
+        eliminatedIdx,
+        hasElimination,
+        roundActionsDigest
+    );
 }
 
 export circuit revealPlayerRole(

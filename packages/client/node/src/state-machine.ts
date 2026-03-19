@@ -233,20 +233,20 @@ stm.addStateTransition(
             !isResolutionTriggered(gameId, gameView.round, gameView.phase)
           ) {
             setResolutionTriggered(gameId, gameView.round, gameView.phase);
-            const encryptedVotes = ledger.getVotesForRoundAndPhase(
+            const voteEntries = ledger.getVoteEntriesForRoundAndPhase(
               gameId,
               gameView.round,
               gameView.phase,
             );
             console.log(
               `[midnight] All votes in game=${gameId} round=${gameView.round}` +
-                ` phase=${gameView.phase} — triggering ledger resolution with ${encryptedVotes.length} votes`,
+                ` phase=${gameView.phase} — triggering ledger resolution with ${voteEntries.length} votes`,
             );
             void resolvePhaseFromLedger(
               gameId,
               gameView.round,
               gameView.phase,
-              encryptedVotes,
+              voteEntries,
             ).catch((err) =>
               console.error(
                 `[midnight] Ledger phase resolution failed game=${gameId}:`,

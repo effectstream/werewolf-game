@@ -295,6 +295,7 @@ export const WEREWOLF_METHODS = [
       { name: "deadPlayerIdx", type: "uint32" },
       { name: "hasDeath", type: "boolean" },
       { name: "newMerkleRoot", type: "merkleDigest" },
+      { name: "roundActionsDigest", type: "bytes32" },
     ],
   },
   {
@@ -311,6 +312,7 @@ export const WEREWOLF_METHODS = [
       { name: "gameId", type: "uint32" },
       { name: "eliminatedIdx", type: "uint32" },
       { name: "hasElimination", type: "boolean" },
+      { name: "roundActionsDigest", type: "bytes32" },
     ],
   },
   {
