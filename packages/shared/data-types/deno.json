@@ -13,6 +13,7 @@
     "@paimaexample/utils": "jsr:@paimaexample/utils@0.9.0",
     "@paimaexample/db": "jsr:@paimaexample/db@0.9.0",
     "@paimaexample/sm": "jsr:@paimaexample/sm@0.9.0",
+    "@midnight-ntwrk/compact-runtime": "npm:@midnight-ntwrk/compact-runtime@0.15.0",
     "viem": "npm:viem@2.37.3",
     "@sinclair/typebox": "npm:@sinclair/typebox@0.34.41"
   }

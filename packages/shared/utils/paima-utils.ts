@@ -1,3 +1,8 @@
+import {
+  ChargedState as CompactChargedState,
+  StateValue as CompactStateValue,
+} from "npm:@midnight-ntwrk/compact-runtime@0.15.0";
+
 /**
  * MidnightLedgerParser
  *
@@ -154,4 +159,49 @@ export function toHex(uint8Array: Uint8Array): string {
 
 export function convertMidnightLedger(obj: unknown): unknown {
   return _sharedParser.convertLedger(obj);
+}
+
+function hasEncode(value: unknown): value is { encode(): unknown } {
+  return value !== null && typeof value === "object" &&
+    typeof (value as { encode?: unknown }).encode === "function";
+}
+
+function normalizeMidnightStateValue(value: unknown): CompactStateValue {
+  if (value instanceof CompactStateValue) {
+    return value;
+  }
+  if (hasEncode(value)) {
+    return CompactStateValue.decode(
+      value.encode() as Parameters<typeof CompactStateValue.decode>[0],
+    );
+  }
+  throw new Error("Unsupported Midnight state value shape");
+}
+
+/**
+ * Normalize legacy/current Midnight state objects into the current compact
+ * runtime ChargedState expected by generated `ledger()` helpers.
+ */
+export function normalizeMidnightLedgerStateInput(
+  value: unknown,
+): CompactChargedState {
+  const candidate = value !== null && typeof value === "object" &&
+      "data" in value
+    ? (value as { data: unknown }).data
+    : value;
+
+  if (candidate instanceof CompactChargedState) {
+    return candidate;
+  }
+
+  if (
+    candidate !== null && typeof candidate === "object" &&
+    "state" in candidate
+  ) {
+    return new CompactChargedState(
+      normalizeMidnightStateValue((candidate as { state: unknown }).state),
+    );
+  }
+
+  return new CompactChargedState(normalizeMidnightStateValue(candidate));
 }

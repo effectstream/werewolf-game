@@ -19,7 +19,7 @@ import {
   makeContractExecutableRuntime,
 } from "@midnight-ntwrk/midnight-js-types";
 import {
-  ImpureCircuitId,
+  ProvableCircuitId,
   VerifierKey,
 } from "@midnight-ntwrk/compact-js/effect/Contract";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
@@ -57,25 +57,21 @@ import {
 } from "@midnight-ntwrk/wallet-sdk-unshielded-wallet";
 import {
   type CoinPublicKey,
-  ContractDeploy,
-  ContractState as LedgerContractState,
   DustSecretKey,
   type EncPublicKey,
   type FinalizedTransaction,
-  Intent,
   LedgerParameters,
   shieldedToken,
   Transaction,
   type TransactionId,
   ZswapSecretKeys,
 } from "@midnight-ntwrk/ledger-v7";
-// compact-js still returns maintenance updates backed by the older ledger wasm
-// runtime, so keep a narrow compatibility bridge here when building verifier-key
-// maintenance transactions.
 import {
-  Intent as LegacyIntent,
-  Transaction as LegacyTransaction,
-} from "npm:@midnight-ntwrk/ledger-v7@7.0.0";
+  ContractDeploy as LedgerV8ContractDeploy,
+  ContractState as LedgerV8ContractState,
+  Intent as LedgerV8Intent,
+  Transaction as LedgerV8Transaction,
+} from "@midnight-ntwrk/ledger-v8";
 import type { NetworkId } from "@midnight-ntwrk/wallet-sdk-abstractions";
 
 // ============================================================================
@@ -583,7 +579,7 @@ async function submitInsertVerifierKeyTxLocal(
 
   const exitResult = await contractRuntime.runPromiseExit(
     (contractExec as any).addOrReplaceContractOperation(
-      ImpureCircuitId(circuitId as any),
+      ProvableCircuitId(circuitId as any),
       VerifierKey(verifierKey as Uint8Array),
       {
         address: asContractAddress(contractAddress),
@@ -592,11 +588,11 @@ async function submitInsertVerifierKeyTxLocal(
     ),
   );
   const maintenanceResult = exitResultOrError(exitResult as any) as any;
-  const legacyUnprovenTx = LegacyTransaction.fromParts(
+  const v8UnprovenTx = LedgerV8Transaction.fromParts(
     getNetworkId(),
     undefined,
     undefined,
-    LegacyIntent.new(createTtl()).addMaintenanceUpdate(
+    LedgerV8Intent.new(createTtl()).addMaintenanceUpdate(
       maintenanceResult.public.maintenanceUpdate,
     ),
   );
@@ -604,7 +600,7 @@ async function submitInsertVerifierKeyTxLocal(
     "signature",
     "pre-proof",
     "pre-binding",
-    legacyUnprovenTx.serialize(),
+    v8UnprovenTx.serialize(),
   );
 
   const recipe = await walletResult.wallet.balanceUnprovenTransaction(
@@ -698,27 +694,33 @@ async function deployWithLimitedVerifierKeys(
     const fullContractState = initResult.public.contractState;
 
     // Step 2: Convert compact-runtime ContractState to ledger ContractState
-    const fullLedgerState = LedgerContractState.deserialize(
+    const fullLedgerState = LedgerV8ContractState.deserialize(
       fullContractState.serialize(),
     );
 
     // Step 3: Create a stripped ContractState with NO operations (no VKs)
-    const strippedState = new LedgerContractState();
+    const strippedState = new LedgerV8ContractState();
     strippedState.data = fullLedgerState.data;
     strippedState.maintenanceAuthority = fullLedgerState.maintenanceAuthority;
 
     log.info("Created stripped contract state (no operations/verifier keys)");
 
     // Step 4: Build the deploy transaction
-    const contractDeploy = new ContractDeploy(strippedState);
+    const contractDeploy = new LedgerV8ContractDeploy(strippedState);
     contractAddress = contractDeploy.address;
 
-    const intent = Intent.new(createTtl()).addDeploy(contractDeploy);
-    const unprovenTx = Transaction.fromParts(
+    const intent = LedgerV8Intent.new(createTtl()).addDeploy(contractDeploy);
+    const v8UnprovenTx = LedgerV8Transaction.fromParts(
       getNetworkId(),
       undefined,
       undefined,
       intent,
+    );
+    const unprovenTx = Transaction.deserialize(
+      "signature",
+      "pre-proof",
+      "pre-binding",
+      v8UnprovenTx.serialize(),
     );
 
     log.info(`Deploy tx built for contract address: ${contractAddress}`);

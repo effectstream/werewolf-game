@@ -3,7 +3,6 @@ import {
   MidnightBalancingAdapter,
   type MidnightBalancingAdapterConfig,
 } from "@paimaexample/batcher";
-import { MidnightBalancingAdapterX } from "./base-adapter.ts";
 export type ValidationResult = {
   valid: boolean;
   error?: string;

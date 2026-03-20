@@ -68,7 +68,7 @@ export default defineConfig({
       "npm:@midnight-ntwrk/onchain-runtime-v2@2.0.0":
         "@midnight-ntwrk/onchain-runtime-v2",
       "@midnight-ntwrk/onchain-runtime": "@midnight-ntwrk/onchain-runtime-v2",
-      "npm:@midnight-ntwrk/compact-runtime@0.14.0":
+      "npm:@midnight-ntwrk/compact-runtime@0.15.0":
         "@midnight-ntwrk/compact-runtime",
       "npm:@midnight-ntwrk/midnight-js-contracts@3.2.0":
         "@midnight-ntwrk/midnight-js-contracts",

@@ -47,6 +47,7 @@ import {
   type WerewolfVoteEntry,
 } from "../../../shared/utils/werewolf-ledger.ts";
 import { convertMidnightLedger } from "../../../shared/utils/paima-utils.ts";
+import { normalizeMidnightLedgerStateInput } from "../../../shared/utils/paima-utils.ts";
 import { ledger as contractLedger } from "../../../shared/contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 
 // ---------------------------------------------------------------------------
@@ -417,7 +418,9 @@ export async function fetchCurrentLedgerVotes(
   // Apply the same ledger() + convertMidnightLedger() pipeline used in config.ts
   // so that Midnight Map-like objects are converted to plain objects that
   // WerewolfLedger.parseMap() can iterate correctly.
-  const typedLedger = contractLedger(contractState as any);
+  const typedLedger = contractLedger(
+    normalizeMidnightLedgerStateInput(contractState),
+  );
   const converted = convertMidnightLedger(typedLedger);
   const werewolfLedger = WerewolfLedger.from(converted);
   const votes = werewolfLedger.getVoteEntriesForRoundAndPhase(
