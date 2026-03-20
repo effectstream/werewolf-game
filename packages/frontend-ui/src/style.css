@@ -399,6 +399,12 @@ body {
   min-height: 1.1em;
 }
 
+/* `hidden` must win: author `display` rules otherwise override the attribute. */
+.lobby-proxy-badge[hidden],
+.lobby-associate-section[hidden] {
+  display: none !important;
+}
+
 .lobby-proxy-badge {
   display: inline-block;
   margin-top: 6px;

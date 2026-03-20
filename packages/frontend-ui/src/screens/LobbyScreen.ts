@@ -244,7 +244,7 @@ export class LobbyScreen {
         <h2 id="laceInstallTitle" class="lace-install-title">You're playing with a temporary wallet</h2>
         <p class="lace-install-body">
           Your <strong>Midnight address</strong> has been derived automatically
-          from your EVM wallet. Your leaderboard points are safe.
+          from a generated proxy EVM wallet that lives on this browser. Your leaderboard points are safe.
         </p>
         <p class="lace-install-body">
           Install <strong>Lace</strong> later to link your real Midnight wallet
@@ -456,44 +456,58 @@ export class LobbyScreen {
     }
 
     // ── 2. Midnight wallet (Lace or proxy fallback) ───────────────────────────
+    // Always attempt Lace first; isAvailable() is used only as a tiebreaker
+    // when connect() throws, to distinguish "Lace present but failed" from
+    // "Lace not installed".
     this.setStatus("Connecting Midnight wallet…");
 
     let shielded: string;
 
-    if (!midnightWallet.isAvailable()) {
-      // Auto-fallback: Lace not installed → derive proxy wallet from EVM seed
-      this.setStatus("Lace not detected — initialising proxy wallet…");
-      try {
-        const walletClient = evmWallet.getWalletClient()!;
-        const proxyState = await proxyMidnightWallet.initialize(walletClient, evmAddress);
-        midnightWallet.activateProxy(proxyState, proxyMidnightWallet.asConnectedAPI());
-        this._usingProxy = true;
-        shielded = proxyState.shieldedAddress;
-        console.log("[LobbyScreen] Proxy wallet activated:", shielded.slice(0, 16) + "…");
-        // Inform the player they are on a temporary wallet
-        this.laceModalBackdrop.hidden = false;
-      } catch (err) {
-        // Proxy init failed — show error in status bar only (no blocking modal)
-        this.setLoading(this.walletBtn, false, "Connect Wallet");
-        this.setStatus(
-          `Proxy wallet initialisation failed: ${(err as Error).message}`,
-          true,
-        );
-        return;
-      }
-    } else {
-      try {
-        const midnightState = await midnightWallet.connect(MIDNIGHT_NETWORK_ID);
-        shielded = midnightState.shieldedAddress!;
-        this._usingProxy = false;
-        console.log("[LobbyScreen] Midnight wallet connected:", shielded);
-      } catch (err) {
+    try {
+      const midnightState = await midnightWallet.connect(MIDNIGHT_NETWORK_ID);
+      shielded = midnightState.shieldedAddress!;
+      this._usingProxy = false;
+      console.log("[LobbyScreen] Midnight wallet connected:", shielded);
+    } catch (laceErr) {
+      if (midnightWallet.isAvailable()) {
+        // Lace is installed but the connection failed (user rejected, wrong network, etc.).
+        // Surface the error — do not silently fall back to proxy.
         this.setLoading(this.walletBtn, false, "Connect Wallet");
         this.derivedNickname = null;
         this.nicknameValueEl.textContent = "";
         this.nicknameInfoEl.hidden = true;
         this.setStatus(
-          `Midnight wallet connection failed: ${(err as Error).message}`,
+          `Midnight wallet connection failed: ${(laceErr as Error).message}`,
+          true,
+        );
+        return;
+      }
+
+      // Lace not installed → derive proxy wallet from EVM seed.
+      this.setStatus("Lace not detected — initialising proxy wallet…");
+      try {
+        const walletClient = evmWallet.getWalletClient()!;
+        const proxyState = await proxyMidnightWallet.initialize(
+          walletClient,
+          evmAddress,
+          MIDNIGHT_NETWORK_ID,
+        );
+        midnightWallet.activateProxy(
+          proxyState,
+          proxyMidnightWallet.asConnectedAPI(),
+        );
+        this._usingProxy = true;
+        shielded = proxyState.shieldedAddress;
+        console.log(
+          "[LobbyScreen] Proxy wallet activated:",
+          shielded.slice(0, 16) + "…",
+        );
+        // Inform the player they are on a temporary wallet.
+        this.laceModalBackdrop.hidden = false;
+      } catch (proxyErr) {
+        this.setLoading(this.walletBtn, false, "Connect Wallet");
+        this.setStatus(
+          `Proxy wallet initialisation failed: ${(proxyErr as Error).message}`,
           true,
         );
         return;
@@ -517,8 +531,11 @@ export class LobbyScreen {
 
     if (this._usingProxy) {
       this.proxyBadgeEl.hidden = false;
+      this.associateSection.hidden = false;
       this.walletBtn.textContent = "Proxy Wallet Connected";
     } else {
+      this.proxyBadgeEl.hidden = true;
+      this.associateSection.hidden = true;
       this.walletBtn.textContent = "Wallets Connected";
     }
     this.walletBtn.disabled = true;
@@ -692,16 +709,22 @@ export class LobbyScreen {
       console.log("[LobbyScreen] batcher joinGame result:", batcherResult);
 
       // ── 2b. Register proxy wallet on first join (fire-and-forget) ─────────
-      if (this._usingProxy && !localStorage.getItem("werewolf:proxy-registered")) {
+      if (
+        this._usingProxy && !localStorage.getItem("werewolf:proxy-registered")
+      ) {
         void BatcherService.registerProxyWallet(
           address,
           midnightAddress,
-          ({ message }) => walletClient.signMessage({ message, account: undefined }),
+          ({ message }) =>
+            walletClient.signMessage({ message, account: undefined }),
         ).then(() => {
           localStorage.setItem("werewolf:proxy-registered", "1");
           console.log("[LobbyScreen] Proxy wallet registered on-chain");
         }).catch((err) => {
-          console.warn("[LobbyScreen] registerProxyWallet failed (will retry next join):", err);
+          console.warn(
+            "[LobbyScreen] registerProxyWallet failed (will retry next join):",
+            err,
+          );
         });
       }
 
@@ -952,9 +975,6 @@ export class LobbyScreen {
             gameState.setPlayerBundle(bundle);
 
             this.setStatus("Bundle received! Loading game…");
-            if (this._usingProxy) {
-              this.associateSection.hidden = false;
-            }
             this.onJoined(gameId, true, publicKeyHex, nickname, appearanceCode);
             resolve();
           } else if (status.state === "closed" && !status.bundlesReady) {
@@ -1001,7 +1021,9 @@ export class LobbyScreen {
 
     let realMidnightAddress: string;
     try {
-      const entry = Object.entries(window.midnight!).find(([_, api]) => !!api.apiVersion);
+      const entry = Object.entries(window.midnight!).find(([_, api]) =>
+        !!api.apiVersion
+      );
       if (!entry) throw new Error("No compatible Lace wallet found.");
       const [, api] = entry;
       const laceAPI = await api.connect(MIDNIGHT_NETWORK_ID);
@@ -1013,7 +1035,11 @@ export class LobbyScreen {
     }
 
     if (realMidnightAddress === proxyMidnightAddress) {
-      this.setStatus("The Lace address matches your proxy address — no migration needed.", false);
+      this.setStatus(
+        "The Lace address matches your proxy address — no migration needed.",
+        false,
+      );
+      this.proxyBadgeEl.hidden = true;
       this.associateSection.hidden = true;
       return;
     }
@@ -1026,8 +1052,10 @@ export class LobbyScreen {
         evmAddress,
         proxyMidnightAddress,
         realMidnightAddress,
-        ({ message }) => walletClient.signMessage({ message, account: undefined }),
+        ({ message }) =>
+          walletClient.signMessage({ message, account: undefined }),
       );
+      this.proxyBadgeEl.hidden = true;
       this.associateSection.hidden = true;
       this.setStatus(
         "Wallets associated! Leaderboard points will be migrated to your Lace address.",

@@ -12,6 +12,13 @@
  */
 
 import { ZswapSecretKeys } from "@midnight-ntwrk/ledger-v8";
+import {
+  MidnightBech32m,
+  ShieldedAddress,
+  ShieldedCoinPublicKey,
+  ShieldedEncryptionPublicKey,
+} from "@midnight-ntwrk/wallet-sdk-address-format";
+import { getNetworkId, setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import { DELEGATED_SENTINEL } from "../../../shared/utils/batcher-client.ts";
 import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
 import type { WalletClient } from "viem";
@@ -26,9 +33,9 @@ const API_BASE = (import.meta.env.VITE_API_URL as string | undefined) ??
 
 export interface ProxyWalletState {
   isProxy: true;
-  /** The coin public key used as the shielded address for leaderboard purposes. */
+  /** Bech32m-encoded shielded address (mn_shield-addr format), same as Lace. */
   shieldedAddress: string;
-  /** The coin public key (same as shieldedAddress for proxy wallets). */
+  /** Raw hex coin public key. */
   coinPublicKey: string;
   /** The encryption public key. */
   encryptionPublicKey: string;
@@ -42,11 +49,14 @@ class ProxyMidnightWalletManager {
   /**
    * Derives the Midnight seed from the EVM wallet and initialises keys.
    * Safe to call multiple times — subsequent calls return the cached state.
+   * @param networkId - Midnight network ID (e.g. 'undeployed', 'testnet'); required for address encoding.
    */
   async initialize(
     walletClient: WalletClient,
     evmAddress: `0x${string}`,
+    networkId: string,
   ): Promise<ProxyWalletState> {
+    setNetworkId(networkId as any);
     if (this._secretKeys && this._shieldedAddress) {
       return {
         isProxy: true,
@@ -58,9 +68,18 @@ class ProxyMidnightWalletManager {
 
     const seed = await this._deriveSeed(walletClient);
     this._secretKeys = ZswapSecretKeys.fromSeed(seed);
-    // Use the coin public key as the shielded address identifier.
-    // It is unique, deterministic, and works as a leaderboard key.
-    this._shieldedAddress = this._secretKeys.coinPublicKey;
+    // Encode as a proper mn_shield-addr bech32m address, matching the format
+    // returned by Lace's getShieldedAddresses().
+    const cpk = ShieldedCoinPublicKey.fromHexString(
+      this._secretKeys.coinPublicKey,
+    );
+    const epk = ShieldedEncryptionPublicKey.fromHexString(
+      this._secretKeys.encryptionPublicKey,
+    );
+    this._shieldedAddress = MidnightBech32m.encode(
+      getNetworkId(),
+      new ShieldedAddress(cpk, epk),
+    ).asString();
 
     console.log(
       "[ProxyWallet] Initialized. Proxy shielded address:",
