@@ -22,6 +22,7 @@ export function initLayout() {
           <span id="voteCountLabel">0/0 voted</span>
         </div>
         <button id="endVoteBtn" class="ui-btn full">End Voting Phase</button>
+        <button id="returnToLobbyBtn" class="ui-btn full return-to-lobby-btn">← Lobby</button>
       </aside>
       <div class="main-panel">
         <div id="sceneRoot" class="scene-root"></div>

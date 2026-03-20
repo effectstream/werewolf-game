@@ -18,7 +18,7 @@ export class LeaderboardManager {
   private toggleBtn: HTMLButtonElement | null = null;
   private refreshInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor() {
+  constructor({ noAutoToggle = false }: { noAutoToggle?: boolean } = {}) {
     this.backdrop = document.createElement("div");
     this.backdrop.id = "leaderboard-backdrop";
     this.backdrop.className = "leaderboard-backdrop hidden";
@@ -29,7 +29,7 @@ export class LeaderboardManager {
     });
     document.body.appendChild(this.backdrop);
 
-    this.panel = this.createPanel();
+    this.panel = this.createPanel(noAutoToggle);
     document.body.appendChild(this.panel);
     this.tableBody =
       this.panel.querySelector<HTMLTableSectionElement>("#leaderboard-tbody") ??
@@ -54,16 +54,18 @@ export class LeaderboardManager {
     }
   }
 
-  private createPanel(): HTMLDivElement {
-    const toggleBtn = document.createElement("button");
-    toggleBtn.id = "leaderboard-toggle";
-    toggleBtn.className = "ui-btn leaderboard-toggle-btn";
-    toggleBtn.textContent = "🏆 Leaderboard";
-    const sidebar = document.querySelector<HTMLElement>(".sidebar");
-    if (sidebar) {
-      sidebar.appendChild(toggleBtn);
-    } else {
-      document.body.appendChild(toggleBtn);
+  private createPanel(noAutoToggle = false): HTMLDivElement {
+    if (!noAutoToggle) {
+      const toggleBtn = document.createElement("button");
+      toggleBtn.id = "leaderboard-toggle";
+      toggleBtn.className = "ui-btn leaderboard-toggle-btn";
+      toggleBtn.textContent = "🏆 Leaderboard";
+      const sidebar = document.querySelector<HTMLElement>(".sidebar");
+      if (sidebar) {
+        sidebar.appendChild(toggleBtn);
+      } else {
+        document.body.appendChild(toggleBtn);
+      }
     }
 
     const panel = document.createElement("div");

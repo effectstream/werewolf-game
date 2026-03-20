@@ -82,6 +82,7 @@ export class LobbyScreen {
     nickname: string,
     appearanceCode: number,
   ) => void = () => {};
+  onLeaderboardClick: () => void = () => {};
 
   private static readonly DISCOVER_POLL_MS = 3_000; // ms between /api/open_lobby retries
   private static readonly DISCOVER_TIMEOUT_MS = 60_000; // give up after 60 s
@@ -119,6 +120,9 @@ export class LobbyScreen {
       <div class="lobby-card">
         <h1 class="lobby-title">Werewolf</h1>
         <p class="lobby-subtitle">Midnight &times; EVM</p>
+        <div class="lobby-title-actions">
+          <button id="lobbyLeaderboardBtn" class="ui-btn lobby-btn lobby-btn--secondary">🏆 Leaderboard</button>
+        </div>
 
         <section class="lobby-wallet-section">
           <button id="lobbyWalletBtn" class="ui-btn lobby-btn">Connect Wallet</button>
@@ -327,6 +331,8 @@ export class LobbyScreen {
     this.walletBtn.addEventListener("click", () => this.handleConnectWallet());
     this.findBtn.addEventListener("click", () => this.handleFindGame());
     this.joinBtn.addEventListener("click", () => this.handleJoinGame());
+    this.container.querySelector<HTMLButtonElement>("#lobbyLeaderboardBtn")!
+      .addEventListener("click", () => this.onLeaderboardClick());
 
     this.avatarPreview.mount(this.avatarPreviewEl);
     this.bindAvatarControls();
