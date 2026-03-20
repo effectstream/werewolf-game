@@ -431,6 +431,17 @@ stm.addStateTransition(
       return;
     }
 
+    const gameViewRows = (yield* World.resolve(getGameView, {
+      game_id: gameId,
+    })) as IGetGameViewResult[];
+
+    if (gameViewRows.length > 0 && gameViewRows[0].finished) {
+      console.log(
+        `[timeout] Game=${gameId} already finished — skipping punishment for round=${round} phase=${phase}`,
+      );
+      return;
+    }
+
     const aliveCount = Number(roundState.alive_count);
     const votesSubmitted = Number(roundState.votes_submitted);
     const missing = aliveCount - votesSubmitted;
