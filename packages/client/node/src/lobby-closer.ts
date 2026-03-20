@@ -146,7 +146,7 @@ export async function handleLobbyClosed(
 
   const playerCount = players.length;
   // Werewolf count: ~1/3 of players, minimum 1
-  const werewolfCount = Math.ceil(playerCount * 0.3); // 30% rounded up (5→2, 6→2, 9→3, 16→5)
+  const werewolfCount = Math.max(1, Math.floor(playerCount / 3)); // 1 per 3 players (5→1, 6→2, 7→2, 9→3)
 
   // 3. Generate bundles.
   const result = generateBundles(
@@ -333,7 +333,7 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
   }
 
   const playerCount = players.length;
-  const werewolfCount = Math.ceil(playerCount * 0.3);
+  const werewolfCount = Math.max(1, Math.floor(playerCount / 3));
 
   // 2. Decrypt game seed.
   const seedRows = await runPreparedQuery(
