@@ -9,11 +9,15 @@ import {
   getLeaderboard,
   getLobby,
   getLobbyPlayers,
+  getWalletMappingByEvm,
   getWerewolfRoundState,
   updateRoundVoteCount,
   upsertLobby,
 } from "@werewolf-game/database";
-import type { IGetLeaderboardResult } from "@werewolf-game/database";
+import type {
+  IGetLeaderboardResult,
+  IGetWalletMappingByEvmResult,
+} from "@werewolf-game/database";
 import nacl from "tweetnacl";
 import * as store from "../store.ts";
 import { decryptVotes, resolvePhaseFromVotes } from "../vote-resolver.ts";
@@ -836,5 +840,24 @@ export async function getPlayerGamesHandler(dbConn: Pool, evmAddress: string) {
       round: r.round != null ? Number(r.round) : null,
       finished: r.finished ?? false,
     })),
+  };
+}
+
+export async function getWalletMappingHandler(dbConn: Pool, evmAddress: string) {
+  const rows = await runPreparedQuery(
+    getWalletMappingByEvm.run({ evm_address: evmAddress }, dbConn),
+    "getWalletMappingByEvm",
+  ) as IGetWalletMappingByEvmResult[];
+
+  if (rows.length === 0) {
+    return { error: "No wallet mapping found for this EVM address", status: 404 };
+  }
+
+  const row = rows[0];
+  return {
+    evmAddress: row.evm_address,
+    proxyMidnightAddress: row.proxy_midnight_address,
+    realMidnightAddress: row.real_midnight_address ?? null,
+    isClaimed: row.real_midnight_address !== null,
   };
 }

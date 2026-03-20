@@ -37,6 +37,17 @@ export const paimaL2Grammar = {
   "force_start": [
     ["gameId", Type.Number()],
   ],
+  // Proxy wallet registration: records (evmAddress → proxyMidnightAddress) on-chain.
+  // signerAddress (verified EVM) is the authoritative key — no extra field needed.
+  "register_proxy_wallet": [
+    ["proxyMidnightAddress", Type.String()],
+  ],
+  // Wallet claim: transfers leaderboard points from proxy Midnight address to real Lace address.
+  // Only the EVM address that registered the proxy can submit this.
+  "claim_real_wallet": [
+    ["proxyMidnightAddress", Type.String()],
+    ["realMidnightAddress", Type.String()],
+  ],
   "game_state": [
     ["gameId", Type.Number()],
   ],

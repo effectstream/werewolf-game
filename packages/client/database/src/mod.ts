@@ -56,6 +56,13 @@ export {
   upsertLeaderboardEntry,
 } from "./sql/werewolf_leaderboard.queries.ts";
 
+export {
+  claimRealWallet,
+  getWalletMappingByEvm,
+  getWalletMappingByProxy,
+  upsertWalletMapping,
+} from "./sql/werewolf_wallet_mapping.queries.ts";
+
 // Export all interface types (excluding duplicate NumberOrString type)
 export type {
   IEvmMidnightTableExistsParams,
@@ -179,5 +186,18 @@ export type {
   IUpsertLeaderboardEntryQuery,
   IUpsertLeaderboardEntryResult,
 } from "./sql/werewolf_leaderboard.queries.ts";
+
+export type {
+  IClaimRealWalletParams,
+  IClaimRealWalletQuery,
+  IGetWalletMappingByEvmParams,
+  IGetWalletMappingByEvmQuery,
+  IGetWalletMappingByEvmResult,
+  IGetWalletMappingByProxyParams,
+  IGetWalletMappingByProxyQuery,
+  IGetWalletMappingByProxyResult,
+  IUpsertWalletMappingParams,
+  IUpsertWalletMappingQuery,
+} from "./sql/werewolf_wallet_mapping.queries.ts";
 
 export { migrationTable } from "./migration-order.ts";

@@ -126,4 +126,39 @@ export class BatcherService {
     console.log('[BatcherService] forceStart', { gameId })
     return this.sendToBatcher(address, ['force_start', gameId], signMessage)
   }
+
+  /**
+   * Records the (evmAddress → proxyMidnightAddress) mapping on-chain.
+   * Idempotent — replaying this for the same EVM address is a no-op.
+   */
+  static async registerProxyWallet(
+    address: string,
+    proxyMidnightAddress: string,
+    signMessage: (args: { message: string }) => Promise<`0x${string}`>,
+  ): Promise<unknown> {
+    console.log('[BatcherService] registerProxyWallet', { proxyMidnightAddress: proxyMidnightAddress.slice(0, 16) + '…' })
+    return this.sendToBatcher(address, ['register_proxy_wallet', proxyMidnightAddress], signMessage)
+  }
+
+  /**
+   * Claims a real Lace midnight address for an existing proxy wallet.
+   * Triggers leaderboard point migration from proxyMidnightAddress → realMidnightAddress.
+   * Only the EVM address that registered the proxy can submit this.
+   */
+  static async claimRealWallet(
+    address: string,
+    proxyMidnightAddress: string,
+    realMidnightAddress: string,
+    signMessage: (args: { message: string }) => Promise<`0x${string}`>,
+  ): Promise<unknown> {
+    console.log('[BatcherService] claimRealWallet', {
+      proxyMidnightAddress: proxyMidnightAddress.slice(0, 16) + '…',
+      realMidnightAddress: realMidnightAddress.slice(0, 16) + '…',
+    })
+    return this.sendToBatcher(
+      address,
+      ['claim_real_wallet', proxyMidnightAddress, realMidnightAddress],
+      signMessage,
+    )
+  }
 }

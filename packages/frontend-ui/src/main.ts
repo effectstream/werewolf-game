@@ -324,6 +324,10 @@ async function bootGame(): Promise<GameManagers> {
 const lobbyScreen = new LobbyScreen()
 lobbyScreen.show()
 
+// Lobby-level leaderboard (no auto-toggle button — lobby card has its own button).
+const lobbyLeaderboard = new LeaderboardManager({ noAutoToggle: true })
+lobbyScreen.onLeaderboardClick = () => lobbyLeaderboard.toggle()
+
 let activeManagers: GameManagers | null = null
 
 lobbyScreen.onJoined = (
@@ -357,10 +361,21 @@ lobbyScreen.onJoined = (
     })
   }
 
+  lobbyLeaderboard.hide()
   lobbyScreen.hide()
 
   bootGame().then((managers) => {
     activeManagers = managers
+
+    // Return to Lobby button
+    const returnBtn = document.querySelector<HTMLButtonElement>('#returnToLobbyBtn')
+    returnBtn?.addEventListener('click', () => {
+      if (activeManagers) {
+        destroyGame(activeManagers)
+        activeManagers = null
+      }
+      lobbyScreen.show()
+    })
 
     managers.chatManager.connect(gameId, publicKeyHex, nickname)
     managers.chatManager.onMessage = (nick, text) => {

@@ -52,6 +52,7 @@ interface MidnightConfig {
   networkId: string;
   indexerUrl: string;
   indexerWsUrl: string;
+  nodeUrl?: string;
 }
 
 let _cachedConfig: MidnightConfig | null = null;
@@ -224,6 +225,12 @@ export async function submitVoteOnChain(
 
   const config = await getMidnightConfig();
   setNetworkId(config.networkId as any);
+
+  // Pass nodeUrl to proxy wallet so it can submit finalized transactions
+  if (config.nodeUrl && midnightWallet.isProxy()) {
+    const { proxyMidnightWallet } = await import("./proxyMidnightWallet.ts");
+    proxyMidnightWallet.setNodeUrl(config.nodeUrl);
+  }
 
   const connectedAPI = midnightWallet.getConnectedAPI();
   if (!connectedAPI) {

@@ -26,6 +26,10 @@ import {
   upsertGameView,
   upsertLobby,
   upsertRoundState,
+  upsertWalletMapping,
+  getWalletMappingByProxy,
+  claimRealWallet,
+  type IGetWalletMappingByProxyResult,
 } from "@werewolf-game/database";
 import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
@@ -36,7 +40,7 @@ import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
 import { resolvePhaseFromLedger } from "./vote-resolver.ts";
 import { fetchCurrentLedgerVotes } from "./midnight-circuit-caller.ts";
 import { getDbPool } from "./db-pool.ts";
-import { calculateAndPersistScores } from "./leaderboard.ts";
+import { calculateAndPersistScores, migrateLeaderboardPoints } from "./leaderboard.ts";
 import { executePendingPunishments, checkGameOverAfterPunishment } from "./punishment-executor.ts";
 
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
@@ -424,6 +428,17 @@ stm.addStateTransition(
 
     if (roundState.resolved) {
       console.log("[timeout] Round already resolved — skipping");
+      return;
+    }
+
+    const gameViewRows = (yield* World.resolve(getGameView, {
+      game_id: gameId,
+    })) as IGetGameViewResult[];
+
+    if (gameViewRows.length > 0 && gameViewRows[0].finished) {
+      console.log(
+        `[timeout] Game=${gameId} already finished — skipping punishment for round=${round} phase=${phase}`,
+      );
       return;
     }
 
@@ -850,6 +865,101 @@ stm.addStateTransition(
 
     console.log(
       `[autoCreateLobby] Lobby game=${gameId} created, timeout at block=${timeoutBlock}`,
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Proxy Wallet STF handlers
+// ---------------------------------------------------------------------------
+
+stm.addStateTransition(
+  "register_proxy_wallet",
+  function* (data) {
+    const { proxyMidnightAddress } = data.parsedInput as {
+      proxyMidnightAddress: string;
+    };
+    const evmAddress = data.signerAddress as string | undefined;
+    const blockHeight = data.blockHeight as number;
+
+    if (!evmAddress || !proxyMidnightAddress) {
+      console.warn("[proxy] register_proxy_wallet: missing evmAddress or proxyMidnightAddress — skipping");
+      return;
+    }
+
+    console.log(
+      `[proxy] register_proxy_wallet evm=${evmAddress} proxy=${proxyMidnightAddress.slice(0, 16)}… block=${blockHeight}`,
+    );
+
+    // ON CONFLICT DO NOTHING — idempotent; safe to replay
+    yield* World.resolve(upsertWalletMapping, {
+      evm_address: evmAddress,
+      proxy_midnight_address: proxyMidnightAddress,
+      registered_block: blockHeight,
+    });
+  },
+);
+
+stm.addStateTransition(
+  "claim_real_wallet",
+  function* (data) {
+    const { proxyMidnightAddress, realMidnightAddress } = data.parsedInput as {
+      proxyMidnightAddress: string;
+      realMidnightAddress: string;
+    };
+    const evmAddress = data.signerAddress as string | undefined;
+    const blockHeight = data.blockHeight as number;
+
+    if (!evmAddress || !proxyMidnightAddress || !realMidnightAddress) {
+      console.warn("[proxy] claim_real_wallet: missing fields — skipping");
+      return;
+    }
+
+    console.log(
+      `[proxy] claim_real_wallet evm=${evmAddress} proxy=${proxyMidnightAddress.slice(0, 16)}… real=${realMidnightAddress.slice(0, 16)}… block=${blockHeight}`,
+    );
+
+    // Verify the proxy address belongs to this EVM signer
+    const mappingRows = (yield* World.resolve(getWalletMappingByProxy, {
+      proxy_midnight_address: proxyMidnightAddress,
+    })) as IGetWalletMappingByProxyResult[];
+
+    if (mappingRows.length === 0) {
+      console.warn(`[proxy] claim_real_wallet: no mapping for proxy=${proxyMidnightAddress.slice(0, 16)}… — skipping`);
+      return;
+    }
+
+    const mapping = mappingRows[0];
+
+    if (mapping.evm_address !== evmAddress) {
+      console.warn(
+        `[proxy] claim_real_wallet: signer=${evmAddress} does not own proxy=${proxyMidnightAddress.slice(0, 16)}… — rejecting`,
+      );
+      return;
+    }
+
+    if (mapping.real_midnight_address !== null) {
+      console.log(`[proxy] claim_real_wallet: already claimed for evm=${evmAddress} — skipping`);
+      return;
+    }
+
+    yield* World.resolve(claimRealWallet, {
+      evm_address: evmAddress,
+      real_midnight_address: realMidnightAddress,
+      claimed_block: blockHeight,
+    });
+
+    // Migrate leaderboard points from proxy → real address (fire-and-forget)
+    void migrateLeaderboardPoints(
+      proxyMidnightAddress,
+      realMidnightAddress,
+      blockHeight,
+      getDbPool(),
+    ).catch((err) =>
+      console.error(
+        `[proxy] Leaderboard migration failed proxy=${proxyMidnightAddress.slice(0, 16)}…:`,
+        err,
+      )
     );
   },
 );

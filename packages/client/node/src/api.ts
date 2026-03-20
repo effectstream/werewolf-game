@@ -19,6 +19,7 @@ import {
   getPlayersHandler,
   getVotesForRoundHandler,
   getVoteStatusHandler,
+  getWalletMappingHandler,
   lobbyStatusHandler,
   openLobbyHandler,
   submitVoteHandler,
@@ -339,6 +340,17 @@ export const apiRouter: StartConfigApiRouter = async function (
     },
   );
 
+  server.get<{ Querystring: { evmAddress: string } }>(
+    "/api/wallet_mapping",
+    async (request, reply) => {
+      const { evmAddress } = request.query;
+      if (!evmAddress) {
+        return reply.status(400).send({ error: "evmAddress query parameter is required" });
+      }
+      return getWalletMappingHandler(dbConn, evmAddress);
+    },
+  );
+
   // Exposes Midnight network config so the browser client can connect to the
   // correct indexer, proof server, and contract address.
   server.get("/api/midnight_config", async () => {
@@ -357,6 +369,7 @@ export const apiRouter: StartConfigApiRouter = async function (
       indexerUrl: midnightNetworkConfig.indexer,
       indexerWsUrl: midnightNetworkConfig.indexerWS,
       proofServerUrl: midnightNetworkConfig.proofServer,
+      nodeUrl: midnightNetworkConfig.node,
     };
   });
 

@@ -399,6 +399,47 @@ body {
   min-height: 1.1em;
 }
 
+/* `hidden` must win: author `display` rules otherwise override the attribute. */
+.lobby-proxy-badge[hidden],
+.lobby-associate-section[hidden] {
+  display: none !important;
+}
+
+.lobby-proxy-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(180, 120, 255, 0.2);
+  border: 1px solid rgba(180, 120, 255, 0.45);
+  color: rgba(210, 170, 255, 0.9);
+}
+
+.lobby-associate-section {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(100, 60, 180, 0.12);
+  border: 1px solid rgba(160, 100, 255, 0.25);
+}
+
+.lobby-associate-copy {
+  margin: 0;
+  font-size: 0.8rem;
+  color: rgba(200, 180, 255, 0.8);
+  line-height: 1.45;
+  text-align: center;
+}
+
+.lobby-associate-copy strong {
+  color: rgba(220, 190, 255, 1);
+}
+
 .lobby-row {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -613,6 +654,38 @@ body {
   border-color: rgba(200, 220, 255, 0.75);
 }
 
+.lobby-btn--secondary {
+  background: rgba(50, 60, 100, 0.6);
+  border-color: rgba(120, 140, 200, 0.4);
+  font-size: 0.85rem;
+}
+
+.lobby-btn--secondary:hover {
+  background: rgba(70, 85, 130, 0.75);
+  border-color: rgba(160, 180, 255, 0.6);
+}
+
+.lobby-title-actions {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.lobby-title-actions .lobby-btn {
+  width: auto;
+  padding: 5px 16px;
+}
+
+.return-to-lobby-btn {
+  margin-top: 8px;
+  font-size: 0.8rem;
+  opacity: 0.75;
+}
+
+.return-to-lobby-btn:hover {
+  opacity: 1;
+}
+
 .lobby-status {
   margin: 0;
   font-size: 0.83rem;
@@ -684,10 +757,12 @@ body {
   background: #4a6cf7;
   color: #fff;
   text-decoration: none;
+  border: none;
   border-radius: 6px;
   padding: 9px 20px;
   font-size: 0.9rem;
   font-weight: 600;
+  cursor: pointer;
   transition: background 0.15s;
 }
 
@@ -699,6 +774,7 @@ body {
   background: transparent;
   border: 1px solid rgba(160, 180, 255, 0.35);
   color: rgba(200, 220, 255, 0.7);
+  text-decoration: none;
   border-radius: 6px;
   padding: 9px 20px;
   font-size: 0.9rem;

@@ -153,6 +153,7 @@ export default defineConfig({
     // throw if instantiated more than once per page load)
     dedupe: [
       '@midnight-ntwrk/compact-js',
+      '@midnight-ntwrk/ledger-v7',
       '@midnight-ntwrk/ledger-v8',
       '@midnight-ntwrk/onchain-runtime-v3',
       '@midnight-ntwrk/onchain-runtime',
@@ -165,6 +166,7 @@ export default defineConfig({
     // Exclude WASM packages from Vite's pre-bundling (esbuild can't handle WASM)
     exclude: [
       '@paima/midnight-wasm-prover',
+      '@midnight-ntwrk/ledger-v7',
       '@midnight-ntwrk/ledger-v8',
       '@midnight-ntwrk/midnight-js-level-private-state-provider',
       '@midnight-ntwrk/onchain-runtime-v3',

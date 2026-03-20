@@ -1,4 +1,5 @@
 import type { ConnectedAPI, InitialAPI } from '@midnight-ntwrk/dapp-connector-api'
+import type { ProxyWalletState } from './proxyMidnightWallet.ts'
 
 /**
  * Extends the Window object to include the Midnight DApp Connector API
@@ -13,11 +14,13 @@ declare global {
 export interface MidnightWalletState {
   isConnected: boolean
   shieldedAddress: string | null
+  isProxy: boolean
 }
 
 class MidnightWalletManager {
   private _shieldedAddress: string | null = null
   private _connectedAPI: ConnectedAPI | null = null
+  private _isProxy: boolean = false
 
   /** Returns true if the Lace extension has injected window.midnight. */
   isAvailable(): boolean {
@@ -56,7 +59,25 @@ class MidnightWalletManager {
     this._shieldedAddress = addresses.shieldedAddress
 
     console.log('[MidnightWallet] Connected. Shielded address:', this._shieldedAddress)
-    return { isConnected: true, shieldedAddress: this._shieldedAddress }
+    this._isProxy = false
+    return { isConnected: true, shieldedAddress: this._shieldedAddress, isProxy: false }
+  }
+
+  /**
+   * Activates a proxy Midnight wallet derived from the EVM key.
+   * Called when Lace is not available so downstream code continues to work
+   * through the same getConnectedAPI() / getShieldedAddress() interface.
+   */
+  activateProxy(state: ProxyWalletState, connectedAPI: ConnectedAPI): void {
+    this._shieldedAddress = state.shieldedAddress
+    this._connectedAPI = connectedAPI
+    this._isProxy = true
+    console.log('[MidnightWallet] Proxy wallet activated. Address:', this._shieldedAddress?.slice(0, 16) + '…')
+  }
+
+  /** Returns true when using a seed-derived proxy wallet instead of Lace. */
+  isProxy(): boolean {
+    return this._isProxy
   }
 
   getShieldedAddress(): string | null {
@@ -72,6 +93,7 @@ class MidnightWalletManager {
     return {
       isConnected: this._shieldedAddress !== null,
       shieldedAddress: this._shieldedAddress,
+      isProxy: this._isProxy,
     }
   }
 }
