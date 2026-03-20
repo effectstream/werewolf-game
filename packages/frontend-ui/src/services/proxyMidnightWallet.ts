@@ -56,7 +56,7 @@ class ProxyMidnightWalletManager {
       };
     }
 
-    const seed = await this._deriveSeed(walletClient, evmAddress);
+    const seed = await this._deriveSeed(walletClient);
     this._secretKeys = ZswapSecretKeys.fromSeed(seed);
     // Use the coin public key as the shielded address identifier.
     // It is unique, deterministic, and works as a leaderboard key.
@@ -184,13 +184,11 @@ class ProxyMidnightWalletManager {
 
   private async _deriveSeed(
     walletClient: WalletClient,
-    evmAddress: `0x${string}`,
   ): Promise<Uint8Array> {
     // Sign a fixed message to produce a deterministic 65-byte ECDSA signature.
     // Same pattern as deriveGameKeypair in LobbyScreen.ts.
     const sig = await walletClient.signMessage({
       message: PROXY_SEED_MESSAGE,
-      account: evmAddress,
     });
 
     // Strip 0x prefix and convert to bytes (65 bytes)

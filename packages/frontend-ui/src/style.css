@@ -684,10 +684,12 @@ body {
   background: #4a6cf7;
   color: #fff;
   text-decoration: none;
+  border: none;
   border-radius: 6px;
   padding: 9px 20px;
   font-size: 0.9rem;
   font-weight: 600;
+  cursor: pointer;
   transition: background 0.15s;
 }
 
@@ -699,6 +701,7 @@ body {
   background: transparent;
   border: 1px solid rgba(160, 180, 255, 0.35);
   color: rgba(200, 220, 255, 0.7);
+  text-decoration: none;
   border-radius: 6px;
   padding: 9px 20px;
   font-size: 0.9rem;

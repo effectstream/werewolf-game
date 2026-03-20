@@ -236,23 +236,24 @@ export class LobbyScreen {
 
     <div id="laceInstallBackdrop" class="lace-install-backdrop" hidden>
       <div class="lace-install-modal" role="dialog" aria-modal="true" aria-labelledby="laceInstallTitle">
-        <div class="lace-install-icon">🐺</div>
-        <h2 id="laceInstallTitle" class="lace-install-title">Lace Wallet Required</h2>
+        <div class="lace-install-icon">🔐</div>
+        <h2 id="laceInstallTitle" class="lace-install-title">You're playing with a temporary wallet</h2>
         <p class="lace-install-body">
-          This game uses the <strong>Midnight Network</strong> and requires the
-          <strong>Lace</strong> browser extension to manage your shielded wallet.
+          Your <strong>Midnight address</strong> has been derived automatically
+          from your EVM wallet. Your leaderboard points are safe.
         </p>
         <p class="lace-install-body">
-          Install Lace from the Chrome Web Store, then reload this page.
+          Install <strong>Lace</strong> later to link your real Midnight wallet
+          and keep all rewards.
         </p>
         <div class="lace-install-actions">
+          <button type="button" id="laceInstallClose" class="ui-btn lace-install-cta">Got it, let's play!</button>
           <a
             href="https://chromewebstore.google.com/detail/lace/gafhhkghbfjjkeiendhlofajokpaflmk"
             target="_blank"
             rel="noopener noreferrer"
-            class="ui-btn lace-install-cta"
+            class="ui-btn lace-install-dismiss"
           >Install Lace</a>
-          <button type="button" id="laceInstallClose" class="ui-btn lace-install-dismiss">Close</button>
         </div>
       </div>
     </div>
@@ -463,10 +464,11 @@ export class LobbyScreen {
         this._usingProxy = true;
         shielded = proxyState.shieldedAddress;
         console.log("[LobbyScreen] Proxy wallet activated:", shielded.slice(0, 16) + "…");
-      } catch (err) {
-        // Proxy init also failed — fall back to hard-block modal
-        this.setLoading(this.walletBtn, false, "Connect Wallet");
+        // Inform the player they are on a temporary wallet
         this.laceModalBackdrop.hidden = false;
+      } catch (err) {
+        // Proxy init failed — show error in status bar only (no blocking modal)
+        this.setLoading(this.walletBtn, false, "Connect Wallet");
         this.setStatus(
           `Proxy wallet initialisation failed: ${(err as Error).message}`,
           true,
