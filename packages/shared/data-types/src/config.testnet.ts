@@ -1,6 +1,9 @@
 import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
 import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
-import { convertMidnightLedger } from "../../utils/paima-utils.ts";
+import {
+  convertMidnightLedger,
+  normalizeMidnightLedgerStateInput,
+} from "../../utils/paima-utils.ts";
 import { getConnection } from "@paimaexample/db";
 import {
   ConfigBuilder,
@@ -249,7 +252,9 @@ export const config = new ConfigBuilder()
             stateMachinePrefix: "midnightContractState",
             contract: {
               ledger: (data: any) => {
-                const result = ContractContract.ledger(data);
+                const result = ContractContract.ledger(
+                  normalizeMidnightLedgerStateInput(data),
+                );
                 return convertMidnightLedger(result);
               },
             },

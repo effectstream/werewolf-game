@@ -1,8 +1,5 @@
 module Crypto {
-    struct CurvePoint {
-        x: Field;
-        y: Field;
-    }
+
     import CompactStandardLibrary;
     import CompactStandardLibrary prefix std_;
     // Wrapper for persistent hashing
@@ -30,7 +27,7 @@ module Crypto {
         return std_merkleTreePathRoot<10, Bytes<32>>(path) == root;
     }
 
-    export circuit isValidPoint(p: CurvePoint): Boolean {
+    export circuit isValidPoint(p: JubjubPoint): Boolean {
         return true; 
     }
 
@@ -43,7 +40,7 @@ module Crypto {
         const point = std_ecMulGenerator(scalar);
         
         // 3. Serialize point to Bytes<32>
-        const pkBytes = std_persistentHash<[Field, Field]>([point.x, point.y]);
+        const pkBytes = std_persistentHash<JubjubPoint>(point);
         
         return ZswapCoinPublicKey { bytes: pkBytes };
     }

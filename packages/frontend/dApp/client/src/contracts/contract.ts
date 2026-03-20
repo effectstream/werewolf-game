@@ -2,6 +2,7 @@ import {
   Contract as Werewolf,
   witnesses as werewolfWitnesses,
 } from "../../../../../shared/contracts/midnight/contract-werewolf/src/_index.ts";
+import { normalizeMidnightLedgerStateInput } from "../../../../../shared/utils/paima-utils.ts";
 
 // import { balanceOf as balanceOfQuery } from "./balanceOf.ts";
 import * as ledger from "@midnight-ntwrk/ledger-v7";
@@ -185,7 +186,7 @@ const getWerewolfLedgerState = async (
       contractAddress,
     );
     const state = contractState != null
-      ? Werewolf.ledger(contractState.data)
+      ? Werewolf.ledger(normalizeMidnightLedgerStateInput(contractState))
       : null;
     console.log(`📊 Ledger state:`, state);
     return state;

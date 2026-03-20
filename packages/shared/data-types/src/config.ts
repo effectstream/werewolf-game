@@ -13,7 +13,10 @@ import {
 import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
 import { hardhat } from "viem/chains";
-import { convertMidnightLedger } from "../../utils/paima-utils.ts";
+import {
+  convertMidnightLedger,
+  normalizeMidnightLedgerStateInput,
+} from "../../utils/paima-utils.ts";
 import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
 import { paimaL2Grammar } from "@werewolf-game/data-types/grammar";
 
@@ -121,7 +124,9 @@ export const config = new ConfigBuilder()
           stateMachinePrefix: "midnightContractState",
           contract: {
             ledger: (data: any) => {
-              const result = ContractContract.ledger(data);
+              const result = ContractContract.ledger(
+                normalizeMidnightLedgerStateInput(data),
+              );
               return convertMidnightLedger(result);
             },
           },
