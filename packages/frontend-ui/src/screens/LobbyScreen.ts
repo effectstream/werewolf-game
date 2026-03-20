@@ -2,6 +2,7 @@ import nacl from "tweetnacl";
 import type { WalletClient } from "viem";
 import { evmWallet } from "../services/evmWallet";
 import { midnightWallet } from "../services/midnightWallet";
+import { proxyMidnightWallet } from "../services/proxyMidnightWallet";
 import { type GameInfo, getGameState } from "../services/lobbyContract";
 import { BatcherService } from "../services/batcherService";
 import { gameState, type PlayerBundle } from "../state/gameState";
@@ -101,7 +102,10 @@ export class LobbyScreen {
   private avatarPreviewEl!: HTMLDivElement;
   private joinBtn!: HTMLButtonElement;
   private laceModalBackdrop!: HTMLDivElement;
+  private proxyBadgeEl!: HTMLSpanElement;
+  private associateSection!: HTMLDivElement;
 
+  private _usingProxy: boolean = false;
   private currentGame: GameInfo | null = null;
   private derivedNickname: string | null = null;
   private lobbyPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -122,6 +126,14 @@ export class LobbyScreen {
             <span id="lobbyEvmAddress" class="lobby-address lobby-address--evm"></span>
             <br />
             <span id="lobbyMidnightAddress" class="lobby-address lobby-address--midnight"></span>
+            <span id="lobbyProxyBadge" class="lobby-proxy-badge" hidden>Proxy Wallet</span>
+          </div>
+          <div id="lobbyAssociateSection" class="lobby-associate-section" hidden>
+            <p class="lobby-associate-copy">
+              You are using a <strong>proxy Midnight wallet</strong>. Install Lace and click
+              "Associate Wallets" to migrate your leaderboard points to your real wallet.
+            </p>
+            <button type="button" id="lobbyAssociateBtn" class="ui-btn lobby-btn">Associate with Lace Wallet</button>
           </div>
         </section>
 
@@ -302,6 +314,15 @@ export class LobbyScreen {
       }
     });
 
+    this.proxyBadgeEl = this.container.querySelector<HTMLSpanElement>(
+      "#lobbyProxyBadge",
+    )!;
+    this.associateSection = this.container.querySelector<HTMLDivElement>(
+      "#lobbyAssociateSection",
+    )!;
+    this.container.querySelector<HTMLButtonElement>("#lobbyAssociateBtn")!
+      .addEventListener("click", () => this.handleAssociateWallets());
+
     this.walletBtn.addEventListener("click", () => this.handleConnectWallet());
     this.findBtn.addEventListener("click", () => this.handleFindGame());
     this.joinBtn.addEventListener("click", () => this.handleJoinGame());
@@ -427,45 +448,71 @@ export class LobbyScreen {
       return;
     }
 
-    // ── 2. Midnight wallet (Lace) ─────────────────────────────────────────────
+    // ── 2. Midnight wallet (Lace or proxy fallback) ───────────────────────────
     this.setStatus("Connecting Midnight wallet…");
 
+    let shielded: string;
+
     if (!midnightWallet.isAvailable()) {
-      this.setLoading(this.walletBtn, false, "Connect Wallet");
-      this.laceModalBackdrop.hidden = false;
-      return;
+      // Auto-fallback: Lace not installed → derive proxy wallet from EVM seed
+      this.setStatus("Lace not detected — initialising proxy wallet…");
+      try {
+        const walletClient = evmWallet.getWalletClient()!;
+        const proxyState = await proxyMidnightWallet.initialize(walletClient, evmAddress);
+        midnightWallet.activateProxy(proxyState, proxyMidnightWallet.asConnectedAPI());
+        this._usingProxy = true;
+        shielded = proxyState.shieldedAddress;
+        console.log("[LobbyScreen] Proxy wallet activated:", shielded.slice(0, 16) + "…");
+      } catch (err) {
+        // Proxy init also failed — fall back to hard-block modal
+        this.setLoading(this.walletBtn, false, "Connect Wallet");
+        this.laceModalBackdrop.hidden = false;
+        this.setStatus(
+          `Proxy wallet initialisation failed: ${(err as Error).message}`,
+          true,
+        );
+        return;
+      }
+    } else {
+      try {
+        const midnightState = await midnightWallet.connect(MIDNIGHT_NETWORK_ID);
+        shielded = midnightState.shieldedAddress!;
+        this._usingProxy = false;
+        console.log("[LobbyScreen] Midnight wallet connected:", shielded);
+      } catch (err) {
+        this.setLoading(this.walletBtn, false, "Connect Wallet");
+        this.derivedNickname = null;
+        this.nicknameValueEl.textContent = "";
+        this.nicknameInfoEl.hidden = true;
+        this.setStatus(
+          `Midnight wallet connection failed: ${(err as Error).message}`,
+          true,
+        );
+        return;
+      }
     }
 
-    try {
-      const midnightState = await midnightWallet.connect(MIDNIGHT_NETWORK_ID);
-      const shielded = midnightState.shieldedAddress!;
-      this.derivedNickname = deriveNicknameFromMidnightAddress(shielded);
-      const displayAddr = shielded.length > 24
-        ? `${shielded.slice(0, 12)}…${shielded.slice(-8)}`
-        : shielded;
-      this.midnightAddressEl.textContent = `Midnight: ${displayAddr}`;
-      this.nicknameValueEl.textContent = this.derivedNickname;
-      this.nicknameInfoEl.hidden = false;
-      console.log("[LobbyScreen] Midnight wallet connected:", shielded);
-      console.log("[LobbyScreen] Derived nickname:", this.derivedNickname);
-    } catch (err) {
-      this.setLoading(this.walletBtn, false, "Connect Wallet");
-      this.derivedNickname = null;
-      this.nicknameValueEl.textContent = "";
-      this.nicknameInfoEl.hidden = true;
-      this.setStatus(
-        `Midnight wallet connection failed: ${(err as Error).message}`,
-        true,
-      );
-      return;
-    }
+    this.derivedNickname = deriveNicknameFromMidnightAddress(shielded);
+    const displayAddr = shielded.length > 24
+      ? `${shielded.slice(0, 12)}…${shielded.slice(-8)}`
+      : shielded;
+    this.midnightAddressEl.textContent = `Midnight: ${displayAddr}`;
+    this.nicknameValueEl.textContent = this.derivedNickname;
+    this.nicknameInfoEl.hidden = false;
+    console.log("[LobbyScreen] Derived nickname:", this.derivedNickname);
 
     // ── 3. Reveal wallet info and game section ────────────────────────────────
     const walletInfo = this.container.querySelector<HTMLDivElement>(
       "#lobbyWalletInfo",
     )!;
     walletInfo.hidden = false;
-    this.walletBtn.textContent = "Wallets Connected";
+
+    if (this._usingProxy) {
+      this.proxyBadgeEl.hidden = false;
+      this.walletBtn.textContent = "Proxy Wallet Connected";
+    } else {
+      this.walletBtn.textContent = "Wallets Connected";
+    }
     this.walletBtn.disabled = true;
     this.gameSection.hidden = false;
     this.setStatus("Searching for open lobby…");
@@ -635,6 +682,20 @@ export class LobbyScreen {
           walletClient.signMessage({ message, account: undefined }),
       );
       console.log("[LobbyScreen] batcher joinGame result:", batcherResult);
+
+      // ── 2b. Register proxy wallet on first join (fire-and-forget) ─────────
+      if (this._usingProxy && !localStorage.getItem("werewolf:proxy-registered")) {
+        void BatcherService.registerProxyWallet(
+          address,
+          midnightAddress,
+          ({ message }) => walletClient.signMessage({ message, account: undefined }),
+        ).then(() => {
+          localStorage.setItem("werewolf:proxy-registered", "1");
+          console.log("[LobbyScreen] Proxy wallet registered on-chain");
+        }).catch((err) => {
+          console.warn("[LobbyScreen] registerProxyWallet failed (will retry next join):", err);
+        });
+      }
 
       // ── 3. Wait for lobby to close and bundles to be ready ────────────────
       this.setStatus("Joined! Waiting for lobby to close…");
@@ -883,6 +944,9 @@ export class LobbyScreen {
             gameState.setPlayerBundle(bundle);
 
             this.setStatus("Bundle received! Loading game…");
+            if (this._usingProxy) {
+              this.associateSection.hidden = false;
+            }
             this.onJoined(gameId, true, publicKeyHex, nickname, appearanceCode);
             resolve();
           } else if (status.state === "closed" && !status.bundlesReady) {
@@ -902,5 +966,72 @@ export class LobbyScreen {
       poll();
       this.lobbyPollTimer = setInterval(poll, LOBBY_POLL_INTERVAL_MS);
     });
+  }
+
+  /**
+   * Associates the proxy Midnight wallet with a real Lace wallet address.
+   * Requires Lace to be installed. Submits claim_real_wallet via the batcher.
+   */
+  private async handleAssociateWallets(): Promise<void> {
+    const evmAddress = evmWallet.getAddress();
+    const proxyMidnightAddress = midnightWallet.getShieldedAddress();
+
+    if (!evmAddress || !proxyMidnightAddress) {
+      this.setStatus("Wallets not initialised. Cannot associate.", true);
+      return;
+    }
+
+    if (!midnightWallet.isAvailable()) {
+      this.setStatus(
+        "Lace wallet not detected. Install Lace to associate your wallet.",
+        true,
+      );
+      return;
+    }
+
+    this.setStatus("Connecting Lace to get real Midnight address…");
+
+    let realMidnightAddress: string;
+    try {
+      const entry = Object.entries(window.midnight!).find(([_, api]) => !!api.apiVersion);
+      if (!entry) throw new Error("No compatible Lace wallet found.");
+      const [, api] = entry;
+      const laceAPI = await api.connect(MIDNIGHT_NETWORK_ID);
+      const addresses = await laceAPI.getShieldedAddresses();
+      realMidnightAddress = addresses.shieldedAddress;
+    } catch (err) {
+      this.setStatus(`Lace connection failed: ${(err as Error).message}`, true);
+      return;
+    }
+
+    if (realMidnightAddress === proxyMidnightAddress) {
+      this.setStatus("The Lace address matches your proxy address — no migration needed.", false);
+      this.associateSection.hidden = true;
+      return;
+    }
+
+    this.setStatus("Submitting wallet association…");
+    const walletClient = evmWallet.getWalletClient()!;
+
+    try {
+      await BatcherService.claimRealWallet(
+        evmAddress,
+        proxyMidnightAddress,
+        realMidnightAddress,
+        ({ message }) => walletClient.signMessage({ message, account: undefined }),
+      );
+      this.associateSection.hidden = true;
+      this.setStatus(
+        "Wallets associated! Leaderboard points will be migrated to your Lace address.",
+      );
+      console.log(
+        "[LobbyScreen] Wallet association submitted: proxy →",
+        proxyMidnightAddress.slice(0, 16) + "…",
+        "real →",
+        realMidnightAddress.slice(0, 16) + "…",
+      );
+    } catch (err) {
+      this.setStatus(`Association failed: ${(err as Error).message}`, true);
+    }
   }
 }
