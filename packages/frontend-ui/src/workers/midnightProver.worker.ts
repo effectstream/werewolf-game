@@ -26,7 +26,17 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
     throw new Error(`Failed to fetch ${url}: HTTP ${response.status}`);
   }
 
-  return new Uint8Array(await response.arrayBuffer());
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  // Misconfigured hosts (or Vite SPA fallback) often return 200 + index.html for
+  // missing /keys or /zkir assets. Feeding that into the WASM prover can trigger
+  // a Rust panic: "capacity overflow" while deserializing bogus length prefixes.
+  if (bytes.length >= 2 && bytes[0] === 0x3c && bytes[1] === 0x21) {
+    throw new Error(
+      `ZK fetch returned HTML (<!…) instead of binary data: ${url}. ` +
+        "Serve contract keys/zkir as static files and avoid SPA fallback on those paths.",
+    );
+  }
+  return bytes;
 }
 
 async function fetchParamsBytes(k: number): Promise<Uint8Array> {

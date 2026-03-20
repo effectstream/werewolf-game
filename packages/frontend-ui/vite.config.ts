@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import wasm from 'vite-plugin-wasm'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { fileURLToPath } from 'node:url'
-import { dirname, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import fs from 'node:fs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -11,6 +11,9 @@ const managedDir = resolve(
   __dirname,
   '../shared/contracts/midnight/contract-werewolf/src/managed',
 )
+const publicDir = resolve(__dirname, 'public')
+const cryptoShimPath = resolve(__dirname, 'src/shims/crypto.ts')
+const levelShimPath = resolve(__dirname, 'src/shims/level.ts')
 
 const threadedWasmHeaders = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
@@ -27,19 +30,43 @@ function artifactMiddleware(req: any, res: any, next: any) {
   // would make fs.existsSync fail if included in the file path.
   const url: string = (req.url ?? '').split('?')[0]
   let filePath: string | null = null
+  let rootDir: string | null = null
 
   if (url.startsWith('/keys/')) {
-    filePath = resolve(managedDir, 'keys', url.slice('/keys/'.length))
+    rootDir = resolve(managedDir, 'keys')
+    filePath = resolve(rootDir, url.slice('/keys/'.length))
   } else if (url.startsWith('/zkir/')) {
-    filePath = resolve(managedDir, 'zkir', url.slice('/zkir/'.length))
+    rootDir = resolve(managedDir, 'zkir')
+    filePath = resolve(rootDir, url.slice('/zkir/'.length))
+  } else if (url.startsWith('/midnight-prover/')) {
+    rootDir = resolve(publicDir, 'midnight-prover')
+    filePath = resolve(rootDir, url.slice('/midnight-prover/'.length))
   }
 
-  if (filePath && fs.existsSync(filePath)) {
+  if (!filePath || !rootDir) {
+    next()
+    return
+  }
+
+  const rel = relative(rootDir, filePath)
+  if (rel.startsWith('..') || rel === '') {
+    res.statusCode = 400
+    res.end('Invalid ZK artifact path')
+    return
+  }
+
+  if (fs.existsSync(filePath)) {
     res.setHeader('Content-Type', 'application/octet-stream')
     fs.createReadStream(filePath).pipe(res)
-  } else {
-    next()
+    return
   }
+
+  // Do not fall through to the SPA. HTML (e.g. index.html) would be fetched as
+  // binary keys/IR and can make @paima/midnight-wasm-prover panic with
+  // "capacity overflow" while deserializing bogus lengths.
+  res.statusCode = 404
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8')
+  res.end(`ZK artifact not found: ${url}`)
 }
 
 function serveContractArtifacts() {
@@ -117,6 +144,11 @@ export default defineConfig({
   },
 
   resolve: {
+    alias: {
+      crypto: cryptoShimPath,
+      'node:crypto': cryptoShimPath,
+      level: levelShimPath,
+    },
     // Prevent multiple instances of Midnight runtime singletons (WASM state machines
     // throw if instantiated more than once per page load)
     dedupe: [
@@ -134,6 +166,7 @@ export default defineConfig({
     exclude: [
       '@paima/midnight-wasm-prover',
       '@midnight-ntwrk/ledger-v8',
+      '@midnight-ntwrk/midnight-js-level-private-state-provider',
       '@midnight-ntwrk/onchain-runtime-v3',
       '@midnight-ntwrk/onchain-runtime',
       '@midnight-ntwrk/compact-runtime',

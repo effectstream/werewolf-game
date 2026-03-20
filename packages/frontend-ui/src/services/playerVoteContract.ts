@@ -28,10 +28,11 @@ import { findDeployedContract } from "@midnight-ntwrk/midnight-js-contracts";
 import { CompiledContract } from "@midnight-ntwrk/compact-js";
 import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-config-provider";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
-import { levelPrivateStateProvider } from "@midnight-ntwrk/midnight-js-level-private-state-provider";
+import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import { toHex } from "@midnight-ntwrk/compact-runtime";
 import nacl from "tweetnacl";
 import { getBrowserProofProvider } from "./midnightBrowserProofProvider.ts";
+import { createInMemoryPrivateStateProvider } from "./midnightInMemoryPrivateStateProvider.ts";
 import { midnightWallet } from "./midnightWallet.ts";
 import type { PlayerBundle } from "../state/gameState.ts";
 import type { PrivateState } from "../../../shared/contracts/midnight/contract-werewolf/src/witnesses.ts";
@@ -61,7 +62,7 @@ let _cachedConfig: MidnightConfig | null = null;
 
 let _zkConfigProvider: FetchZkConfigProvider<string> | null = null;
 let _compiledContract: any = null;
-let _privateStateProvider: any = null;
+const _privateStateProviders = new Map<string, any>();
 let _publicDataProvider: any = null;
 
 function getZkConfigProvider(): FetchZkConfigProvider<string> {
@@ -87,13 +88,13 @@ function getCompiledContract(): any {
   return _compiledContract;
 }
 
-function getPrivateStateProvider(): any {
-  if (!_privateStateProvider) {
-    _privateStateProvider = levelPrivateStateProvider({
-      privateStoragePasswordProvider: async () => "PAIMA_VOTE_STORAGE_PASSWORD",
-    } as any);
+function getPrivateStateProvider(accountId: string): any {
+  let provider = _privateStateProviders.get(accountId);
+  if (!provider) {
+    provider = createInMemoryPrivateStateProvider(accountId);
+    _privateStateProviders.set(accountId, provider);
   }
-  return _privateStateProvider;
+  return provider;
 }
 
 function getPublicDataProvider(config: MidnightConfig): any {
@@ -222,6 +223,7 @@ export async function submitVoteOnChain(
   );
 
   const config = await getMidnightConfig();
+  setNetworkId(config.networkId as any);
 
   const connectedAPI = midnightWallet.getConnectedAPI();
   if (!connectedAPI) {
@@ -232,6 +234,12 @@ export async function submitVoteOnChain(
 
   // Get player's shielded keys from Lace (used for getCoinPublicKey / getEncryptionPublicKey)
   const addresses = await connectedAPI.getShieldedAddresses();
+  const accountId = addresses.shieldedAddress;
+  if (!accountId) {
+    throw new Error(
+      "[playerVoteContract] Wallet did not return a shielded address for private state scoping.",
+    );
+  }
 
   /**
    * Hook-primary WalletProvider + MidnightProvider.
@@ -280,7 +288,7 @@ export async function submitVoteOnChain(
   );
 
   const providers = {
-    privateStateProvider: getPrivateStateProvider(),
+    privateStateProvider: getPrivateStateProvider(accountId),
     zkConfigProvider,
     proofProvider: getBrowserProofProvider(),
     publicDataProvider: getPublicDataProvider(config),

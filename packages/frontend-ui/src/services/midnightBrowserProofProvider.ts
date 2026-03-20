@@ -80,7 +80,11 @@ class MidnightBrowserProverClient {
     await this.readyPromise;
 
     const requestId = this.nextRequestId++;
-    const txCopy = new Uint8Array(serializedTx);
+    const view =
+      serializedTx instanceof Uint8Array
+        ? serializedTx
+        : new Uint8Array(serializedTx);
+    const txCopy = view.slice();
 
     return new Promise<Uint8Array>((resolve, reject) => {
       this.pending.set(requestId, { resolve, reject });
