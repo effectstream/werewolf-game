@@ -23,7 +23,7 @@
     "prando": "npm:prando@^6.0.1",
     // Force all transitive deps to use the same Midnight ledger WASM modules to avoid _assertClass failures
     "@midnight-ntwrk/ledger-v7": "npm:@midnight-ntwrk/ledger-v7@7.0.3",
-    "@midnight-ntwrk/ledger-v8": "npm:@midnight-ntwrk/ledger-v8@8.0.2"
+    "@midnight-ntwrk/ledger-v8": "npm:@midnight-ntwrk/ledger-v8@8.0.3"
   },
   "lint": {
     "rules": {

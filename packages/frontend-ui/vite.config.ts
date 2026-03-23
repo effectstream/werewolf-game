@@ -72,11 +72,42 @@ function artifactMiddleware(req: any, res: any, next: any) {
 function serveContractArtifacts() {
   return {
     name: 'serve-contract-artifacts',
+
+    // Dev + preview: stream artifacts from the managed source directory.
     configureServer(server: any) {
       server.middlewares.use(artifactMiddleware)
     },
     configurePreviewServer(server: any) {
       server.middlewares.use(artifactMiddleware)
+    },
+
+    // Production build: emit all ZK keys and bzkir files as static assets so
+    // they land in dist/keys/* and dist/zkir/*.  Without this the WASM prover
+    // worker can't fetch them at runtime and proof generation fails with 404s.
+    generateBundle(this: any) {
+      const keysDir = resolve(managedDir, 'keys')
+      const zkirDir = resolve(managedDir, 'zkir')
+
+      for (const file of fs.readdirSync(keysDir)) {
+        const src = resolve(keysDir, file)
+        if (fs.statSync(src).isFile()) {
+          this.emitFile({
+            type: 'asset',
+            fileName: `keys/${file}`,
+            source: fs.readFileSync(src),
+          })
+        }
+      }
+
+      for (const file of fs.readdirSync(zkirDir)) {
+        if (!file.endsWith('.bzkir')) continue
+        const src = resolve(zkirDir, file)
+        this.emitFile({
+          type: 'asset',
+          fileName: `zkir/${file}`,
+          source: fs.readFileSync(src),
+        })
+      }
     },
   }
 }
@@ -107,6 +138,10 @@ function resolvePolyfillShims() {
 }
 
 export default defineConfig({
+  // Load .env files from the repo root so `vite build --mode preprod` picks up
+  // .env.preprod (which lives at the workspace root, not inside packages/frontend-ui).
+  envDir: resolve(__dirname, '../..'),
+
   plugins: [
     // Required: Midnight SDK packages contain WASM modules
     wasm(),

@@ -51,26 +51,25 @@ import { Roles } from "@midnight-ntwrk/wallet-sdk-hd";
 import { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
 import { ShieldedWallet } from "@midnight-ntwrk/wallet-sdk-shielded";
 import { DustWallet } from "@midnight-ntwrk/wallet-sdk-dust-wallet";
+import { DustAddress } from "@midnight-ntwrk/wallet-sdk-address-format";
 import {
   createKeystore,
   type UnshieldedKeystore,
 } from "@midnight-ntwrk/wallet-sdk-unshielded-wallet";
 import {
   type CoinPublicKey,
+  ContractDeploy as LedgerV8ContractDeploy,
+  ContractState as LedgerV8ContractState,
   DustSecretKey,
   type EncPublicKey,
   type FinalizedTransaction,
+  Intent as LedgerV8Intent,
   LedgerParameters,
   shieldedToken,
-  Transaction,
-  type TransactionId,
-  ZswapSecretKeys,
-} from "@midnight-ntwrk/ledger-v7";
-import {
-  ContractDeploy as LedgerV8ContractDeploy,
-  ContractState as LedgerV8ContractState,
-  Intent as LedgerV8Intent,
   Transaction as LedgerV8Transaction,
+  type TransactionId,
+  type UnprovenTransaction,
+  ZswapSecretKeys,
 } from "@midnight-ntwrk/ledger-v8";
 import type { NetworkId } from "@midnight-ntwrk/wallet-sdk-abstractions";
 
@@ -129,6 +128,8 @@ export interface NetworkUrls {
   node?: string;
   /** Proof server HTTP endpoint (default: http://127.0.0.1:6300)*/
   proofServer?: string;
+  /** Optional wallet seed override (64-char hex). Overrides MIDNIGHT_WALLET_SEED env var / midnightNetworkConfig.walletSeed */
+  walletSeed?: string;
 }
 
 /** Initial owner structure for contracts that need wallet address */
@@ -264,7 +265,7 @@ const collectErrorMessages = (error: unknown, maxDepth = 6): string[] => {
  * Build wallet and wait for funds
  */
 async function buildWalletAndWaitForFunds(
-  networkUrls: Required<Omit<NetworkUrls, "id">>,
+  networkUrls: Required<Omit<NetworkUrls, "id" | "walletSeed">>,
   seed: string,
   networkId: NetworkId.NetworkId,
 ): Promise<WalletResult> {
@@ -314,8 +315,8 @@ async function buildWalletAndWaitForFunds(
   return result;
 }
 
-async function buildDeployWalletFacade(
-  networkUrls: Required<Omit<NetworkUrls, "id">>,
+export async function buildDeployWalletFacade(
+  networkUrls: Required<Omit<NetworkUrls, "id" | "walletSeed">>,
   seed: string,
   networkId: NetworkId.NetworkId,
 ): Promise<WalletResult> {
@@ -362,7 +363,7 @@ async function buildDeployWalletFacade(
     walletZswapSecretKeys: walletZswapSecretKeys as any,
     dustSecretKey: DustSecretKey.fromSeed(dustSeed) as any,
     walletDustSecretKey: walletDustSecretKey as any,
-    dustAddress: dustState.dustAddress,
+    dustAddress: DustAddress.encodePublicKey(networkId as string, dustState.publicKey),
     unshieldedAddress: unshieldedKeystore.getBech32Address().asString(),
     unshieldedKeystore,
   };
@@ -479,7 +480,7 @@ function configureProviders(
   dustSecretKey: DustSecretKey,
   walletDustSecretKey: DustSecretKey,
   unshieldedKeystore: WalletResult["unshieldedKeystore"],
-  networkUrls: Required<Omit<NetworkUrls, "id">>,
+  networkUrls: Required<Omit<NetworkUrls, "id" | "walletSeed">>,
   privateStateStoreName: string,
   zkConfigPath: string,
 ) {
@@ -588,19 +589,13 @@ async function submitInsertVerifierKeyTxLocal(
     ),
   );
   const maintenanceResult = exitResultOrError(exitResult as any) as any;
-  const v8UnprovenTx = LedgerV8Transaction.fromParts(
+  const unprovenTx = LedgerV8Transaction.fromParts(
     getNetworkId(),
     undefined,
     undefined,
     LedgerV8Intent.new(createTtl()).addMaintenanceUpdate(
       maintenanceResult.public.maintenanceUpdate,
     ),
-  );
-  const unprovenTx = Transaction.deserialize(
-    "signature",
-    "pre-proof",
-    "pre-binding",
-    v8UnprovenTx.serialize(),
   );
 
   const recipe = await walletResult.wallet.balanceUnprovenTransaction(
@@ -710,20 +705,16 @@ async function deployWithLimitedVerifierKeys(
     contractAddress = contractDeploy.address;
 
     const intent = LedgerV8Intent.new(createTtl()).addDeploy(contractDeploy);
-    const v8UnprovenTx = LedgerV8Transaction.fromParts(
+    const unprovenTx = LedgerV8Transaction.fromParts(
       getNetworkId(),
       undefined,
       undefined,
       intent,
     );
-    const unprovenTx = Transaction.deserialize(
-      "signature",
-      "pre-proof",
-      "pre-binding",
-      v8UnprovenTx.serialize(),
-    );
 
     log.info(`Deploy tx built for contract address: ${contractAddress}`);
+    log.info(`getNetworkId() at tx build time: ${getNetworkId()}`);
+    log.info(`Intent TTL: ${createTtl().toISOString()}`);
 
     const {
       wallet,
@@ -736,6 +727,10 @@ async function deployWithLimitedVerifierKeys(
       dustSecretKey: walletDustSecretKey,
     };
 
+    // Debug: log unproven transaction details
+    const unprovenSerialized = unprovenTx.serialize();
+    log.info(`Unproven tx serialized length: ${unprovenSerialized.length} bytes`);
+
     log.info("Balancing deploy transaction (unproven)...");
     const recipe = await wallet.balanceUnprovenTransaction(
       unprovenTx as any,
@@ -743,12 +738,51 @@ async function deployWithLimitedVerifierKeys(
       { ttl: createTtl() },
     );
 
+    // Debug: log recipe details
+    try {
+      const recipeKeys = Object.keys(recipe);
+      log.info(`Recipe type: ${(recipe as any).type}, keys: ${JSON.stringify(recipeKeys)}`);
+      const baseTx = (recipe as any).baseTransaction ?? (recipe as any).transaction;
+      if (baseTx) {
+        const baseSerialized = (baseTx as any).serialize?.();
+        if (baseSerialized) {
+          log.info(`Recipe base tx serialized length: ${baseSerialized.length} bytes`);
+        }
+        // Check if the base tx had its intent modified (dust added)
+        const baseTxKeys = Object.keys(baseTx as any);
+        log.info(`Recipe base tx keys: ${JSON.stringify(baseTxKeys)}`);
+      }
+      if ((recipe as any).balancingTransaction) {
+        const balSerialized = ((recipe as any).balancingTransaction as any).serialize?.();
+        log.info(`Balancing tx serialized length: ${balSerialized?.length ?? "N/A"} bytes`);
+      }
+    } catch (e) {
+      log.info(`Could not inspect recipe: ${(e as Error).message}`);
+    }
+
     const signedRecipe = await wallet.signRecipe(
       recipe,
       (payload) => unshieldedKeystore.signData(payload),
     );
 
     const finalizedTx = await wallet.finalizeRecipe(signedRecipe);
+
+    // Debug: log finalized transaction details before submission
+    try {
+      const finalSerialized = (finalizedTx as any).serialize?.();
+      if (finalSerialized) {
+        log.info(`Finalized tx serialized length: ${finalSerialized.length} bytes`);
+      }
+    } catch (e) {
+      log.info(`Could not serialize finalized tx for debug: ${(e as Error).message}`);
+    }
+    // Log the finalized tx structure (keys only, not full data)
+    try {
+      const txKeys = Object.keys(finalizedTx as any);
+      log.info(`Finalized tx keys: ${JSON.stringify(txKeys)}`);
+    } catch {
+      // ignore
+    }
 
     log.info("Submitting deploy transaction...");
     const txId = await wallet.submitTransaction(finalizedTx);
@@ -1041,7 +1075,7 @@ export async function deployMidnightContract(
 
   // Merge network URLs with defaults
   const { id: networkIdOverride, ...endpoints } = networkUrls ?? {};
-  const resolvedNetworkUrls: Required<Omit<NetworkUrls, "id">> = {
+  const resolvedNetworkUrls: Required<Omit<NetworkUrls, "id" | "walletSeed">> = {
     indexer: endpoints.indexer ?? midnightNetworkConfig.indexer,
     indexerWS: endpoints.indexerWS ?? midnightNetworkConfig.indexerWS,
     node: endpoints.node ?? midnightNetworkConfig.node,
@@ -1056,14 +1090,52 @@ export async function deployMidnightContract(
 
   setNetworkId(resolvedNetworkId);
 
+  // ── Preflight: query node runtime version ────────────────────────────────
+  try {
+    const rpcBody = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "state_getRuntimeVersion",
+      params: [],
+    });
+    const rpcResp = await fetch(resolvedNetworkUrls.node, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: rpcBody,
+    });
+    const rpcJson = await rpcResp.json();
+    if (rpcJson.result) {
+      const rv = rpcJson.result;
+      log.info(
+        `Node runtime: specName=${rv.specName}, specVersion=${rv.specVersion}, implVersion=${rv.implVersion}, transactionVersion=${rv.transactionVersion}`,
+      );
+    } else {
+      log.warn(`Could not fetch runtime version: ${JSON.stringify(rpcJson.error)}`);
+    }
+  } catch (e) {
+    log.warn(`Preflight runtime version check failed: ${(e as Error).message}`);
+  }
+
+  // ── Preflight: check proof server info ───────────────────────────────────
+  for (const endpoint of ["/info", "/proof-versions", "/health"]) {
+    try {
+      const psResp = await fetch(`${resolvedNetworkUrls.proofServer}${endpoint}`);
+      const psBody = await psResp.text();
+      log.info(`Proof server ${endpoint} (${psResp.status}): ${psBody.slice(0, 500)}`);
+    } catch (e) {
+      log.info(`Proof server ${endpoint} not available: ${(e as Error).message}`);
+    }
+  }
+
   let walletResult: WalletResult | null = null;
   let providers: ReturnType<typeof configureProviders> | null = null;
 
   try {
+    const resolvedWalletSeed = networkUrls?.walletSeed ?? midnightNetworkConfig.walletSeed!;
     log.info("Building wallet...");
     walletResult = await buildWalletAndWaitForFunds(
       resolvedNetworkUrls,
-      midnightNetworkConfig.walletSeed!,
+      resolvedWalletSeed,
       resolvedNetworkId,
     );
 
@@ -1096,6 +1168,44 @@ export async function deployMidnightContract(
     }
 
     log.info("Wallet built successfully.");
+
+    // ── Preflight: smoke-test a trivial transaction ───────────────────────────
+    if (Deno.env.get("MIDNIGHT_SKIP_PREFLIGHT_TX") !== "true") {
+      log.info("[preflight] Building a trivial no-op transaction to verify wallet can submit...");
+      try {
+        const noopTx = LedgerV8Transaction.fromParts(
+          getNetworkId(),
+          undefined,
+          undefined,
+          LedgerV8Intent.new(createTtl()),
+        );
+        log.info(`[preflight] No-op tx serialized length: ${noopTx.serialize().length} bytes`);
+        const noopRecipe = await wallet.balanceUnprovenTransaction(
+          noopTx as any,
+          { shieldedSecretKeys: walletZswapSecretKeys as any, dustSecretKey: walletDustSecretKey as any },
+          { ttl: createTtl() },
+        );
+        log.info(`[preflight] Recipe type: ${(noopRecipe as any).type}`);
+        const noopSigned = await wallet.signRecipe(
+          noopRecipe,
+          (payload) => unshieldedKeystore.signData(payload),
+        );
+        const noopFinalized = await wallet.finalizeRecipe(noopSigned);
+        log.info("[preflight] Submitting no-op transaction...");
+        const noopTxId = await wallet.submitTransaction(noopFinalized);
+        log.info(`[preflight] No-op transaction submitted successfully! txId: ${noopTxId}`);
+      } catch (e) {
+        const msg = (e as Error).message ?? String(e);
+        log.error(`[preflight] No-op transaction FAILED: ${msg}`);
+        if (msg.includes("Custom error: 170")) {
+          log.error("[preflight] The wallet cannot submit ANY transaction to preprod. This likely means the proof server binary is incompatible with the current network.");
+          log.error("[preflight] Check if a newer @paimaexample/npm-midnight-proof-server version is available, or use an official Midnight proof server binary.");
+          throw new Error("Preflight transaction failed — proof server may be incompatible with preprod network");
+        }
+        log.warn("[preflight] Continuing with deploy despite preflight failure...");
+      }
+    }
+
 
     log.info("Configuring providers...");
     // Use a separate LevelDB directory for deployment to avoid lock conflicts with batcher

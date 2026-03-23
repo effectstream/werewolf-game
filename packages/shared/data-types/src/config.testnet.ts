@@ -13,10 +13,11 @@ import {
 import { readMidnightContract } from "@paimaexample/midnight-contracts/read-contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
 import {
-  PrimitiveTypeEVMERC721,
+  PrimitiveTypeEVMPaimaL2,
   PrimitiveTypeMidnightGeneric,
 } from "@paimaexample/sm/builtin";
 import { arbitrumSepolia } from "viem/chains";
+import { paimaL2Grammar } from "@werewolf-game/data-types/grammar";
 
 /**
  * Let check if the db.
@@ -42,8 +43,8 @@ const arbitrumSepoliaRpc = Deno
 
 type ContractAddressBook = Record<string, Record<string, `0x${string}`>>;
 const contractAddressBook = contractAddressesEvmMain() as ContractAddressBook;
-const erc721TestnetContractAddress =
-  contractAddressBook["chain421614"]?.["Erc721DevModule#Erc721Dev"] ||
+const paimaL2TestnetContractAddress =
+  contractAddressBook["chain421614"]?.["PaimaL2ContractModule#MyPaimaL2Contract"] ||
   "0x0000000000000000000000000000000000000000";
 
 const midnightNetworkInputsValid = Boolean(
@@ -118,7 +119,7 @@ if (Deno) {
 
     try {
       const counterContract = readMidnightContract(
-        "contract-round-value",
+        "contract-werewolf",
         { networkId: midnightNetworkConfig.id },
       );
       midnightContractAddress = counterContract.contractAddress;
@@ -232,11 +233,11 @@ export const config = new ConfigBuilder()
       .addPrimitive(
         (syncProtocols: any) => syncProtocols.parallelEvmRPC_fast,
         () => ({
-          name: "Arbitrum_ERC721",
-          type: PrimitiveTypeEVMERC721,
+          name: "PaimaGameInteraction",
+          type: PrimitiveTypeEVMPaimaL2,
           startBlockHeight: 0,
-          contractAddress: erc721TestnetContractAddress,
-          stateMachinePrefix: "transfer-assets",
+          contractAddress: paimaL2TestnetContractAddress,
+          paimaL2Grammar: paimaL2Grammar,
         }),
       );
 

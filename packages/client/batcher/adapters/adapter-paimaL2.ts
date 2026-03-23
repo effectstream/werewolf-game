@@ -3,6 +3,7 @@ import type { DefaultBatcherInput } from "@paimaexample/batcher";
 import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
 import { ENV } from "@paimaexample/utils/node-env";
 import * as chains from "viem/chains";
+import process from "node:process";
 import type { Chain } from "viem";
 import { verifyMessage } from "viem";
 
@@ -25,7 +26,7 @@ const paimaL2Address = evm_enabled
   : `0x0`;
 
 const batcherPrivateKey =
-  "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+  (process.env.SYSTEM_PRIVATE_KEY ?? "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d") as `0x${string}`;
 
 // Defaults consistent with E2E usage
 const paimaL2Fee = 0n; // old batcher defaulted to 0 for local dev
@@ -73,7 +74,7 @@ class WerewolfPaimaL2Adapter extends PaimaL2DefaultAdapter {
 export const paimaL2Adapter: WerewolfPaimaL2Adapter = evm_enabled
   ? new WerewolfPaimaL2Adapter(
     paimaL2Address,
-    batcherPrivateKey as `0x${string}`,
+    batcherPrivateKey,
     paimaL2Fee,
     paimaSyncProtocolName,
     chain,

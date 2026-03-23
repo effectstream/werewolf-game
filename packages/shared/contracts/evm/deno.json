@@ -52,7 +52,7 @@
       ]
     },
     "contract:compile": "deno task build:mod",
-    "deploy:clean": "rm -rf ignition/deployments || true",
+    "deploy:clean": "rm -rf ignition/deployments/chain-31337 || true",
     "deploy:standalone": {
       "command": "(((deno task chain:start) &) && (deno task chain:wait) && (deno task deploy) && deno task chain:stop) || true",
       "dependencies": [
@@ -63,6 +63,13 @@
       "command": "deno run -A deploy.ts",
       "dependencies": [
         "deploy:clean"
+      ]
+    },
+    "deploy:preprod:clean": "rm -rf ignition/deployments/chain-421614 || true",
+    "deploy:preprod": {
+      "command": "EFFECTSTREAM_ENV=testnet deno run -A --env-file=../../../../.env.preprod deploy.ts",
+      "dependencies": [
+        "deploy:preprod:clean"
       ]
     },
     "chain:start": "deno run -A npm:hardhat@3.0.4 node",
