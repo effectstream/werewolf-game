@@ -1,4 +1,12 @@
+# Midnight local development databases
 midnight-level-db/
 midnight-level-db-*/
+
+# Managed compilation artifacts
 contract-round-value/src/managed
+
+# Deployment state (temp file for recovery during deployment)
+deployment-state.json
+
+# Undeployed contract configs
 *.undeployed.json
