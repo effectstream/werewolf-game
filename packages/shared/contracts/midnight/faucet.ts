@@ -5,6 +5,7 @@ import * as Rx from "rxjs";
 import { HDWallet, Roles } from "@midnight-ntwrk/wallet-sdk-hd";
 import { WalletFacade } from "@midnight-ntwrk/wallet-sdk-facade";
 import {
+  DustAddress,
   MidnightBech32m,
   UnshieldedAddress,
 } from "@midnight-ntwrk/wallet-sdk-address-format";
@@ -23,7 +24,7 @@ import {
   nativeToken,
   shieldedToken,
   ZswapSecretKeys,
-} from "@midnight-ntwrk/ledger-v7";
+} from "@midnight-ntwrk/ledger-v8";
 import { NetworkId } from "@midnight-ntwrk/wallet-sdk-abstractions";
 import type { DefaultV1Configuration } from "@midnight-ntwrk/wallet-sdk-shielded/v1";
 
@@ -238,7 +239,7 @@ export async function buildWalletFacade(
     walletZswapSecretKeys,
     dustSecretKey,
     walletDustSecretKey,
-    dustAddress: dustState.dustAddress,
+    dustAddress: DustAddress.encodePublicKey(networkId as string, dustState.publicKey),
     unshieldedAddress,
     unshieldedKeystore,
   };
@@ -445,6 +446,15 @@ export async function syncAndWaitForFunds(
         }),
       ),
     );
+  } catch (err) {
+    if (!waitNonZero && latestState) {
+      log.warn(
+        `${logPrefix}Wallet sync timed out; using last known partial state for balances.`,
+      );
+      state = latestState;
+    } else {
+      throw err;
+    }
   } finally {
     clearInterval(periodicLogger);
   }
@@ -555,15 +565,9 @@ export async function waitForDustFunds(
       }),
       Rx.map((state: any) => {
         try {
-          if (typeof state.walletBalance === "function") {
-            return state.walletBalance(new Date());
-          }
-          const balances = state.balances;
-          if (balances) {
-            return Object.values(balances).reduce(
-              (acc: bigint, v) => acc + BigInt((v as any) ?? 0),
-              0n,
-            );
+          // DustWalletState exposes balance(time: Date): bigint
+          if (typeof state.balance === "function") {
+            return state.balance(new Date()) as bigint;
           }
         } catch (_err) {
           // Ignore malformed intermediate snapshots and keep waiting.
@@ -598,23 +602,58 @@ export async function registerNightForDust(
     "Checking for unshielded Night UTXOs to register for dust generation...",
   );
 
-  const state = await Rx.firstValueFrom(
-    walletResult.wallet.state().pipe(
-      Rx.filter((s: any) => s.isSynced),
-    ),
+  const syncTimeoutMs = resolveWalletSyncTimeoutMs();
+  let state: any;
+  try {
+    state = await Rx.firstValueFrom(
+      walletResult.wallet.state().pipe(
+        Rx.filter((s: any) => s.isSynced),
+        Rx.timeout({
+          each: syncTimeoutMs,
+          with: () =>
+            Rx.throwError(
+              () =>
+                new Error(
+                  `Wallet sync timeout after ${syncTimeoutMs}ms in registerNightForDust`,
+                ),
+            ),
+        }),
+      ),
+    );
+  } catch (err) {
+    log.warn(
+      `registerNightForDust: wallet did not fully sync (${
+        (err as Error).message
+      }); cannot enumerate UTXOs.`,
+    );
+    return false;
+  }
+
+  const availableCoins: any[] =
+    (state as any).unshielded?.availableCoins ?? [];
+  const unregisteredNightUtxos = availableCoins.filter(
+    (coin: any) => coin.meta.registeredForDustGeneration === false,
+  );
+  const registeredNightUtxos = availableCoins.filter(
+    (coin: any) => coin.meta.registeredForDustGeneration === true,
   );
 
-  const unregisteredNightUtxos =
-    (state as any).unshielded?.availableCoins?.filter(
-      (coin: any) => coin.meta.registeredForDustGeneration === false,
-    ) ?? [];
-
   if (unregisteredNightUtxos.length === 0) {
-    log.info("No unregistered unshielded Night UTXOs available.");
-    const dustBalance = await waitForDustFunds(walletResult.wallet, {
-      timeoutMs: 5000,
-    });
-    return dustBalance > 0n;
+    if (registeredNightUtxos.length > 0) {
+      log.info(
+        `All ${registeredNightUtxos.length} Night UTXO(s) are already registered for dust generation. Dust accumulates over time.`,
+      );
+      // Already registered — dust is generating; report current balance.
+      const dustBalance = await waitForDustFunds(walletResult.wallet, {
+        timeoutMs: 5000,
+      });
+      log.info(`Current dust balance: ${dustBalance} (may be 0 if generation just started).`);
+      return true;
+    }
+    log.info(
+      "No Night UTXOs found in the unshielded wallet. Cannot register for dust generation.",
+    );
+    return false;
   }
 
   log.info(

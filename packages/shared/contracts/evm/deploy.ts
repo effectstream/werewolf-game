@@ -3,10 +3,12 @@ import { createHardhatRuntimeEnvironment } from "hardhat/hre";
 import * as config from "./hardhat.config.ts";
 import PaimaL2ContractModule from "./ignition/modules/paimaL2.ts";
 import type { buildModule } from "@nomicfoundation/ignition-core";
+import process from "node:process";
 // import CounterModule from "./ignition/modules/counter.ts";
 // import OpenZeppelinErc20DevModule from "./ignition/modules/oz-erc20dev.ts";
 
 const __dirname: any = import.meta.dirname;
+const isTestnet = process.env.EFFECTSTREAM_ENV === "testnet";
 
 type Deployment = {
   module: ReturnType<typeof buildModule>;
@@ -14,13 +16,14 @@ type Deployment = {
   parameters?: Record<string, Record<string, any>>;
 };
 
-// This is an example of how to deploy contracts.
-// This is the list of contracts to deploy.
-// Add or remove contracts as needed.
+// Contracts to deploy.
+// Run via:
+//   deno task deploy          → local Hardhat (evmMainHttp)
+//   deno task deploy:preprod  → Arbitrum Sepolia (arbitrumSepoliaHttp)
 const myDeployments: Deployment[] = [
   {
     module: PaimaL2ContractModule,
-    network: "evmMainHttp",
+    network: isTestnet ? "arbitrumSepoliaHttp" : "evmMainHttp",
     parameters: {
       PaimaL2ContractModule: {
         owner: "0xEFfE522D441d971dDC7153439a7d10235Ae6301f",

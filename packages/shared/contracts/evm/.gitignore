@@ -6,7 +6,8 @@ mod.ts
 # build
 /build
 
-# deployments
-/ignition/deployments
+# deployments - ignore only local dev chains, keep production deployments
+/ignition/deployments/chain-31337/
+/ignition/deployments/chain-1337/
 
 remappings.txt

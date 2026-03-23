@@ -1,6 +1,8 @@
-const BATCHER_URL =
+const BATCHER_BASE =
   (import.meta.env.VITE_BATCHER_URL as string | undefined) ??
-  'http://localhost:3334/send-input'
+  'http://localhost:3334'
+
+const BATCHER_URL = `${BATCHER_BASE}/send-input`
 
 const EVM_ADDRESS_TYPE = 0 // AddressType.EVM
 

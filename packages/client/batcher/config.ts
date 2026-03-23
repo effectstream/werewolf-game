@@ -8,7 +8,6 @@ import { Contract, witnesses } from "@example-midnight/my-midnight-contract";
 import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
 import { WerewolfBalancingAdapter } from "./adapters/werewolf-balancing-adapter.ts";
 import { paimaL2Adapter } from "./adapters/adapter-paimaL2.ts";
-import * as path from "@std/path";
 
 const isEnvTrue = (key: string) =>
   ["true", "1", "yes", "y"].includes((Deno.env.get(key) || "").toLowerCase());
@@ -37,20 +36,6 @@ if (midnight_enabled) {
   }
 }
 
-// Resolve zkConfigPath for the balancing adapter independently of the address file.
-// The balancing adapter only needs the ZK keys/ZKIR, not the contract address.
-const zkConfigPath = midnightContractData?.zkConfigPath ??
-  path.resolve(
-    import.meta.dirname!,
-    "..",
-    "..",
-    "shared",
-    "contracts",
-    "midnight",
-    "contract-werewolf",
-    "src",
-    "managed",
-  );
 
 const midnightAdapter = midnightContractData
   ? new MidnightAdapter(
@@ -62,6 +47,7 @@ const midnightAdapter = midnightContractData
       node: midnightNetworkConfig.node,
       proofServer: midnightNetworkConfig.proofServer,
       zkConfigPath: midnightContractData.zkConfigPath,
+      contractName: "contract-werewolf",
       privateStateStoreName: "counter-private-state",
       privateStateId: "counterPrivateState",
       contractJoinTimeoutSeconds: 300,
@@ -84,9 +70,9 @@ const midnightBalancingAdapter = midnight_enabled
       indexerWS: midnightNetworkConfig.indexerWS,
       node: midnightNetworkConfig.node,
       proofServer: midnightNetworkConfig.proofServer,
-      zkConfigPath,
       walletNetworkId: midnightNetworkConfig.id,
       addShieldedPadding: true,
+      shieldedPaddingTokenID: "0000000000000000000000000000000000000000000000000000000000000000",
       maxBatchSize: 2,
     },
   )

@@ -1,5 +1,7 @@
 import type { HardhatUserConfig } from "hardhat/config";
+import { configVariable } from "hardhat/config";
 import {
+  createDefaultNetworks,
   createHardhatConfig,
   createNodeTasks,
   initTelemetry,
@@ -36,9 +38,18 @@ const config: HardhatUserConfig = createHardhatConfig({
   sourcesDir: `${__dirname}/src/contracts`,
   artifactsDir: `${__dirname}/build/artifacts/hardhat`,
   cacheDir: `${__dirname}/build/cache/hardhat`,
-  // Default networks (evmMain, evmMainHttp, evmParallel, evmParallelHttp) are used automatically
   tasks: nodeTasks,
   solidityVersion: "0.8.30",
+  networks: {
+    ...createDefaultNetworks(),
+    // Arbitrum Sepolia testnet — used by deploy:preprod (EFFECTSTREAM_ENV=testnet)
+    arbitrumSepoliaHttp: {
+      type: "http",
+      chainType: "l1",
+      url: configVariable("ARBITRUM_SEPOLIA_RPC"),
+      accounts: [configVariable("SYSTEM_PRIVATE_KEY")],
+    },
+  },
 });
 
 export default config;

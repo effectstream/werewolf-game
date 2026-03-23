@@ -124,9 +124,16 @@ export function getBrowserProofProvider(): ProofProvider {
   if (!browserProofProvider) {
     browserProofProvider = {
       async proveTx(unprovenTx: UnprovenTransaction): Promise<UnboundTransaction> {
+        const startTime = performance.now();
+        console.log('[BrowserProofProvider] Starting proof generation');
+
         const provenBytes = await getBrowserProverClient().prove(
           unprovenTx.serialize(),
         );
+
+        const endTime = performance.now();
+        const duration = endTime - startTime;
+        console.log(`[BrowserProofProvider] Proof generation completed in ${duration.toFixed(2)}ms`);
 
         return Transaction.deserialize(
           "signature",
