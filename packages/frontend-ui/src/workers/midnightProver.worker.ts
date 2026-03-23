@@ -129,11 +129,18 @@ workerScope.onmessage = async (
       throw new Error("Browser prover not initialized");
     }
 
+    const startTime = performance.now();
+    console.log(`[ProverWorker] Starting WASM proof computation for request ${event.data.requestId}`);
+
     const provenTx = await prover.prove(
       rng,
       new Uint8Array(event.data.serializedTx),
       CostModel.initialCostModel(),
     );
+
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+    console.log(`[ProverWorker] WASM proof computation completed for request ${event.data.requestId} in ${duration.toFixed(2)}ms`);
 
     postMessage({
       type: "result",

@@ -694,6 +694,66 @@ async function deployWithLimitedVerifierKeys(
     );
 
     // Step 3: Create a stripped ContractState with NO operations (no VKs)
+    // ── Cross-serialization verification ─────────────────────────────────────
+    const srcBytes = fullContractState.serialize();
+    const roundTripped = LedgerV8ContractState.deserialize(srcBytes);
+    const dstBytes = roundTripped.serialize();
+    log.info(`[debug] Source (onchain-runtime-v3) serialized: ${srcBytes.length} bytes`);
+    log.info(`[debug] Round-tripped (ledger-v8) serialized:   ${dstBytes.length} bytes`);
+    log.info(`[debug] Bytes match: ${srcBytes.length === dstBytes.length && srcBytes.every((b: number, i: number) => b === dstBytes[i])}`);
+    if (srcBytes.length !== dstBytes.length) {
+      log.error(`[debug] SERIALIZATION MISMATCH! Source ${srcBytes.length} vs round-tripped ${dstBytes.length} bytes`);
+      log.info(`[debug] Source hex:       ${Array.from(srcBytes.slice(0, 80)).map((b: number) => b.toString(16).padStart(2, "0")).join("")}`);
+      log.info(`[debug] Round-tripped hex: ${Array.from(dstBytes.slice(0, 80)).map(b => b.toString(16).padStart(2, "0")).join("")}`);
+    }
+    log.info(`[debug] Full state operations count: ${fullLedgerState.operations().length}`);
+    log.info(`[debug] maintenanceAuthority committee size: ${fullLedgerState.maintenanceAuthority.committee.length}, threshold: ${fullLedgerState.maintenanceAuthority.threshold}, counter: ${fullLedgerState.maintenanceAuthority.counter}`);
+
+    // ── Targeted deploy tests: isolate which field causes error 170 ──────────
+    if (Deno.env.get("MIDNIGHT_SKIP_DEPLOY_TESTS") !== "true") {
+      const {
+        wallet,
+        walletZswapSecretKeys,
+        walletDustSecretKey,
+        unshieldedKeystore: usk,
+      } = walletResult;
+      const testDeployState = async (label: string, state: InstanceType<typeof LedgerV8ContractState>) => {
+        try {
+          const deploy = new LedgerV8ContractDeploy(state);
+          const intent = LedgerV8Intent.new(createTtl()).addDeploy(deploy);
+          const tx = LedgerV8Transaction.fromParts(getNetworkId(), undefined, undefined, intent);
+          log.info(`[test:${label}] tx unproven: ${tx.serialize().length} bytes`);
+          const recipe = await wallet.balanceUnprovenTransaction(
+            tx as any,
+            { shieldedSecretKeys: walletZswapSecretKeys as any, dustSecretKey: walletDustSecretKey as any },
+            { ttl: createTtl() },
+          );
+          const signed = await wallet.signRecipe(recipe, (payload) => usk.signData(payload));
+          const finalized = await wallet.finalizeRecipe(signed);
+          const txId = await wallet.submitTransaction(finalized);
+          log.info(`[test:${label}] ✅ SUCCEEDED txId: ${txId}`);
+        } catch (e) {
+          log.error(`[test:${label}] ❌ FAILED: ${(e as Error).message}`);
+        }
+      };
+
+      // Test A: data only (no MA override)
+      const dataOnlyState = new LedgerV8ContractState();
+      dataOnlyState.data = fullLedgerState.data;
+      await testDeployState("data-only", dataOnlyState);
+
+      // Test B: MA only (no data override)
+      const maOnlyState = new LedgerV8ContractState();
+      maOnlyState.maintenanceAuthority = fullLedgerState.maintenanceAuthority;
+      await testDeployState("ma-only", maOnlyState);
+
+      // Test C: stripped (both data + MA, no ops) — the current approach
+      const testStripped = new LedgerV8ContractState();
+      testStripped.data = fullLedgerState.data;
+      testStripped.maintenanceAuthority = fullLedgerState.maintenanceAuthority;
+      await testDeployState("data+ma", testStripped);
+    }
+
     const strippedState = new LedgerV8ContractState();
     strippedState.data = fullLedgerState.data;
     strippedState.maintenanceAuthority = fullLedgerState.maintenanceAuthority;
@@ -1204,6 +1264,32 @@ export async function deployMidnightContract(
         }
         log.warn("[preflight] Continuing with deploy despite preflight failure...");
       }
+
+      // ── Preflight 2: Test deploy variants to isolate error 170 ────────────────
+      const testDeploy = async (label: string, state: InstanceType<typeof LedgerV8ContractState>) => {
+        try {
+          const deploy = new LedgerV8ContractDeploy(state);
+          const intent = LedgerV8Intent.new(createTtl()).addDeploy(deploy);
+          const tx = LedgerV8Transaction.fromParts(getNetworkId(), undefined, undefined, intent);
+          log.info(`[test-deploy:${label}] tx: ${tx.serialize().length} bytes`);
+          const recipe = await wallet.balanceUnprovenTransaction(
+            tx as any,
+            { shieldedSecretKeys: walletZswapSecretKeys as any, dustSecretKey: walletDustSecretKey as any },
+            { ttl: createTtl() },
+          );
+          const signed = await wallet.signRecipe(recipe, (payload) => unshieldedKeystore.signData(payload));
+          const finalized = await wallet.finalizeRecipe(signed);
+          const txId = await wallet.submitTransaction(finalized);
+          log.info(`[test-deploy:${label}] ✅ SUCCEEDED txId: ${txId}`);
+          return true;
+        } catch (e) {
+          log.error(`[test-deploy:${label}] ❌ FAILED: ${(e as Error).message}`);
+          return false;
+        }
+      };
+
+      // Test 1: empty state (baseline)
+      await testDeploy("empty", new LedgerV8ContractState());
     }
 
 
