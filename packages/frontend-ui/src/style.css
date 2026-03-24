@@ -1392,7 +1392,9 @@ body {
   border-radius: 14px;
   padding: 36px 44px;
   min-width: 360px;
-  max-width: 460px;
+  max-width: 580px;
+  max-height: 85vh;
+  overflow-y: auto;
   text-align: center;
   box-shadow: 0 20px 56px rgba(0, 0, 0, 0.85), 0 0 80px rgba(80, 100, 255, 0.08);
   color: #d0dcff;
@@ -1421,6 +1423,11 @@ body {
 .game-end-winner-village {
   color: #6ee09a;
   text-shadow: 0 0 24px rgba(80, 200, 120, 0.4);
+}
+
+.game-end-winner-draw {
+  color: #c8b85e;
+  text-shadow: 0 0 24px rgba(200, 184, 94, 0.4);
 }
 
 .game-end-divider {
@@ -1478,6 +1485,61 @@ body {
   color: #6677aa;
   line-height: 1.5;
   padding: 0 8px;
+}
+
+.game-end-leaderboard-section {
+  text-align: center;
+}
+
+.game-end-leaderboard-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.game-end-leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.game-end-leaderboard-table th {
+  position: sticky;
+  top: 0;
+  background: rgba(8, 12, 28, 0.98);
+  color: #6677aa;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid rgba(100, 130, 255, 0.18);
+}
+
+.game-end-leaderboard-table td {
+  padding: 5px 8px;
+  color: #b0c0e8;
+  text-align: left;
+}
+
+.game-end-leaderboard-table tr:hover td {
+  background: rgba(100, 130, 255, 0.06);
+}
+
+.game-end-leaderboard-loading {
+  text-align: center;
+  color: #6677aa;
+  padding: 18px 0;
+  font-size: 13px;
+}
+
+.game-end-lobby-btn {
+  background: rgba(80, 130, 255, 0.18);
+  border-color: rgba(80, 130, 255, 0.4);
+}
+
+.game-end-lobby-btn:hover {
+  background: rgba(80, 130, 255, 0.3);
 }
 
 .game-end-actions {
