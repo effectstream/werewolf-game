@@ -37,10 +37,17 @@ if (midnight_enabled) {
 }
 
 
+// Support multiple batcher wallets via comma-separated MIDNIGHT_WALLET_SEED.
+// Each wallet maintains its own dust UTXOs; total batch capacity = maxBatchSize × walletCount.
+const walletSeeds = midnightNetworkConfig.walletSeed!
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
 const midnightAdapter = midnightContractData
   ? new MidnightAdapter(
     midnightContractData.contractAddress,
-    midnightNetworkConfig.walletSeed!,
+    walletSeeds,
     {
       indexer: midnightNetworkConfig.indexer,
       indexerWS: midnightNetworkConfig.indexerWS,
@@ -64,7 +71,7 @@ const midnightAdapter = midnightContractData
 // The balancing adapter handles delegated transactions from BatcherClient.
 const midnightBalancingAdapter = midnight_enabled
   ? new WerewolfBalancingAdapter(
-    midnightNetworkConfig.walletSeed!,
+    walletSeeds,
     {
       indexer: midnightNetworkConfig.indexer,
       indexerWS: midnightNetworkConfig.indexerWS,

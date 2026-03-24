@@ -13,7 +13,7 @@ export type ValidationResult = {
  * Inherits from the official MidnightBalancingAdapter and allows for custom game logic.
  */
 export class WerewolfBalancingAdapter extends MidnightBalancingAdapter {
-  constructor(walletSeed: string, config: MidnightBalancingAdapterConfig) {
+  constructor(walletSeed: string | string[], config: MidnightBalancingAdapterConfig) {
     if (!config.syncProtocolName) {
       config.syncProtocolName = "parallelMidnight";
     }
