@@ -173,7 +173,7 @@ async function bootGame(): Promise<GameManagers> {
   let highestAliveRound = 0
 
   let gameEndShown = false
-  // Show game-end modal + leaderboard when the game finishes.
+  // Show game-end modal (with embedded leaderboard) when the game finishes.
   gameState.subscribe(() => {
     if (gameState.finished && !gameEndShown) {
       gameEndShown = true
@@ -193,9 +193,14 @@ async function bootGame(): Promise<GameManagers> {
           playerRole: bundle?.role,
           roundsSurvived: highestAliveRound,
           hasEvmAddress: !!gameState.playerEvmAddress,
-          onShowLeaderboard: () => leaderboardManager.show(),
+          onReturnToLobby: () => {
+            if (activeManagers) {
+              destroyGame(activeManagers)
+              activeManagers = null
+            }
+            lobbyScreen.show()
+          },
         })
-        leaderboardManager.show()
       }, 1500)
     }
   })
@@ -342,6 +347,7 @@ lobbyScreen.onJoined = (
     activeManagers = null
   }
 
+  gameState.reset()
   gameState.lobbyGameId = gameId
   gameState.playerEvmAddress = evmWallet.getAddress()
   gameState.playerNickname = nickname

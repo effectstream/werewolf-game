@@ -227,17 +227,36 @@ body {
 }
 
 .scene-root {
-  height: 100%;
-  width: 100%;
+  /* No explicit width/height — the grid's default stretch alignment fills
+     the 1fr row exactly without the percentage-height circular-dependency
+     that occurs when height:100% resolves against the full grid container
+     instead of the track height. */
   min-height: 0;
+  position: relative;
+  overflow: hidden;
 }
 
 .scene-root canvas {
+  /* Pin the canvas to the four edges of the positioned scene-root so it
+     always matches the track's allocated size, regardless of the pixel-ratio
+     multiplier Three.js writes into the canvas width/height attributes. */
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   display: block;
 }
 
-.chat-panel {
+.chat-row {
+  display: flex;
   border-top: 1px solid rgba(138, 154, 216, 0.24);
+  /* Reserve space so the fixed footer never covers chat content */
+  padding-bottom: 34px;
+}
+
+.chat-panel {
+  flex: 1;
+  min-width: 0;
   background: rgba(8, 15, 31, 0.92);
   padding: 10px 12px;
   display: grid;
@@ -831,7 +850,7 @@ body {
    ============================================================ */
 
 .vote-confirm-backdrop {
-  position: fixed;
+  position: absolute;
   inset: 0;
   background: rgba(0, 0, 0, 0.65);
   display: flex;
@@ -875,6 +894,132 @@ body {
 
 .vote-confirm-actions .ui-btn {
   flex: 1;
+}
+
+/* ============================================================
+   Transaction progress stepper (inside vote-confirm modal)
+   ============================================================ */
+@keyframes vtx-dot-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(80, 130, 255, 0.55);
+  }
+  50% {
+    transform: scale(1.25);
+    box-shadow: 0 0 0 6px rgba(80, 130, 255, 0);
+  }
+}
+
+.vote-tx-progress {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(100, 140, 220, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.vote-tx-progress.hidden {
+  display: none;
+}
+
+.vote-tx-steps {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+
+.vote-tx-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+}
+
+.vote-tx-connector {
+  flex: 1;
+  min-width: 12px;
+  height: 1px;
+  background: rgba(100, 140, 220, 0.2);
+  margin: 0 5px;
+  align-self: center;
+  margin-bottom: 14px;
+}
+
+.vote-tx-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: rgba(100, 140, 220, 0.18);
+  border: 1px solid rgba(100, 140, 220, 0.28);
+}
+
+.vote-tx-step-active .vote-tx-dot {
+  background: #4a7af4;
+  border-color: #4a7af4;
+  animation: vtx-dot-pulse 1.6s ease-in-out infinite;
+}
+
+.vote-tx-step-done .vote-tx-dot {
+  background: #4ade80;
+  border-color: #4ade80;
+}
+
+.vote-tx-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vote-tx-step-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgba(180, 200, 255, 0.4);
+  line-height: 1;
+}
+
+.vote-tx-step-active .vote-tx-step-label,
+.vote-tx-step-done .vote-tx-step-label {
+  color: #c8d8ff;
+}
+
+.vote-tx-step-hint {
+  display: none;
+  font-size: 0.7rem;
+  color: #5a8af8;
+  font-weight: 500;
+}
+
+.vote-tx-step-active .vote-tx-step-hint {
+  display: block;
+}
+
+.vote-tx-elapsed {
+  font-size: 0.72rem;
+  color: rgba(180, 200, 255, 0.4);
+}
+
+.vote-tx-flavor {
+  font-size: 0.78rem;
+  font-style: italic;
+  color: rgba(180, 200, 255, 0.55);
+  min-height: 1.1em;
+}
+
+.vote-tx-reassurance {
+  font-size: 0.75rem;
+  color: rgba(140, 180, 255, 0.9);
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(80, 130, 220, 0.3);
+  background: rgba(40, 80, 180, 0.15);
+  font-weight: 500;
+}
+
+.vote-tx-reassurance.hidden {
+  display: none;
 }
 
 /* Vote status bar */
@@ -1049,7 +1194,7 @@ body {
    ============================================================ */
 
 .werewolf-chat-panel {
-  border-top: 1px solid rgba(180, 40, 40, 0.4);
+  border-left: 1px solid rgba(180, 40, 40, 0.4);
   background: rgba(20, 5, 5, 0.95);
 }
 
@@ -1247,7 +1392,9 @@ body {
   border-radius: 14px;
   padding: 36px 44px;
   min-width: 360px;
-  max-width: 460px;
+  max-width: 580px;
+  max-height: 85vh;
+  overflow-y: auto;
   text-align: center;
   box-shadow: 0 20px 56px rgba(0, 0, 0, 0.85), 0 0 80px rgba(80, 100, 255, 0.08);
   color: #d0dcff;
@@ -1276,6 +1423,11 @@ body {
 .game-end-winner-village {
   color: #6ee09a;
   text-shadow: 0 0 24px rgba(80, 200, 120, 0.4);
+}
+
+.game-end-winner-draw {
+  color: #c8b85e;
+  text-shadow: 0 0 24px rgba(200, 184, 94, 0.4);
 }
 
 .game-end-divider {
@@ -1333,6 +1485,61 @@ body {
   color: #6677aa;
   line-height: 1.5;
   padding: 0 8px;
+}
+
+.game-end-leaderboard-section {
+  text-align: center;
+}
+
+.game-end-leaderboard-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+
+.game-end-leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.game-end-leaderboard-table th {
+  position: sticky;
+  top: 0;
+  background: rgba(8, 12, 28, 0.98);
+  color: #6677aa;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid rgba(100, 130, 255, 0.18);
+}
+
+.game-end-leaderboard-table td {
+  padding: 5px 8px;
+  color: #b0c0e8;
+  text-align: left;
+}
+
+.game-end-leaderboard-table tr:hover td {
+  background: rgba(100, 130, 255, 0.06);
+}
+
+.game-end-leaderboard-loading {
+  text-align: center;
+  color: #6677aa;
+  padding: 18px 0;
+  font-size: 13px;
+}
+
+.game-end-lobby-btn {
+  background: rgba(80, 130, 255, 0.18);
+  border-color: rgba(80, 130, 255, 0.4);
+}
+
+.game-end-lobby-btn:hover {
+  background: rgba(80, 130, 255, 0.3);
 }
 
 .game-end-actions {

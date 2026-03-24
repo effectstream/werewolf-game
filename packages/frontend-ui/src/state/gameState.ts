@@ -102,6 +102,34 @@ class GameState {
     }
   }
 
+  /** Reset all game-session fields to initial values. Call before joining a new game. */
+  reset(): void {
+    this.players = []
+    this.round = 1
+    this.phase = 'NIGHT'
+    this.selectedPlayer = null
+    this.hoveredPlayer = null
+    this.targetEnvironmentMix = 0
+    this.playerBundle = null
+    this.leafSecret = null
+    this.playerSignKeypair = null
+    this.publicKeyHex = null
+    this.playerNicknames = new Map()
+    this.playerAppearanceCodes = new Map()
+    this.playerAlive = []
+    this.finished = false
+    this.winner = null
+    this.gameStarted = false
+    this.werewolfIndices = []
+    this.backendPlayerCount = 0
+    this.aliveCount = 0
+    this.lastUpdatedBlock = -1
+    this.hasVotedThisRound = false
+    this.voteCount = 0
+    this.votedRoundPhaseKey = ''
+    // Keep: listeners, lobbyGameId, playerEvmAddress, playerNickname, playerAppearanceCode
+  }
+
   setPhase(phase: Phase) {
     this.phase = phase
     this.targetEnvironmentMix = phase === 'DAY' ? 1 : 0

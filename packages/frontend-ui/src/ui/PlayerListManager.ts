@@ -3,6 +3,15 @@ import { submitVote } from '../services/voteService'
 import { toastManager } from './ToastManager'
 import type { Phase } from '../state/gameState'
 
+const FLAVOR_TEXTS = [
+  'The village waits in tense silence…',
+  'Shadows gather as the proof is sealed…',
+  'Ancient cryptographic wards are being woven…',
+  'The night conceals its secrets a little longer…',
+  'Evidence is being inscribed into the chain…',
+  'The wolves deliberate in the dark…',
+]
+
 export class PlayerListManager {
   private playersListEl: HTMLDivElement
   private lastStateHash: string = ''
@@ -116,6 +125,14 @@ export class PlayerListManager {
     const yesBtn = document.querySelector<HTMLButtonElement>('#voteConfirmYesBtn')!
     const noBtn = document.querySelector<HTMLButtonElement>('#voteConfirmNoBtn')!
 
+    // TX progress elements
+    const txProgress = document.querySelector<HTMLElement>('#voteTxProgress')!
+    const txElapsed = document.querySelector<HTMLElement>('#voteTxElapsed')!
+    const txFlavor = document.querySelector<HTMLElement>('#voteTxFlavor')!
+    const txReassurance = document.querySelector<HTMLElement>('#voteTxReassurance')!
+    const stepProving = document.querySelector<HTMLElement>('#vtxStepProving')!
+    const stepBatcher = document.querySelector<HTMLElement>('#vtxStepBatcher')!
+
     targetNameEl.textContent = targetName
     backdrop.classList.remove('hidden')
     backdrop.setAttribute('aria-hidden', 'false')
@@ -126,16 +143,60 @@ export class PlayerListManager {
     yesBtn.replaceWith(newYes)
     noBtn.replaceWith(newNo)
 
+    let txTimer: ReturnType<typeof setInterval> | null = null
+    let elapsedSeconds = 0
+
+    const updateTxPhase = (elapsed: number) => {
+      // Transition from ZK proof phase to batcher phase after ~90 seconds
+      if (elapsed < 90) {
+        stepProving.className = 'vote-tx-step vote-tx-step-active'
+        stepBatcher.className = 'vote-tx-step'
+      } else {
+        stepProving.className = 'vote-tx-step vote-tx-step-done'
+        stepBatcher.className = 'vote-tx-step vote-tx-step-active'
+      }
+      txElapsed.textContent = `${elapsed}s elapsed`
+      txFlavor.textContent = FLAVOR_TEXTS[Math.floor(elapsed / 15) % FLAVOR_TEXTS.length]
+      if (elapsed >= 45) txReassurance.classList.remove('hidden')
+    }
+
+    const startTxProgress = () => {
+      elapsedSeconds = 0
+      stepProving.className = 'vote-tx-step vote-tx-step-active'
+      stepBatcher.className = 'vote-tx-step'
+      txElapsed.textContent = '0s elapsed'
+      txFlavor.textContent = FLAVOR_TEXTS[0]
+      txReassurance.classList.add('hidden')
+      txProgress.classList.remove('hidden')
+      txTimer = setInterval(() => {
+        elapsedSeconds++
+        updateTxPhase(elapsedSeconds)
+      }, 1000)
+    }
+
+    const stopTxProgress = () => {
+      if (txTimer !== null) {
+        clearInterval(txTimer)
+        txTimer = null
+      }
+      txProgress.classList.add('hidden')
+    }
+
     const setLoading = (isLoading: boolean) => {
       newYes.disabled = isLoading
       newNo.disabled = isLoading
       newYes.textContent = isLoading ? 'Submitting…' : 'Confirm'
+      if (isLoading) {
+        startTxProgress()
+      } else {
+        stopTxProgress()
+      }
     }
 
     newYes.addEventListener('click', async () => {
       setLoading(true)
       const closed = await this.handleVoteConfirmed(targetIndex)
-      setLoading(false) // always reset so the button is clean if the modal reopens
+      setLoading(false)
       if (closed) {
         backdrop.classList.add('hidden')
         backdrop.setAttribute('aria-hidden', 'true')
@@ -143,6 +204,7 @@ export class PlayerListManager {
     })
 
     newNo.addEventListener('click', () => {
+      stopTxProgress()
       backdrop.classList.add('hidden')
       backdrop.setAttribute('aria-hidden', 'true')
     })

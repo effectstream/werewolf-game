@@ -487,8 +487,94 @@ class RuntimeMerkleTree {
   }
 }
 
+type TxPhase = "proving" | "batcher" | null;
+
+const FLAVOR_TEXTS = [
+  "The village waits in tense silence…",
+  "Shadows gather as the proof is sealed…",
+  "Ancient cryptographic wards are being woven…",
+  "The night conceals its secrets a little longer…",
+  "Evidence is being inscribed into the chain…",
+  "The wolves deliberate in the dark…",
+];
+
+function TxStep(
+  { label, hint, status }: {
+    label: string;
+    hint?: string;
+    status: "active" | "done" | "pending";
+  },
+) {
+  return (
+    <div className={`tx-step tx-step-${status}`}>
+      <div className="tx-step-dot" />
+      <div className="tx-step-body">
+        <div className="tx-step-label">{label}</div>
+        {status === "active" && hint && (
+          <div className="tx-step-hint">{hint}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TxProgressStepper(
+  { phase, elapsed }: { phase: TxPhase; elapsed: number },
+) {
+  const flavorIdx = Math.floor(elapsed / 15) % FLAVOR_TEXTS.length;
+  const showReassurance = elapsed >= 45;
+
+  const provingStatus = phase === "proving"
+    ? "active"
+    : phase === "batcher"
+    ? "done"
+    : "pending";
+  const batcherStatus = phase === "batcher" ? "active" : "pending";
+
+  return (
+    <div className="tx-progress">
+      <div className="tx-steps">
+        <TxStep
+          label="Generating ZK Proof"
+          hint="~1–3 minutes"
+          status={provingStatus as "active" | "done" | "pending"}
+        />
+        <div className="tx-step-connector" />
+        <TxStep
+          label="Submitting to Batcher"
+          hint="~20–30 seconds"
+          status={batcherStatus as "active" | "pending"}
+        />
+        <div className="tx-step-connector" />
+        <TxStep label="Done" status="pending" />
+      </div>
+      <div className="tx-elapsed">{elapsed}s elapsed</div>
+      <div className="tx-flavor">{FLAVOR_TEXTS[flavorIdx]}</div>
+      {showReassurance && (
+        <div className="tx-reassurance">
+          Still working — this is normal for ZK transactions.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TxProgressModal(
+  { phase, elapsed }: { phase: TxPhase; elapsed: number },
+) {
+  return (
+    <div className="tx-modal-overlay">
+      <div className="tx-modal-card">
+        <div className="tx-modal-title">Processing Transaction</div>
+        <TxProgressStepper phase={phase} elapsed={elapsed} />
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [loading, setLoading] = useState(false);
+  const [txPhase, setTxPhase] = useState<TxPhase>(null);
   const [midnightWallet, setMidnightWallet] = useState<any>(null);
   const [midnightProviders, setMidnightProviders] = useState<any>(null);
   const [midnightAddress, setMidnightAddress] = useState("");
@@ -663,6 +749,19 @@ function App() {
     }, 1000);
     return () => globalThis.clearInterval(intervalId);
   }, [txTimer.start]);
+
+  // Auto-reset txPhase when the transaction timer stops
+  useEffect(() => {
+    if (txTimer.start === null) {
+      setTxPhase(null);
+    }
+  }, [txTimer.start]);
+
+  // Starts a timed transaction: resets the timer and enters the proof generation phase
+  const startTx = () => {
+    setTxPhase("proving");
+    setTxTimer({ start: Date.now(), elapsed: 0 });
+  };
 
   const fetchPlayerNicknames = async (gameId: bigint) => {
     try {
@@ -1409,6 +1508,10 @@ function App() {
     ) {
       throw new Error("Midnight wallet or providers not ready.");
     }
+    // Transition to batcher phase when inside a timed transaction
+    if (txTimer.start !== null) {
+      setTxPhase("batcher");
+    }
     return new BatcherClient(
       midnightWallet.contract.werewolf,
       midnightProviders.walletProvider,
@@ -1512,7 +1615,7 @@ function App() {
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const playerCount = Math.min(
         MAX_PLAYERS,
@@ -1816,7 +1919,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const targets: number[] = [];
       let lastEncryptedHex = "";
@@ -1878,7 +1981,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const manualTarget = parseOptionalIndex(nightEliminationInput);
       if (manualTarget != null) {
@@ -2034,7 +2137,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const targets: number[] = [];
       let lastEncryptedHex = "";
@@ -2093,7 +2196,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const payloadBytes = playerNightPayloadInput.trim()
         ? parseBytes32(playerNightPayloadInput, "Night action payload")
@@ -2137,7 +2240,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const payloadBytes = playerDayPayloadInput.trim()
         ? parseBytes32(playerDayPayloadInput, "Day vote payload")
@@ -2181,7 +2284,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const manualTarget = parseOptionalIndex(dayEliminationInput);
       if (manualTarget != null) {
@@ -2333,7 +2436,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const batcherClient = getBatcherClient();
       await batcherClient.revealPlayerRole(
@@ -2366,7 +2469,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       // Use direct local call for verification to get the return value immediately.
       // TODO: Batcher delegation swallows the return value.
@@ -2399,7 +2502,7 @@ EVM: ✅`,
     }
 
     setLoading(true);
-    setTxTimer({ start: Date.now(), elapsed: 0 });
+    startTx();
     try {
       const batcherClient = getBatcherClient();
       await batcherClient.forceEndGame(game.gameId, game.masterSecret);
@@ -2883,15 +2986,13 @@ EVM: ✅`,
               </div>
             )}
 
-            {loading && txTimer.start != null && (
-              <div className="timer-banner">
-                Transaction running… {txTimer.elapsed}s elapsed.
-              </div>
-            )}
             {error && <pre className="message message-error">{error}</pre>}
             {status && <pre className="message message-ok">{status}</pre>}
             {isModalOpen && <WalletModal onClose={closeModal} />}
           </div>
+          {loading && txTimer.start != null && txPhase !== null && (
+            <TxProgressModal phase={txPhase} elapsed={txTimer.elapsed} />
+          )}
         </div>
         {game && midnightAddress && chatRoomReady && (
           <>
