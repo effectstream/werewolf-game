@@ -172,6 +172,7 @@ export async function getBundleHandler(
     );
   }
 
+  console.log(`[getBundleHandler] Serving bundle game=${gameId} pubKey=${publicKeyHex.slice(0, 8)}... role=${bundle.role}`);
   return { success: true, bundle: bundle as PlayerBundle };
 }
 
@@ -255,12 +256,15 @@ export async function lobbyStatusHandler(dbConn: Pool, gameId: number) {
   if (lobby.bundles_ready) state = "bundles_ready";
   else if (lobby.closed) state = "closed";
 
+  const currentBlock = await getCurrentNtpBlock(dbConn);
+
   return {
     state,
     playerCount: Number(lobby.player_count),
     maxPlayers: Number(lobby.max_players),
     bundlesReady: lobby.bundles_ready,
     timeoutBlock: lobby.timeout_block ? Number(lobby.timeout_block) : undefined,
+    currentBlock,
   };
 }
 

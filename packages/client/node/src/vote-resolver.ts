@@ -28,6 +28,7 @@ import {
   computeVoteNullifier,
 } from "../../../shared/utils/round-actions-digest.ts";
 import type { WerewolfVoteEntry } from "../../../shared/utils/werewolf-ledger.ts";
+import { restoreGameSecrets } from "./lobby-closer.ts";
 
 const BATCHER_URL = Deno.env.get("BATCHER_URL") ?? "http://localhost:3334";
 
@@ -344,6 +345,7 @@ export async function resolvePhaseFromLedger(
   round: number,
   phase: string,
   voteEntries: WerewolfVoteEntry[],
+  punishedIndices: number[] = [],
 ): Promise<TallyResult> {
   const isNight = phase.toUpperCase() === "NIGHT";
 
@@ -351,25 +353,33 @@ export async function resolvePhaseFromLedger(
     `[vote-resolver] resolvePhaseFromLedger game=${gameId} round=${round} phase=${phase} votes=${voteEntries.length}`,
   );
 
-  const secrets = store.getGameSecrets(gameId);
-  const bundles = store.getAllBundlesForGame(gameId);
+  let secrets = store.getGameSecrets(gameId);
+  let bundles = store.getAllBundlesForGame(gameId);
 
-  console.log(
-    `[vote-resolver] resolvePhaseFromLedger: secrets=${secrets ? "ok" : "MISSING"} bundles=${bundles.length}`,
-  );
-
-  if (!secrets) {
-    throw new Error(
-      `[vote-resolver] No game secrets for game=${gameId} — cannot decrypt ledger votes`,
-    );
-  }
-
-  if (bundles.length === 0) {
+  if (!secrets || bundles.length === 0) {
     console.warn(
-      `[vote-resolver] No bundles for game=${gameId} — cannot decrypt votes. Will attempt recovery.`,
+      `[vote-resolver] game=${gameId}: secrets=${secrets ? "ok" : "MISSING"} bundles=${bundles.length} — attempting on-demand recovery`,
     );
-    // Attempt synchronous-ish recovery by waiting for restoreGameSecrets
-    // (fired earlier in the STF cycle) to complete before giving up.
+    const restored = await restoreGameSecrets(gameId);
+    if (!restored) {
+      throw new Error(
+        `[vote-resolver] No game secrets for game=${gameId} — cannot decrypt ledger votes`,
+      );
+    }
+    secrets = store.getGameSecrets(gameId);
+    bundles = store.getAllBundlesForGame(gameId);
+    if (!secrets) {
+      throw new Error(
+        `[vote-resolver] Secret recovery succeeded but secrets still missing for game=${gameId}`,
+      );
+    }
+    console.log(
+      `[vote-resolver] game=${gameId}: secrets restored ok — bundles=${bundles.length}`,
+    );
+  } else {
+    console.log(
+      `[vote-resolver] resolvePhaseFromLedger: secrets=ok bundles=${bundles.length}`,
+    );
   }
 
   // Build Curve25519 public key for each player derived from their leaf secret
@@ -435,6 +445,10 @@ export async function resolvePhaseFromLedger(
   const aliveIndices = new Set<number>();
   for (let i = 0; i < aliveVector.length; i++) {
     if (aliveVector[i]) aliveIndices.add(i);
+  }
+  // Remove recently punished players whose elimination hasn't synced to DB yet
+  for (const idx of punishedIndices) {
+    aliveIndices.delete(idx);
   }
 
   const seed = `${gameId}:${round}:${phase.toUpperCase()}`;

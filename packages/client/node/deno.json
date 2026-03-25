@@ -8,7 +8,7 @@
   "tasks": {
     "check": "deno check --unstable-raw-imports src/main.ts",
     "node:start": "deno run -A --inspect --unstable-raw-imports src/main.ts",
-    "node:start:testnet": "deno run -A --inspect --unstable-raw-imports src/main.testnet.ts",
+    "node:start:testnet": "deno run -A --inspect --unstable-raw-imports src/main.preprod.ts",
     "node:start:preprod": "deno run -A --env-file=../../../.env.preprod --unstable-raw-imports src/main.preprod.ts",
     "dev": "NODE_ENV=development deno run -A --check --unstable-raw-imports scripts/start.ts",
     "testnet": "EFFECTSTREAM_ENV=testnet deno run -A --check --unstable-raw-imports scripts/start.testnet.ts",

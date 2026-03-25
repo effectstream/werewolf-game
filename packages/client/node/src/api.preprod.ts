@@ -309,7 +309,7 @@ export const apiRouter: StartConfigApiRouter = async function (
   // -------------------------------------------------------------------------
   void (async () => {
     const RETRY_MS = 2_000;
-    const TIMEOUT_MS = 60_000;
+    const TIMEOUT_MS = 120_000;
     const deadline = Date.now() + TIMEOUT_MS;
 
     while (Date.now() < deadline) {
