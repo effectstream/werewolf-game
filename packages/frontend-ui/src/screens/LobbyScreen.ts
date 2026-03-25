@@ -36,11 +36,21 @@ import {
   SKIN_TONES,
 } from "../avatarAppearance";
 import { AvatarPreview } from "../ui/AvatarPreview";
+import { toastManager } from "../ui/ToastManager";
 
 const MIDNIGHT_NETWORK_ID =
   (import.meta.env.VITE_MIDNIGHT_NETWORK_ID as string | undefined) ??
     "undeployed";
 const LOBBY_POLL_INTERVAL_MS = 4000;
+const GAME_INFO_POLL_INTERVAL_MS = 10000;
+
+function formatRemainingTime(seconds: number): string {
+  if (seconds <= 0) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  if (m < 60) return `${m}:${s.toString().padStart(2, "0")}`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -110,6 +120,7 @@ export class LobbyScreen {
   private currentGame: GameInfo | null = null;
   private derivedNickname: string | null = null;
   private lobbyPollTimer: ReturnType<typeof setInterval> | null = null;
+  private gameInfoPollTimer: ReturnType<typeof setInterval> | null = null;
   private readonly avatarPreview = new AvatarPreview(loadAvatarSelection());
   private avatarSelection: AvatarSelection = loadAvatarSelection();
 
@@ -340,6 +351,7 @@ export class LobbyScreen {
   }
 
   show(): void {
+    this.resetLobbyState();
     const app = document.querySelector<HTMLDivElement>("#app")!;
     app.innerHTML = "";
     app.appendChild(this.container);
@@ -350,6 +362,10 @@ export class LobbyScreen {
       clearInterval(this.lobbyPollTimer);
       this.lobbyPollTimer = null;
     }
+    if (this.gameInfoPollTimer) {
+      clearInterval(this.gameInfoPollTimer);
+      this.gameInfoPollTimer = null;
+    }
     this.avatarPreview.destroy();
     this.container.remove();
   }
@@ -357,6 +373,23 @@ export class LobbyScreen {
   private setStatus(msg: string, isError = false): void {
     this.statusEl.textContent = msg;
     this.statusEl.classList.toggle("lobby-status--error", isError);
+  }
+
+  private resetLobbyState(): void {
+    this.gameInfoEl.hidden = true;
+    this.avatarSection.hidden = true;
+    this.joinBtn.hidden = true;
+    this.currentGame = null;
+    this.setStatus("");
+
+    // Stop any existing game info polling
+    if (this.gameInfoPollTimer) {
+      clearInterval(this.gameInfoPollTimer);
+      this.gameInfoPollTimer = null;
+    }
+
+    // Clear the game ID input
+    this.gameIdInput.value = "";
   }
 
   private setLoading(
@@ -592,11 +625,7 @@ export class LobbyScreen {
     }
 
     this.setLoading(this.findBtn, true, "Find Game");
-    this.setStatus("");
-    this.gameInfoEl.hidden = true;
-    this.avatarSection.hidden = true;
-    this.joinBtn.hidden = true;
-    this.currentGame = null;
+    this.resetLobbyState();
 
     try {
       console.log("[LobbyScreen] calling getGameState for gameId:", gameId);
@@ -605,14 +634,38 @@ export class LobbyScreen {
       console.log("[LobbyScreen] getGameState result:", game);
 
       const stateLabel = game.state === "Open" ? "🟢 Open" : "🔴 Closed";
+      let timerRow = "";
+      if (game.state === "Open") {
+        try {
+          const lobbyStatus = await fetchLobbyStatus(game.id);
+          if (
+            lobbyStatus.timeoutBlock != null &&
+            lobbyStatus.currentBlock != null
+          ) {
+            const remaining = Math.max(
+              0,
+              lobbyStatus.timeoutBlock - lobbyStatus.currentBlock,
+            );
+            timerRow = `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${formatRemainingTime(remaining)}</strong></div>`;
+          }
+        } catch {
+          // non-critical — just skip the timer
+        }
+      }
       this.gameInfoEl.innerHTML = `
         <div class="lobby-game-row"><span>Game Phrase</span><strong>${
         encodeGameId(game.id)
       }</strong></div>
         <div class="lobby-game-row"><span>Status</span><strong>${stateLabel}</strong></div>
         <div class="lobby-game-row"><span>Players</span><strong>${game.playerCount} / ${game.maxPlayers}</strong></div>
+        ${timerRow}
       `;
       this.gameInfoEl.hidden = false;
+
+      // Start polling for game info updates if game is open
+      if (game.state === "Open") {
+        this.startGameInfoPolling(game.id);
+      }
 
       if (game.state === "Open" && game.playerCount < game.maxPlayers) {
         this.avatarSection.hidden = false;
@@ -631,6 +684,79 @@ export class LobbyScreen {
     } finally {
       this.setLoading(this.findBtn, false, "Find Game");
     }
+  }
+
+  private startGameInfoPolling(gameId: number): void {
+    // Stop any existing game info polling
+    if (this.gameInfoPollTimer) {
+      clearInterval(this.gameInfoPollTimer);
+      this.gameInfoPollTimer = null;
+    }
+
+    const poll = async () => {
+      try {
+        const status = await fetchLobbyStatus(gameId);
+        console.log("[LobbyScreen] game info poll status:", status);
+
+        // Update the game info display with live data
+        if (this.gameInfoEl && !this.gameInfoEl.hidden) {
+          const stateLabel = status.state === "open"
+            ? "🟢 Open"
+            : status.state === "closed"
+            ? "🔴 Closed"
+            : "⏳ Bundles Ready";
+          let timerRow = "";
+          if (
+            status.state === "open" &&
+            status.timeoutBlock != null &&
+            status.currentBlock != null
+          ) {
+            const remaining = Math.max(
+              0,
+              status.timeoutBlock - status.currentBlock,
+            );
+            timerRow = `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${formatRemainingTime(remaining)}</strong></div>`;
+          }
+          this.gameInfoEl.innerHTML = `
+            <div class="lobby-game-row"><span>Game Phrase</span><strong>${
+              encodeGameId(gameId)
+            }</strong></div>
+            <div class="lobby-game-row"><span>Status</span><strong>${stateLabel}</strong></div>
+            <div class="lobby-game-row"><span>Players</span><strong>${status.playerCount} / ${status.maxPlayers}</strong></div>
+            ${timerRow}
+          `;
+
+          // Stop polling if game is closed or full
+          if (status.state !== "open") {
+            if (this.gameInfoPollTimer) {
+              clearInterval(this.gameInfoPollTimer);
+              this.gameInfoPollTimer = null;
+            }
+            // Update UI based on new state
+            if (status.state === "closed" && !status.bundlesReady) {
+              this.avatarSection.hidden = true;
+              this.joinBtn.hidden = true;
+              this.setStatus("Game is closing. Generating bundles…");
+            } else if (status.bundlesReady) {
+              this.avatarSection.hidden = true;
+              this.joinBtn.hidden = true;
+              this.setStatus("Bundles are ready!");
+            }
+          } else if (status.playerCount >= status.maxPlayers) {
+            this.avatarSection.hidden = true;
+            this.joinBtn.hidden = true;
+            this.setStatus("Game is full. Starting soon…");
+          }
+        }
+      } catch (err) {
+        console.error("[LobbyScreen] game info poll error:", err);
+        // Don't stop polling on transient errors
+      }
+    };
+
+    // Initial poll immediately, then every 10 seconds
+    poll();
+    this.gameInfoPollTimer = setInterval(poll, GAME_INFO_POLL_INTERVAL_MS);
   }
 
   private async handleJoinGame(): Promise<void> {
@@ -670,6 +796,12 @@ export class LobbyScreen {
     const appearanceCode = encodeAppearance(this.avatarSelection);
 
     const walletClient = evmWallet.getWalletClient();
+
+    // Stop game info polling since player is joining
+    if (this.gameInfoPollTimer) {
+      clearInterval(this.gameInfoPollTimer);
+      this.gameInfoPollTimer = null;
+    }
 
     try {
       // ── 1. Derive deterministic Ed25519 keypair from EVM wallet ───────────
@@ -906,6 +1038,15 @@ export class LobbyScreen {
           appearanceCode,
         );
       } catch (err) {
+        console.error(
+          '[LobbyScreen] Session restore bundle fetch error:',
+          err,
+          {
+            gameId: session.gameId,
+            publicKeyHex: session.publicKeyHex,
+          },
+        );
+        toastManager.error('Failed to fetch bundle — try again.');
         this.setStatus(
           `Failed to fetch bundle: ${(err as Error).message}`,
           true,
@@ -948,17 +1089,30 @@ export class LobbyScreen {
           const status = await fetchLobbyStatus(gameId);
           console.log("[LobbyScreen] lobby status:", status);
 
-          // Update the game info display with live player count
+          // Update the game info display with live player count and timer
           if (this.gameInfoEl && !this.gameInfoEl.hidden) {
             const stateLabel = status.state === "open"
               ? "🟢 Open"
               : "🔴 Closed";
+            let timerRow = "";
+            if (
+              status.state === "open" &&
+              status.timeoutBlock != null &&
+              status.currentBlock != null
+            ) {
+              const remaining = Math.max(
+                0,
+                status.timeoutBlock - status.currentBlock,
+              );
+              timerRow = `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${formatRemainingTime(remaining)}</strong></div>`;
+            }
             this.gameInfoEl.innerHTML = `
               <div class="lobby-game-row"><span>Game Phrase</span><strong>${
               encodeGameId(gameId)
             }</strong></div>
               <div class="lobby-game-row"><span>Status</span><strong>${stateLabel}</strong></div>
               <div class="lobby-game-row"><span>Players</span><strong>${status.playerCount} / ${status.maxPlayers}</strong></div>
+              ${timerRow}
             `;
           }
 
@@ -970,13 +1124,24 @@ export class LobbyScreen {
             }
             this.setStatus("Bundles ready! Fetching your bundle…");
 
-            const bundle = await fetchBundle(gameId, publicKeyHex, secretKey);
-            gameState.leafSecret = bundle.leafSecret;
-            gameState.setPlayerBundle(bundle);
+            try {
+              const bundle = await fetchBundle(gameId, publicKeyHex, secretKey);
+              gameState.leafSecret = bundle.leafSecret;
+              gameState.setPlayerBundle(bundle);
 
-            this.setStatus("Bundle received! Loading game…");
-            this.onJoined(gameId, true, publicKeyHex, nickname, appearanceCode);
-            resolve();
+              this.setStatus("Bundle received! Loading game…");
+              this.onJoined(gameId, true, publicKeyHex, nickname, appearanceCode);
+              resolve();
+            } catch (err) {
+              console.error(
+                '[LobbyScreen] PollForBundles bundle fetch error:',
+                err,
+                { gameId, publicKeyHex },
+              );
+              toastManager.error('Failed to fetch bundle — try again.');
+              this.setStatus('Failed to fetch bundle — try again.', true);
+              // Keep polling even after error - don't resolve
+            }
           } else if (status.state === "closed" && !status.bundlesReady) {
             this.setStatus("Lobby closed. Generating bundles…");
           } else {

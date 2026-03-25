@@ -17,16 +17,21 @@ import { getDbPool } from "./db-pool.ts";
 
 const BATCHER_URL = Deno.env.get("BATCHER_URL") ?? "http://localhost:3334";
 
+export interface PunishmentResult {
+  count: number;
+  punishedIndices: number[];
+}
+
 /**
  * Execute all pending (unexecuted) punishments for a given game by calling
  * the adminPunishPlayer circuit sequentially. Each call waits for on-chain
  * confirmation before proceeding to the next.
  *
- * @returns The number of successfully executed punishments.
+ * @returns The count and indices of successfully executed punishments.
  */
 export async function executePendingPunishments(
   gameId: number,
-): Promise<number> {
+): Promise<PunishmentResult> {
   const secrets = store.getGameSecrets(gameId);
   const adminWalletSeed = secrets?.adminWalletSeed;
 
@@ -34,7 +39,7 @@ export async function executePendingPunishments(
     console.error(
       `[punishment] No admin wallet seed for game=${gameId} — cannot execute punishments`,
     );
-    return 0;
+    return { count: 0, punishedIndices: [] };
   }
 
   const dbConn = getDbPool();
@@ -50,7 +55,7 @@ export async function executePendingPunishments(
 
   if (pending.length === 0) {
     console.log(`[punishment] No pending punishments for game=${gameId}`);
-    return 0;
+    return { count: 0, punishedIndices: [] };
   }
 
   console.log(
@@ -59,6 +64,7 @@ export async function executePendingPunishments(
 
   const emptyPrivateState: PrivateState = { setupData: new Map() };
   let executed = 0;
+  const punishedIndices: number[] = [];
 
   for (const row of pending) {
     try {
@@ -81,6 +87,7 @@ export async function executePendingPunishments(
       );
 
       executed++;
+      punishedIndices.push(Number(row.player_idx));
       console.log(
         `[punishment] Punished player=${row.player_idx} game=${gameId} (${row.reason})`,
       );
@@ -96,7 +103,7 @@ export async function executePendingPunishments(
   console.log(
     `[punishment] Executed ${executed}/${pending.length} punishments for game=${gameId}`,
   );
-  return executed;
+  return { count: executed, punishedIndices };
 }
 
 /**
@@ -115,6 +122,7 @@ export async function executePendingPunishments(
  */
 export async function checkGameOverAfterPunishment(
   gameId: number,
+  punishedIndices: number[],
 ): Promise<boolean> {
   const bundles = store.getAllBundlesForGame(gameId);
   if (bundles.length === 0) {
@@ -140,6 +148,11 @@ export async function checkGameOverAfterPunishment(
   const aliveSet = new Set<number>();
   for (let i = 0; i < aliveVector.length; i++) {
     if (aliveVector[i]) aliveSet.add(i);
+  }
+  // Remove recently punished players whose elimination hasn't synced to DB yet
+  // (the Paima engine hasn't processed the Midnight block with the punishment txs)
+  for (const idx of punishedIndices) {
+    aliveSet.delete(idx);
   }
 
   const aliveWolves = bundles.filter(

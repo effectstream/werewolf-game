@@ -490,14 +490,14 @@ stm.addStateTransition(
       void (async () => {
         try {
           // 1. Execute adminPunishPlayer for each queued punishment
-          const punished = await executePendingPunishments(gameId);
+          const punishResult = await executePendingPunishments(gameId);
           console.log(
-            `[timeout] Executed ${punished} punishment(s) for game=${gameId}`,
+            `[timeout] Executed ${punishResult.count} punishment(s) for game=${gameId}`,
           );
 
           // 2. Check if punishments alone ended the game (e.g., all players timed out)
-          if (punished > 0) {
-            const gameEnded = await checkGameOverAfterPunishment(gameId);
+          if (punishResult.count > 0) {
+            const gameEnded = await checkGameOverAfterPunishment(gameId, punishResult.punishedIndices);
             if (gameEnded) {
               console.log(
                 `[timeout] Game=${gameId} ended after punishments — skipping phase resolution`,
@@ -508,7 +508,7 @@ stm.addStateTransition(
 
           // 3. Proceed with normal phase resolution using live ledger votes
           const votes = await fetchCurrentLedgerVotes(gameId, round, phase);
-          await resolvePhaseFromLedger(gameId, round, phase, votes);
+          await resolvePhaseFromLedger(gameId, round, phase, votes, punishResult.punishedIndices);
         } catch (err) {
           console.error(
             `[timeout] Punishment+resolution failed game=${gameId} round=${round} phase=${phase}:`,

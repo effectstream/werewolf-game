@@ -122,6 +122,10 @@ export async function fetchBundle(
   publicKeyHex: string,
   secretKey: Uint8Array,
 ): Promise<PlayerBundle> {
+  console.log('[lobbyApi] fetchBundle: Starting fetch', {
+    gameId,
+    publicKeyHex,
+  })
   const timestamp = Math.floor(Date.now() / 1000)
   const msg = new TextEncoder().encode(`werewolf:${gameId}:${timestamp}`)
   const sig = nacl.sign.detached(msg, secretKey)
@@ -130,13 +134,29 @@ export async function fetchBundle(
     `&publicKeyHex=${encodeURIComponent(publicKeyHex)}` +
     `&timestamp=${timestamp}` +
     `&signature=${bytesToHex(sig)}`
+  console.log('[lobbyApi] fetchBundle: Request URL', url)
   const res = await fetch(url)
+  console.log('[lobbyApi] fetchBundle: Response status', res.status, res.statusText)
   if (!res.ok) {
     const text = await res.text()
+    console.error('[lobbyApi] fetchBundle: HTTP error', {
+      status: res.status,
+      statusText: res.statusText,
+      body: text,
+    })
     throw new Error(`get_bundle failed: ${res.status} ${text}`)
   }
   const data = await res.json() as { success: boolean; bundle?: PlayerBundle }
-  if (!data.bundle) throw new Error('get_bundle: no bundle in response')
+  if (!data.bundle) {
+    console.error('[lobbyApi] fetchBundle: No bundle in response', data)
+    throw new Error('get_bundle: no bundle in response')
+  }
+  console.log('[lobbyApi] fetchBundle: Bundle received successfully', {
+    playerId: data.bundle.playerId,
+    role: data.bundle.role,
+    roleLabel: data.bundle.role === 1 ? 'Werewolf' : data.bundle.role === 0 ? 'Villager' : `unknown(${data.bundle.role})`,
+    leafSecret: data.bundle.leafSecret ? '(present)' : '(missing)',
+  })
   return data.bundle
 }
 
@@ -176,6 +196,7 @@ export interface LobbyStatusResponse {
   maxPlayers: number
   bundlesReady: boolean
   timeoutBlock?: number
+  currentBlock?: number | null
 }
 
 export interface OpenLobbyResponse {

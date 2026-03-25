@@ -752,6 +752,12 @@ async function deployWithLimitedVerifierKeys(
       testStripped.data = fullLedgerState.data;
       testStripped.maintenanceAuthority = fullLedgerState.maintenanceAuthority;
       await testDeployState("data+ma", testStripped);
+
+      // Wait for dust wallet to re-sync after test transactions consumed UTXOs.
+      log.info("[deploy-tests] Waiting for dust wallet to re-sync after test transactions...");
+      const testResyncDelayMs = 30_000;
+      await new Promise((resolve) => setTimeout(resolve, testResyncDelayMs));
+      log.info("[deploy-tests] Dust wallet re-sync wait complete.");
     }
 
     const strippedState = new LedgerV8ContractState();
@@ -1290,6 +1296,14 @@ export async function deployMidnightContract(
 
       // Test 1: empty state (baseline)
       await testDeploy("empty", new LedgerV8ContractState());
+
+      // Wait for dust wallet to re-sync after preflight transactions consumed UTXOs.
+      // Without this, the deploy may fail with "could not balance dust" because
+      // change UTXOs from preflight txs haven't been confirmed yet.
+      log.info("[preflight] Waiting for dust wallet to re-sync after preflight transactions...");
+      const preflightResyncDelayMs = 30_000;
+      await new Promise((resolve) => setTimeout(resolve, preflightResyncDelayMs));
+      log.info("[preflight] Dust wallet re-sync wait complete.");
     }
 
 

@@ -179,6 +179,7 @@ export const LobbyStatusResponseSchema = Type.Object({
   maxPlayers: Type.Number(),
   bundlesReady: Type.Boolean(),
   timeoutBlock: Type.Optional(Type.Number()),
+  currentBlock: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
 });
 
 export const PlayerVoteSchema = Type.Object({
