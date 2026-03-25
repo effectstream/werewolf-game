@@ -351,6 +351,7 @@ export class LobbyScreen {
   }
 
   show(): void {
+    this.resetLobbyState();
     const app = document.querySelector<HTMLDivElement>("#app")!;
     app.innerHTML = "";
     app.appendChild(this.container);
@@ -372,6 +373,23 @@ export class LobbyScreen {
   private setStatus(msg: string, isError = false): void {
     this.statusEl.textContent = msg;
     this.statusEl.classList.toggle("lobby-status--error", isError);
+  }
+
+  private resetLobbyState(): void {
+    this.gameInfoEl.hidden = true;
+    this.avatarSection.hidden = true;
+    this.joinBtn.hidden = true;
+    this.currentGame = null;
+    this.setStatus("");
+
+    // Stop any existing game info polling
+    if (this.gameInfoPollTimer) {
+      clearInterval(this.gameInfoPollTimer);
+      this.gameInfoPollTimer = null;
+    }
+
+    // Clear the game ID input
+    this.gameIdInput.value = "";
   }
 
   private setLoading(
@@ -607,17 +625,7 @@ export class LobbyScreen {
     }
 
     this.setLoading(this.findBtn, true, "Find Game");
-    this.setStatus("");
-    this.gameInfoEl.hidden = true;
-    this.avatarSection.hidden = true;
-    this.joinBtn.hidden = true;
-    this.currentGame = null;
-
-    // Stop any existing game info polling
-    if (this.gameInfoPollTimer) {
-      clearInterval(this.gameInfoPollTimer);
-      this.gameInfoPollTimer = null;
-    }
+    this.resetLobbyState();
 
     try {
       console.log("[LobbyScreen] calling getGameState for gameId:", gameId);
