@@ -27,16 +27,11 @@ import { paimaL2Grammar } from "@werewolf-game/data-types/grammar";
 
 const mainSyncProtocolName = "mainNtp";
 let launchStartTime: number | undefined;
-// Random tips for testing purposes.
-let arbSepoliaTip: number = 230666729;
-let midnightTip: number = 437152;
 
-/**
- * WARNING: This template fetches the current network tip to avoid long sync times
- * when starting the template. In production implementations, you should sync from
- * at least the contract deployment blockheight to ensure all events are captured.
- * Starting from the current tip means historical events will be missed.
- */
+// Start syncing from the current chain tips — no historical game data to replay.
+let arbSepoliaTip: number = 0;
+let midnightTip: number = 1;
+
 const arbitrumSepoliaRpc = Deno
   ? Deno.env.get("ARBITRUM_SEPOLIA_RPC")
   : undefined;
@@ -57,66 +52,7 @@ let midnightContractAddress: string | undefined;
 let midnightArtifactsReady = false;
 
 if (Deno) {
-  // Always fetch current tip for templates to avoid sync times
-  if (arbitrumSepoliaRpc) {
-    /* Get the latest block number from the Arbitrum Sepolia chain */
-    try {
-      const response = await fetch(arbitrumSepoliaRpc, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "eth_blockNumber",
-          params: [],
-        }),
-      });
-      const data = await response.json();
-      arbSepoliaTip = parseInt(data.result, 16);
-    } catch (error) {
-      console.warn(`[evm] Failed to fetch tip: ${(error as Error).message}`);
-    }
-  } else {
-    console.warn(
-      "[evm] ARBITRUM_SEPOLIA_RPC is not defined; using static tip override instead.",
-    );
-  }
-
   if (midnightNetworkInputsValid) {
-    try {
-      const response = await fetch(midnightNetworkConfig.indexer, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: "query { block { height } }",
-          variables: {},
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(
-          `Failed to query Midnight indexer: ${response.statusText}`,
-        );
-      }
-      const data = await response.json();
-      const height = data?.data?.block?.height;
-      if (typeof height === "number") {
-        midnightTip = height;
-      } else if (typeof height === "string") {
-        const parsed = Number(height);
-        midnightTip = Number.isNaN(parsed) ? 0 : parsed;
-      }
-    } catch (error) {
-      console.warn(
-        `[midnight] Failed to fetch tip from indexer: ${
-          (error as Error).message
-        }`,
-      );
-    }
-
     try {
       const counterContract = readMidnightContract(
         "contract-werewolf",
@@ -134,11 +70,47 @@ if (Deno) {
     }
   }
 
+  // Fetch current Arbitrum Sepolia tip so we don't replay historical blocks.
+  try {
+    const rpcUrl = Deno.env.get("ARBITRUM_SEPOLIA_RPC") ?? "";
+    if (rpcUrl) {
+      const res = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
+      });
+      const data = await res.json();
+      if (data?.result) {
+        arbSepoliaTip = parseInt(data.result, 16);
+        console.log(`[config] Arb Sepolia tip: ${arbSepoliaTip}`);
+      }
+    }
+  } catch (e) {
+    console.warn("[config] Could not fetch Arb Sepolia tip, starting from 0:", e);
+  }
+
+  // Fetch current Midnight preprod tip so we don't replay historical blocks.
+  try {
+    const res = await fetch("https://rpc.preprod.midnight.network", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", method: "chain_getBlock", params: [], id: 1 }),
+    });
+    const data = await res.json();
+    const blockNumber = data?.result?.block?.header?.number;
+    if (blockNumber != null) {
+      midnightTip = parseInt(blockNumber, 16);
+      console.log(`[config] Midnight preprod tip: ${midnightTip}`);
+    }
+  } catch (e) {
+    console.warn("[config] Could not fetch Midnight tip, starting from 1:", e);
+  }
+
   const dbConn = getConnection();
   try {
     const result = await dbConn.query(`
-      SELECT * FROM effectstream.sync_protocol_pagination 
-      WHERE protocol_name = '${mainSyncProtocolName}' 
+      SELECT * FROM effectstream.sync_protocol_pagination
+      WHERE protocol_name = '${mainSyncProtocolName}'
       ORDER BY page_number ASC
       LIMIT 1
     `);
@@ -206,7 +178,7 @@ export const config = new ConfigBuilder()
           chainUri: network.rpcUrls.default.http[0],
           startBlockHeight: arbSepoliaTip,
           pollingInterval: 1000,
-          stepSize: 9,
+          stepSize: 20,
           confirmationDepth: 1,
         }),
       );

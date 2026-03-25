@@ -347,23 +347,34 @@ lobbyScreen.onJoined = (
     activeManagers = null
   }
 
+  // Capture fields set by LobbyScreen before calling onJoined —
+  // reset() clears them, so we restore them immediately after.
+  const playerBundle = gameState.playerBundle
+  const leafSecret = gameState.leafSecret
+  const playerSignKeypair = gameState.playerSignKeypair
+
   gameState.reset()
   gameState.lobbyGameId = gameId
   gameState.playerEvmAddress = evmWallet.getAddress()
   gameState.playerNickname = nickname
   gameState.playerAppearanceCode = appearanceCode
+  // Restore player-specific state after reset
+  gameState.publicKeyHex = publicKeyHex
+  gameState.leafSecret = leafSecret
+  gameState.playerSignKeypair = playerSignKeypair
+  if (playerBundle) gameState.setPlayerBundle(playerBundle)
 
   // Persist session so the player can rejoin after a page refresh.
   // The Ed25519 secret key is NOT stored — it is re-derived on demand from the
   // player's EVM wallet signature of "werewolf:{gameId}".
-  if (gameState.publicKeyHex) {
+  if (publicKeyHex) {
     saveSession({
       gameId,
       publicKeyHex,
       nickname,
       appearanceCode,
       evmAddress: evmWallet.getAddress() ?? '',
-      bundle: gameState.playerBundle ?? null,
+      bundle: playerBundle ?? null,
     })
   }
 
@@ -392,6 +403,9 @@ lobbyScreen.onJoined = (
     ;(window as unknown as { gamemaster: typeof gameMaster }).gamemaster = gameMaster
 
     const bundle = gameState.playerBundle
+    if (bundle && bundle.role === undefined) {
+      console.warn('[main] WARNING: playerBundle exists but role is undefined. Bundle keys:', Object.keys(bundle))
+    }
     if (bundle?.role !== undefined) {
       const roleName = roleNumberToRole(bundle.role)
       const player = gameState.players[bundle.playerId]

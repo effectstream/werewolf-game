@@ -499,6 +499,10 @@ body {
   color: #f1f4ff;
 }
 
+.lobby-countdown {
+  font-variant-numeric: tabular-nums;
+}
+
 .lobby-section-title {
   margin: 0;
   font-size: 0.9rem;
