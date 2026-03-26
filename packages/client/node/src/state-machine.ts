@@ -8,7 +8,6 @@ import {
   getGameView,
   getLobby,
   getWerewolfRoundState,
-  markLeaderboardProcessed,
   type IGetAliveSnapshotsResult,
   type IGetGameViewResult,
   type IGetLobbyResult,
@@ -133,9 +132,26 @@ stm.addStateTransition(
       // villagerCount fields (which are initial team sizes and only decremented
       // by the manual revealPlayerRole circuit, not by punishments or resolves).
       const bundles = getAllBundlesForGame(gameId);
+
+      // On server restart, bundles are not restored for finished games (restoreGameSecrets
+      // only runs for non-finished games). Read the previously stored werewolf_indices from
+      // the DB so we neither lose them on the next upsert nor derive the wrong winner.
+      let storedWerewolfIndices: number[] = [];
+      if (gameView.isFinished && bundles.length === 0) {
+        const priorViewRows = (yield* World.resolve(getGameView, {
+          game_id: gameId,
+        })) as IGetGameViewResult[];
+        const priorView = priorViewRows[0];
+        if (priorView?.werewolf_indices) {
+          try {
+            storedWerewolfIndices = JSON.parse(priorView.werewolf_indices);
+          } catch { /* ignore malformed JSON */ }
+        }
+      }
+
       const werewolfIndices = gameView.isFinished && bundles.length > 0
         ? bundles.filter((b) => b.role === 1).map((b) => b.playerId)
-        : [];
+        : storedWerewolfIndices; // preserves DB value on restart; [] for non-finished games
 
       yield* World.resolve(upsertGameView, {
         game_id: gameId,
@@ -159,10 +175,18 @@ stm.addStateTransition(
         // We cannot use gameView.winner (derived from on-chain werewolfCount /
         // villagerCount) because those fields are not maintained during gameplay.
         let correctWinner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null = gameView.winner;
+        const aliveSet = new Set(gameView.aliveIndices);
         if (bundles.length > 0 && gameView.isFinished) {
-          const aliveSet = new Set(gameView.aliveIndices);
+          // Fresh run: derive from in-memory bundles.
           const aliveWolves = bundles.filter((b) => b.role === 1 && aliveSet.has(b.playerId)).length;
           const aliveVillagers = bundles.filter((b) => b.role !== 1 && aliveSet.has(b.playerId)).length;
+          if (aliveWolves === 0 && aliveVillagers === 0) correctWinner = "DRAW";
+          else if (aliveWolves === 0) correctWinner = "VILLAGERS";
+          else correctWinner = "WEREWOLVES";
+        } else if (werewolfIndices.length > 0 && gameView.isFinished) {
+          // Restart: bundles not in memory, derive from stored DB indices instead.
+          const aliveWolves = werewolfIndices.filter((idx) => aliveSet.has(idx)).length;
+          const aliveVillagers = gameView.aliveCount - aliveWolves;
           if (aliveWolves === 0 && aliveVillagers === 0) correctWinner = "DRAW";
           else if (aliveWolves === 0) correctWinner = "VILLAGERS";
           else correctWinner = "WEREWOLVES";
@@ -174,15 +198,15 @@ stm.addStateTransition(
         );
 
         // Trigger leaderboard calculation once per game on the first finished block.
+        // The leaderboard_processed flag is now set atomically inside calculateAndPersistScores
+        // (within a transaction, after all score upserts). We no longer pre-mark it here;
+        // the pre-check below is a fast-path to avoid launching the async call on every block.
         if (gameView.isFinished && correctWinner) {
           const dbViewRows = (yield* World.resolve(getGameView, {
             game_id: gameId,
           })) as IGetGameViewResult[];
           const dbView = dbViewRows[0];
           if (dbView && !dbView.leaderboard_processed) {
-            yield* World.resolve(markLeaderboardProcessed, {
-              game_id: gameId,
-            });
             void calculateAndPersistScores(
               gameId,
               correctWinner,
