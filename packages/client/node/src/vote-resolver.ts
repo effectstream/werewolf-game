@@ -183,6 +183,51 @@ export function decryptVotes(
 }
 
 // ---------------------------------------------------------------------------
+// Voter identification from ledger
+// ---------------------------------------------------------------------------
+
+/**
+ * Decrypt ledger vote entries and return the set of player indices who voted.
+ * Uses the same brute-force key matching as resolvePhaseFromLedger — each
+ * ciphertext is tried against every player's derived Curve25519 public key
+ * until the embedded round stamp validates.
+ *
+ * Call this before queuing timeout punishments to identify exactly which
+ * players failed to vote, rather than relying on a positional heuristic.
+ */
+export function identifyVoters(
+  round: number,
+  voteEntries: WerewolfVoteEntry[],
+  secrets: store.GameSecrets,
+  bundles: store.PlayerBundle[],
+): Set<number> {
+  const playerPubKeys = bundles.map((b) => ({
+    playerId: b.playerId,
+    pubKey: nacl.scalarMult.base(hexToBytes(b.leafSecret)),
+  }));
+  const adminSecretKey = secrets.adminVoteKeypair.secretKey;
+  const voterIndices = new Set<number>();
+
+  for (const entry of voteEntries) {
+    const ciphertext = parseLedgerBytes3(entry.encryptedVote);
+    for (const { playerId, pubKey } of playerPubKeys) {
+      try {
+        const sessionKey = deriveSessionKey(adminSecretKey, pubKey, round);
+        const plaintext = xorDecrypt(ciphertext, sessionKey);
+        const data = unpackData(plaintext);
+        if (data.round === round && data.target < bundles.length) {
+          voterIndices.add(playerId);
+          break;
+        }
+      } catch {
+        // try next key
+      }
+    }
+  }
+  return voterIndices;
+}
+
+// ---------------------------------------------------------------------------
 // Vote tallying
 // ---------------------------------------------------------------------------
 

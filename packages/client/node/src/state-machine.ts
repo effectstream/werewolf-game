@@ -1,7 +1,7 @@
 import { PaimaSTM } from "@paimaexample/sm";
 import { grammar } from "@werewolf-game/data-types/grammar";
 import type { BaseStfInput } from "@paimaexample/sm";
-import { createScheduledData } from "@paimaexample/db";
+import { createScheduledData, runPreparedQuery } from "@paimaexample/db";
 import {
   closeLobby,
   getAliveSnapshots,
@@ -36,7 +36,7 @@ import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
 import { clearGameMemory, getAllBundlesForGame, getGameSecrets, isResolutionTriggered, purgeVotes, setResolutionTriggered, storePlayerPublicKey } from "./store.ts";
 import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
-import { resolvePhaseFromLedger } from "./vote-resolver.ts";
+import { identifyVoters, resolvePhaseFromLedger } from "./vote-resolver.ts";
 import { fetchCurrentLedgerVotes } from "./midnight-circuit-caller.ts";
 import { getDbPool } from "./db-pool.ts";
 import { calculateAndPersistScores, migrateLeaderboardPoints } from "./leaderboard.ts";
@@ -483,45 +483,78 @@ stm.addStateTransition(
     }
 
     console.log(
-      `[timeout] ${missing} player(s) missed vote — queuing punishments`,
+      `[timeout] ${missing} player(s) missed vote — identifying non-voters via ledger decryption`,
     );
 
-    // Because nightAction/voteDay use Merkle-proof anonymity, we cannot tell
-    // exactly who voted. As a deterministic fallback we punish the last
-    // `missing` players from the alive snapshot (sorted by player_idx ASC).
-    const aliveRows = (yield* World.resolve(getAliveSnapshots, {
-      game_id: gameId,
-      round,
-      phase,
-    })) as IGetAliveSnapshotsResult[];
-
-    const toPublish = aliveRows.slice(-missing);
-    for (const row of toPublish) {
-      yield* World.resolve(insertPendingPunishment, {
-        game_id: gameId,
-        player_idx: row.player_idx,
-        reason: `vote_timeout_${phase}_r${round}`,
-        created_at_block: blockHeight,
-      });
-      console.log(
-        `[timeout] Queued punishment game=${gameId} player=${row.player_idx}`,
-      );
-    }
-
-    // Execute punishments on-chain, then resolve the phase with whatever
-    // votes are on the ledger. Punishments must land before resolution so
-    // that aliveCount reflects punished players.
+    // Identify non-voters and execute punishments asynchronously so the STF
+    // can finish without blocking. Punishments must complete before phase
+    // resolution so the on-chain aliveCount reflects ejected players.
     if (!isResolutionTriggered(gameId, round, phase)) {
       setResolutionTriggered(gameId, round, phase);
       void (async () => {
         try {
-          // 1. Execute adminPunishPlayer for each queued punishment
+          // 1. Fetch ledger votes to determine exactly who voted.
+          const voteEntries = await fetchCurrentLedgerVotes(gameId, round, phase);
+
+          // 2. Decrypt ciphertexts to recover the voter index of each vote.
+          //    Restore secrets/bundles on demand if the node recently restarted.
+          let secrets = getGameSecrets(gameId);
+          let bundles = getAllBundlesForGame(gameId);
+          if (!secrets || bundles.length === 0) {
+            const restored = await restoreGameSecrets(gameId);
+            if (restored) {
+              secrets = getGameSecrets(gameId);
+              bundles = getAllBundlesForGame(gameId);
+            }
+          }
+          const voterIndices = (secrets && bundles.length > 0)
+            ? identifyVoters(round, voteEntries, secrets, bundles)
+            : new Set<number>();
+          console.log(
+            `[timeout] Identified ${voterIndices.size} voter(s) from ledger game=${gameId}`,
+          );
+
+          // 3. Query the alive snapshot and filter to eligible non-voters.
+          //    Night phase: only alive werewolves must vote.
+          //    Day phase: all alive players must vote.
+          const dbConn = getDbPool();
+          const aliveRows = await runPreparedQuery(
+            getAliveSnapshots.run({ game_id: gameId, round, phase }, dbConn),
+            "getAliveSnapshots",
+          );
+          const werewolfSet = (phase.toUpperCase() === "NIGHT" && bundles.length > 0)
+            ? new Set(bundles.filter((b) => b.role === 1).map((b) => b.playerId))
+            : null;
+
+          const toPublish = aliveRows.filter((r) => {
+            const idx = Number(r.player_idx);
+            if (werewolfSet !== null && !werewolfSet.has(idx)) return false;
+            return !voterIndices.has(idx);
+          });
+
+          // 4. Queue pending punishments for each confirmed non-voter.
+          for (const row of toPublish) {
+            await runPreparedQuery(
+              insertPendingPunishment.run({
+                game_id: gameId,
+                player_idx: row.player_idx,
+                reason: `vote_timeout_${phase}_r${round}`,
+                created_at_block: blockHeight,
+              }, dbConn),
+              "insertPendingPunishment",
+            );
+            console.log(
+              `[timeout] Queued punishment game=${gameId} player=${row.player_idx}`,
+            );
+          }
+
+          // 5. Execute adminPunishPlayer on-chain for each queued punishment.
           const punishResult = await executePendingPunishments(gameId);
           console.log(
             `[timeout] Executed ${punishResult.count} punishment(s) for game=${gameId}`,
           );
 
-          // 2. Check if punishments alone ended the game (e.g., all players timed out)
+          // 6. Check if punishments alone ended the game (e.g., all werewolves timed out).
           if (punishResult.count > 0) {
             const gameEnded = await checkGameOverAfterPunishment(gameId, punishResult.punishedIndices);
             if (gameEnded) {
@@ -532,9 +565,8 @@ stm.addStateTransition(
             }
           }
 
-          // 3. Proceed with normal phase resolution using live ledger votes
-          const votes = await fetchCurrentLedgerVotes(gameId, round, phase);
-          await resolvePhaseFromLedger(gameId, round, phase, votes, punishResult.punishedIndices);
+          // 7. Resolve the phase using the already-fetched ledger votes.
+          await resolvePhaseFromLedger(gameId, round, phase, voteEntries, punishResult.punishedIndices);
         } catch (err) {
           console.error(
             `[timeout] Punishment+resolution failed game=${gameId} round=${round} phase=${phase}:`,
