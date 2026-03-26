@@ -16,10 +16,8 @@ export witness wit_getActionData(gameId: Uint<32>, round: Uint<32>): ActionData;
 // ── Ledger state — Maps only, no Vectors ────────────────────────────────────
 export ledger games: Map<Uint<32>, GameState>;
 
-// Per-player data keyed by (gameId, playerIdx) — no 16-player cap, no slot collisions
-export ledger playerAlive: Map<PlayerKey, Boolean>;
-export ledger playerRoleCommitments: Map<PlayerKey, Bytes<32>>;
-export ledger playerEncryptedRoles: Map<PlayerKey, Bytes<3>>;
+// Per-player data keyed by (gameId, playerIdx) — single struct per player
+export ledger players: Map<PlayerKey, PlayerState>;
 
 export ledger voteNullifiers: Set<Bytes<32>>;
 export ledger gameSecrets: Map<Uint<32>, Bytes<32>>;
@@ -62,9 +60,12 @@ export circuit createGame(
     // witnesses return safe defaults for indices >= actualCount.
     for (const i of 0..32) {
         if ((i as Uint<32>) < actualCount) {
-            playerAlive.insert(PlayerKey { gameId: gameId, playerIdx: i as Uint<32> }, true);
-            playerRoleCommitments.insert(PlayerKey { gameId: gameId, playerIdx: i as Uint<32> }, disclose(wit_getRoleCommitment(gameId, i as Uint<32>)));
-            playerEncryptedRoles.insert(PlayerKey { gameId: gameId, playerIdx: i as Uint<32> }, disclose(wit_getEncryptedRole(gameId, i as Uint<32>)));
+            const pk = PlayerKey { gameId: gameId, playerIdx: i as Uint<32> };
+            players.insert(pk, PlayerState {
+                isAlive: true,
+                roleCommitment: disclose(wit_getRoleCommitment(gameId, i as Uint<32>)),
+                encryptedRole: disclose(wit_getEncryptedRole(gameId, i as Uint<32>))
+            });
         }
     }
 }
@@ -110,8 +111,9 @@ export circuit adminPunishPlayer(
     assert(std_ownPublicKey() == state.adminKey, "Only Admin can punish");
 
     const pk = PlayerKey { gameId: gameId, playerIdx: playerIdx };
-    if (playerAlive.member(pk) && playerAlive.lookup(pk)) {
-        playerAlive.insert(pk, false);
+    if (players.member(pk) && players.lookup(pk).isAlive) {
+        const current = players.lookup(pk);
+        players.insert(pk, PlayerState { ...current, isAlive: false });
         games.insert(gameId, GameState { ...state, aliveCount: (state.aliveCount - 1) as Uint<32> });
     }
 }
@@ -135,8 +137,9 @@ export circuit resolveNightPhase(
 
     if (hasDeath) {
         const pk = PlayerKey { gameId: gameId, playerIdx: deadPlayerIdx };
-        if (playerAlive.member(pk) && playerAlive.lookup(pk)) {
-            playerAlive.insert(pk, false);
+        if (players.member(pk) && players.lookup(pk).isAlive) {
+            const current = players.lookup(pk);
+            players.insert(pk, PlayerState { ...current, isAlive: false });
         }
     }
 
@@ -205,7 +208,8 @@ export circuit resolveDayPhase(
 
     if (hasElimination) {
         const pk = PlayerKey { gameId: gameId, playerIdx: eliminatedIdx };
-        playerAlive.insert(pk, false);
+        const current = players.lookup(pk);
+        players.insert(pk, PlayerState { ...current, isAlive: false });
     }
 
     const outcomeHash = std_persistentHash<[Uint<32>, Boolean]>([eliminatedIdx, hasElimination]);
@@ -247,8 +251,8 @@ export circuit revealPlayerRole(
 
     const state = games.lookup(gameId);
     const pk = PlayerKey { gameId: gameId, playerIdx: playerIdx };
-    assert(playerRoleCommitments.member(pk), "Player not found");
-    const roleCommitment = playerRoleCommitments.lookup(pk);
+    assert(players.member(pk), "Player not found");
+    const roleCommitment = players.lookup(pk).roleCommitment;
 
     const calcCommit = Crypto_commitRole(role, salt);
     assert(calcCommit == roleCommitment, "Invalid role revelation");
@@ -322,8 +326,8 @@ export circuit verifyFairness(
     const derivedSalt = saltSeed;
 
     const pk = PlayerKey { gameId: gameId, playerIdx: playerIdx };
-    if (!playerRoleCommitments.member(pk)) return false;
-    const roleCommitment = playerRoleCommitments.lookup(pk);
+    if (!players.member(pk)) return false;
+    const roleCommitment = players.lookup(pk).roleCommitment;
     const derivedCommit = Crypto_commitRole(assignedRole, derivedSalt);
 
     return derivedCommit == roleCommitment;
@@ -336,8 +340,8 @@ export circuit isPlayerAlive(
     const gameId = disclose(_gameId);
     const playerIdx = disclose(_playerIdx);
     const pk = PlayerKey { gameId: gameId, playerIdx: playerIdx };
-    if (!playerAlive.member(pk)) return false;
-    return playerAlive.lookup(pk);
+    if (!players.member(pk)) return false;
+    return players.lookup(pk).isAlive;
 }
 
 export circuit getGameState(_gameId: Uint<32>): GameState {

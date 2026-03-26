@@ -34,6 +34,13 @@ module WerewolfTypes {
         playerIdx: Uint<32>
     }
 
+    // Consolidated per-player state — single Merkle tree instead of three
+    export struct PlayerState {
+        isAlive: Boolean,
+        roleCommitment: Bytes<32>,
+        encryptedRole: Bytes<3>
+    }
+
     // Composite key for per-vote storage; nullifier is unique per player per (game, phase, round)
     export struct VoteKey {
         gameId: Uint<32>,

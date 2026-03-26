@@ -186,19 +186,20 @@ export class WerewolfLedger {
 
   /**
    * Indices of alive players for a game.
-   * Iterates the `Werewolf_playerAlive` Map keyed by GamePlayerKey
+   * Iterates the `Werewolf_players` Map keyed by PlayerKey
    * (serialised as JSON `{"gameId":N,"playerIdx":M}`) and collects
-   * indices where the value is `true`.
+   * indices where the PlayerState struct's `isAlive` field is `true`.
    */
   aliveIndices(gameId: number): number[] {
-    const aliveMap = this.parser.parseMap(
-      this.payload["Werewolf_playerAlive"],
+    const playersMap = this.parser.parseMap(
+      this.payload["Werewolf_players"],
     );
     const indices: number[] = [];
-    for (const [rawKey, value] of Object.entries(aliveMap)) {
+    for (const [rawKey, value] of Object.entries(playersMap)) {
       try {
         const keyObj = JSON.parse(rawKey);
-        if (Number(keyObj.gameId) === gameId && value === true) {
+        const playerState = value as Record<string, unknown>;
+        if (Number(keyObj.gameId) === gameId && playerState.isAlive === true) {
           indices.push(Number(keyObj.playerIdx));
         }
       } catch {
