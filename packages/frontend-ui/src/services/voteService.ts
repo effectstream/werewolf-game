@@ -30,6 +30,7 @@ export async function submitVote(
   round: number,
   phase: string,
   gameId: number,
+  onProofComplete?: () => void,
 ): Promise<VoteSubmitResult> {
   console.log('[voteService] submitting vote on-chain:', {
     gameId,
@@ -40,7 +41,7 @@ export async function submitVote(
   })
 
   try {
-    await submitVoteOnChain(bundle, targetIndex, round, phase, gameId)
+    await submitVoteOnChain(bundle, targetIndex, round, phase, gameId, onProofComplete)
     console.log('[voteService] on-chain vote submitted successfully')
     return { success: true }
   } catch (err) {

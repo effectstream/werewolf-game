@@ -145,15 +145,18 @@ export class PlayerListManager {
 
     let txTimer: ReturnType<typeof setInterval> | null = null
     let elapsedSeconds = 0
+    let proofDone = false
+
+    const markBatcherStarted = () => {
+      proofDone = true
+      stepProving.className = 'vote-tx-step vote-tx-step-done'
+      stepBatcher.className = 'vote-tx-step vote-tx-step-active'
+    }
 
     const updateTxPhase = (elapsed: number) => {
-      // Transition from ZK proof phase to batcher phase after ~90 seconds
-      if (elapsed < 90) {
+      if (!proofDone) {
         stepProving.className = 'vote-tx-step vote-tx-step-active'
         stepBatcher.className = 'vote-tx-step'
-      } else {
-        stepProving.className = 'vote-tx-step vote-tx-step-done'
-        stepBatcher.className = 'vote-tx-step vote-tx-step-active'
       }
       txElapsed.textContent = `${elapsed}s elapsed`
       txFlavor.textContent = FLAVOR_TEXTS[Math.floor(elapsed / 15) % FLAVOR_TEXTS.length]
@@ -162,6 +165,7 @@ export class PlayerListManager {
 
     const startTxProgress = () => {
       elapsedSeconds = 0
+      proofDone = false
       stepProving.className = 'vote-tx-step vote-tx-step-active'
       stepBatcher.className = 'vote-tx-step'
       txElapsed.textContent = '0s elapsed'
@@ -195,7 +199,7 @@ export class PlayerListManager {
 
     newYes.addEventListener('click', async () => {
       setLoading(true)
-      const closed = await this.handleVoteConfirmed(targetIndex)
+      const closed = await this.handleVoteConfirmed(targetIndex, markBatcherStarted)
       setLoading(false)
       if (closed) {
         backdrop.classList.add('hidden')
@@ -214,7 +218,7 @@ export class PlayerListManager {
    * Submits the vote. Returns true if the modal should close (success / already voted),
    * false if the modal should stay open for a retry (error).
    */
-  private async handleVoteConfirmed(targetIndex: number): Promise<boolean> {
+  private async handleVoteConfirmed(targetIndex: number, onProofComplete?: () => void): Promise<boolean> {
     const bundle = gameState.playerBundle
     if (!bundle) {
       console.error('[PlayerListManager] No player bundle available for vote')
@@ -235,6 +239,7 @@ export class PlayerListManager {
         gameState.round,
         gameState.phase,
         gameState.lobbyGameId,
+        onProofComplete,
       )
 
       if (result.alreadyVoted) {

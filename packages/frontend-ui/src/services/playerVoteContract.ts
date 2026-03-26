@@ -218,6 +218,7 @@ export async function submitVoteOnChain(
   round: number,
   phase: string,
   gameId: number,
+  onProofComplete?: () => void,
 ): Promise<void> {
   console.log(
     `[playerVoteContract] Submitting ${phase} vote on-chain: game=${gameId} round=${round} target=${targetIndex}`,
@@ -340,9 +341,9 @@ export async function submitVoteOnChain(
       const batcherClient = new BatcherClient(contract, provider, BATCHER_URL);
 
       if (phase === "NIGHT" || phase === "night") {
-        await batcherClient.nightAction(BigInt(gameId));
+        await batcherClient.nightAction(BigInt(gameId), onProofComplete);
       } else {
-        await batcherClient.voteDay(BigInt(gameId));
+        await batcherClient.voteDay(BigInt(gameId), onProofComplete);
       }
 
       console.log(

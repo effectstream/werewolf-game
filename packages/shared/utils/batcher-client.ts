@@ -98,6 +98,7 @@ export class BatcherClient {
   private async callDelegated(
     circuitName: string,
     callFn: () => Promise<any>,
+    onProofComplete?: () => void,
   ): Promise<void> {
     console.log(
       `🔍 [BatcherClient] Preparing delegated call for ${circuitName}...`,
@@ -116,6 +117,9 @@ export class BatcherClient {
       const serializedTx = toHex(tx.serialize());
 
       const txStage = this.detectTxStage(serializedTx);
+
+      // Notify caller that proof generation is complete and batcher submission is starting
+      onProofComplete?.();
 
       // Post to batcher immediately
       await this.postToBatcher(serializedTx, circuitName, txStage);
@@ -283,15 +287,17 @@ export class BatcherClient {
 
   // --- Player Actions ---
 
-  async nightAction(gameId: bigint): Promise<void> {
+  async nightAction(gameId: bigint, onProofComplete?: () => void): Promise<void> {
     await this.callDelegated("nightAction", () =>
-      this.contract.callTx.nightAction(gameId)
+      this.contract.callTx.nightAction(gameId),
+      onProofComplete,
     );
   }
 
-  async voteDay(gameId: bigint): Promise<void> {
+  async voteDay(gameId: bigint, onProofComplete?: () => void): Promise<void> {
     await this.callDelegated("voteDay", () =>
-      this.contract.callTx.voteDay(gameId)
+      this.contract.callTx.voteDay(gameId),
+      onProofComplete,
     );
   }
 
