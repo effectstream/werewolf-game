@@ -425,7 +425,7 @@ class RuntimeMerkleTree {
   constructor(
     contract: WerewolfRuntimeContract,
     leaves: Uint8Array[],
-    depth = 10,
+    depth = 5,
   ) {
     this.contract = contract;
     this.depth = depth;

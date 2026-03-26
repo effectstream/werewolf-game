@@ -118,7 +118,7 @@ class RuntimeMerkleTree {
   }
 
   async build() {
-    const depth = 10;
+    const depth = 5;
     let currentLevel: MerkleTreeDigest[] = [];
     const totalLeaves = 1 << depth;
     const zeroBytes = new Uint8Array(32);

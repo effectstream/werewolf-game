@@ -18,13 +18,13 @@ module Crypto {
     // Verifies a Merkle Proof for anonymous voting/actions
     // IMPORTANT: When calling this, do NOT disclose the 'leaf' or 'path' 
     // if you intend to keep the voter's identity private.
-    export circuit verifyMerkleProof(root: MerkleTreeDigest, leaf: Bytes<32>, path: MerkleTreePath<10, Bytes<32>>): Boolean {
+    export circuit verifyMerkleProof(root: MerkleTreeDigest, leaf: Bytes<32>, path: MerkleTreePath<5, Bytes<32>>): Boolean {
         // Ensure the leaf in the path matches the claim
         if (path.leaf != leaf) {
             return false;
         }
         // compute root and check
-        return std_merkleTreePathRoot<10, Bytes<32>>(path) == root;
+        return std_merkleTreePathRoot<5, Bytes<32>>(path) == root;
     }
 
     export circuit isValidPoint(p: JubjubPoint): Boolean {

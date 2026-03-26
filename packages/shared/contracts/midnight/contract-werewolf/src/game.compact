@@ -198,11 +198,11 @@ export circuit testNodeDigest(left: MerkleTreeDigest, right: MerkleTreeDigest): 
 export circuit testVerifyMerkleProof(
     root: MerkleTreeDigest,
     leaf: Bytes<32>,
-    path: MerkleTreePath<10, Bytes<32>>
+    path: MerkleTreePath<5, Bytes<32>>
 ): Boolean {
     return Crypto_verifyMerkleProof(root, leaf, path);
 }
 
-export circuit testMerkleRoot(path: MerkleTreePath<10, Bytes<32>>): MerkleTreeDigest {
-    return std_merkleTreePathRoot<10, Bytes<32>>(path);
+export circuit testMerkleRoot(path: MerkleTreePath<5, Bytes<32>>): MerkleTreeDigest {
+    return std_merkleTreePathRoot<5, Bytes<32>>(path);
 }

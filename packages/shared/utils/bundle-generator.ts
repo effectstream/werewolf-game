@@ -104,7 +104,7 @@ export class RuntimeMerkleTree {
   readonly levels: bigint[][];
   readonly root: { field: bigint };
 
-  constructor(leaves: Uint8Array[], depth = 10) {
+  constructor(leaves: Uint8Array[], depth = 5) {
     this.depth = depth;
     this.leaves = leaves;
 

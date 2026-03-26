@@ -19,7 +19,7 @@ module WerewolfTypes {
     export struct ActionData {
         // Compact Payload: [Target(7b) | Round(7b) | Random(10b)] = 24 bits
         encryptedAction: Bytes<3>,
-        merklePath: MerkleTreePath<10, Bytes<32>>,
+        merklePath: MerkleTreePath<5, Bytes<32>>,
         leafSecret: Bytes<32>
     }
 
