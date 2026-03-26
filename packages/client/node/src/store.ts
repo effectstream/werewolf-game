@@ -350,3 +350,50 @@ export function getAllBundlesForGame(gameId: number): PlayerBundle[] {
   }
   return bundles;
 }
+
+// ---------------------------------------------------------------------------
+// Game Memory Cleanup
+// ---------------------------------------------------------------------------
+
+/**
+ * Release all in-memory data for a completed game.
+ * Safe to call once the game is finished and the leaderboard has been persisted.
+ * After this call, the state machine will fall back to DB-stored values for any
+ * remaining STF cycles on the finished game.
+ */
+export function clearGameMemory(gameId: number): void {
+  // Fast path: nothing to clear for this game
+  if (
+    !gameSecrets.has(gameId) &&
+    !merkleRoots.has(gameId) &&
+    !adminSignKeys.has(gameId)
+  ) {
+    return;
+  }
+
+  const prefix = `${gameId}:`;
+
+  // Prefix-keyed maps
+  for (const key of bundlesByPublicKey.keys()) {
+    if (key.startsWith(prefix)) bundlesByPublicKey.delete(key);
+  }
+  for (const key of playerPublicKeys.keys()) {
+    if (key.startsWith(prefix)) playerPublicKeys.delete(key);
+  }
+  for (const key of phaseVotes.keys()) {
+    if (key.startsWith(prefix)) phaseVotes.delete(key);
+  }
+  for (const key of decryptedVotesCache.keys()) {
+    if (key.startsWith(prefix)) decryptedVotesCache.delete(key);
+  }
+  for (const key of _resolutionTriggered) {
+    if (key.startsWith(prefix)) _resolutionTriggered.delete(key);
+  }
+
+  // GameId-keyed maps
+  gameSecrets.delete(gameId);
+  adminSignKeys.delete(gameId);
+  merkleRoots.delete(gameId);
+
+  console.log(`[store] Cleared in-memory data for finished game=${gameId}`);
+}

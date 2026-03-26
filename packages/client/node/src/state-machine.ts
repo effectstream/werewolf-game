@@ -34,7 +34,7 @@ import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
 import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
-import { getAllBundlesForGame, getGameSecrets, isResolutionTriggered, purgeVotes, setResolutionTriggered, storePlayerPublicKey } from "./store.ts";
+import { clearGameMemory, getAllBundlesForGame, getGameSecrets, isResolutionTriggered, purgeVotes, setResolutionTriggered, storePlayerPublicKey } from "./store.ts";
 import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
 import { resolvePhaseFromLedger } from "./vote-resolver.ts";
 import { fetchCurrentLedgerVotes } from "./midnight-circuit-caller.ts";
@@ -218,6 +218,8 @@ stm.addStateTransition(
                 err,
               )
             );
+          } else if (dbView?.leaderboard_processed) {
+            clearGameMemory(gameId);
           }
         }
 

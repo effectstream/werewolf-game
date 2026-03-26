@@ -43,6 +43,18 @@ export async function executePendingPunishments(
   }
 
   const dbConn = getDbPool();
+
+  const gameViewRows = await runPreparedQuery(
+    getGameView.run({ game_id: gameId }, dbConn),
+    "getGameView",
+  );
+  if (gameViewRows.length > 0 && gameViewRows[0].finished) {
+    console.log(
+      `[punishment] Game=${gameId} already finished — skipping punishment execution`,
+    );
+    return { count: 0, punishedIndices: [] };
+  }
+
   const allPending = await runPreparedQuery(
     getPendingPunishments.run(undefined, dbConn),
     "getPendingPunishments",
