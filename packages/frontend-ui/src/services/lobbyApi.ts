@@ -196,6 +196,8 @@ export interface LobbyStatusResponse {
   maxPlayers: number
   bundlesReady: boolean
   finished: boolean
+  /** True if the game finished within the last 60 minutes (server-evaluated). */
+  finishedRecently: boolean
   timeoutBlock?: number
   currentBlock?: number | null
 }

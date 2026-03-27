@@ -163,6 +163,7 @@ stm.addStateTransition(
         villager_count: gameView.villagerCount,
         alive_vector: JSON.stringify([...gameView.aliveVector]),
         finished: gameView.isFinished,
+        finished_at: gameView.isFinished ? new Date() : null,
         werewolf_indices: JSON.stringify(werewolfIndices),
         updated_block: blockHeight,
       });

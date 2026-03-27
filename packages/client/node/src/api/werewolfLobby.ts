@@ -263,6 +263,10 @@ export async function lobbyStatusHandler(dbConn: Pool, gameId: number) {
     "getGameView",
   );
   const finished = gameViewRows.length > 0 ? gameViewRows[0].finished : false;
+  const finishedAt = gameViewRows.length > 0 ? gameViewRows[0].finished_at : null;
+  // Compute the 60-minute window using server time to avoid client clock issues.
+  const finishedRecently = finished && finishedAt !== null &&
+    (Date.now() - finishedAt.getTime()) <= 60 * 60 * 1000;
 
   return {
     state,
@@ -270,6 +274,7 @@ export async function lobbyStatusHandler(dbConn: Pool, gameId: number) {
     maxPlayers: Number(lobby.max_players),
     bundlesReady: lobby.bundles_ready,
     finished,
+    finishedRecently,
     timeoutBlock: lobby.timeout_block ? Number(lobby.timeout_block) : undefined,
     currentBlock,
   };

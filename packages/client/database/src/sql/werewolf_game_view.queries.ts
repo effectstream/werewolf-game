@@ -8,6 +8,7 @@ export interface IUpsertGameViewParams {
   alive_count: number;
   alive_vector: string;
   finished: boolean;
+  finished_at: Date | null | undefined;
   game_id: NumberOrString;
   phase: string;
   player_count: number;
@@ -27,7 +28,7 @@ export interface IUpsertGameViewQuery {
   result: IUpsertGameViewResult;
 }
 
-const upsertGameViewIR: any = {"usedParamSet":{"game_id":true,"phase":true,"round":true,"player_count":true,"alive_count":true,"werewolf_count":true,"villager_count":true,"alive_vector":true,"finished":true,"werewolf_indices":true,"updated_block":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":190,"b":198}]},{"name":"phase","required":true,"transform":{"type":"scalar"},"locs":[{"a":201,"b":207}]},{"name":"round","required":true,"transform":{"type":"scalar"},"locs":[{"a":210,"b":216}]},{"name":"player_count","required":true,"transform":{"type":"scalar"},"locs":[{"a":219,"b":232}]},{"name":"alive_count","required":true,"transform":{"type":"scalar"},"locs":[{"a":235,"b":247}]},{"name":"werewolf_count","required":true,"transform":{"type":"scalar"},"locs":[{"a":252,"b":267}]},{"name":"villager_count","required":true,"transform":{"type":"scalar"},"locs":[{"a":270,"b":285}]},{"name":"alive_vector","required":true,"transform":{"type":"scalar"},"locs":[{"a":288,"b":301}]},{"name":"finished","required":true,"transform":{"type":"scalar"},"locs":[{"a":306,"b":315}]},{"name":"werewolf_indices","required":true,"transform":{"type":"scalar"},"locs":[{"a":318,"b":335}]},{"name":"updated_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":338,"b":352}]}],"statement":"INSERT INTO werewolf_game_view (\n  game_id, phase, round, player_count, alive_count,\n  werewolf_count, villager_count, alive_vector,\n  finished, werewolf_indices, updated_block\n)\nVALUES (\n  :game_id!, :phase!, :round!, :player_count!, :alive_count!,\n  :werewolf_count!, :villager_count!, :alive_vector!,\n  :finished!, :werewolf_indices!, :updated_block!\n)\nON CONFLICT (game_id) DO UPDATE SET\n  phase            = EXCLUDED.phase,\n  round            = EXCLUDED.round,\n  player_count     = EXCLUDED.player_count,\n  alive_count      = EXCLUDED.alive_count,\n  werewolf_count   = EXCLUDED.werewolf_count,\n  villager_count   = EXCLUDED.villager_count,\n  alive_vector     = EXCLUDED.alive_vector,\n  finished         = EXCLUDED.finished,\n  werewolf_indices = EXCLUDED.werewolf_indices,\n  updated_block    = EXCLUDED.updated_block"};
+const upsertGameViewIR: any = {"usedParamSet":{"game_id":true,"phase":true,"round":true,"player_count":true,"alive_count":true,"werewolf_count":true,"villager_count":true,"alive_vector":true,"finished":true,"finished_at":true,"werewolf_indices":true,"updated_block":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":203,"b":212}]},{"name":"phase","required":true,"transform":{"type":"scalar"},"locs":[{"a":214,"b":221}]},{"name":"round","required":true,"transform":{"type":"scalar"},"locs":[{"a":223,"b":230}]},{"name":"player_count","required":true,"transform":{"type":"scalar"},"locs":[{"a":232,"b":246}]},{"name":"alive_count","required":true,"transform":{"type":"scalar"},"locs":[{"a":248,"b":261}]},{"name":"werewolf_count","required":true,"transform":{"type":"scalar"},"locs":[{"a":265,"b":281}]},{"name":"villager_count","required":true,"transform":{"type":"scalar"},"locs":[{"a":283,"b":299}]},{"name":"alive_vector","required":true,"transform":{"type":"scalar"},"locs":[{"a":301,"b":315}]},{"name":"finished","required":true,"transform":{"type":"scalar"},"locs":[{"a":319,"b":329}]},{"name":"finished_at","required":false,"transform":{"type":"scalar"},"locs":[{"a":331,"b":343}]},{"name":"werewolf_indices","required":true,"transform":{"type":"scalar"},"locs":[{"a":345,"b":363}]},{"name":"updated_block","required":true,"transform":{"type":"scalar"},"locs":[{"a":365,"b":380}]}],"statement":"INSERT INTO werewolf_game_view (\n  game_id, phase, round, player_count, alive_count,\n  werewolf_count, villager_count, alive_vector,\n  finished, finished_at, werewolf_indices, updated_block\n)\nVALUES (\n  :game_id!, :phase!, :round!, :player_count!, :alive_count!,\n  :werewolf_count!, :villager_count!, :alive_vector!,\n  :finished!, :finished_at, :werewolf_indices!, :updated_block!\n)\nON CONFLICT (game_id) DO UPDATE SET\n  phase            = EXCLUDED.phase,\n  round            = EXCLUDED.round,\n  player_count     = EXCLUDED.player_count,\n  alive_count      = EXCLUDED.alive_count,\n  werewolf_count   = EXCLUDED.werewolf_count,\n  villager_count   = EXCLUDED.villager_count,\n  alive_vector     = EXCLUDED.alive_vector,\n  finished         = EXCLUDED.finished,\n  finished_at      = COALESCE(werewolf_game_view.finished_at, EXCLUDED.finished_at),\n  werewolf_indices = EXCLUDED.werewolf_indices,\n  updated_block    = EXCLUDED.updated_block"};
 
 /**
  * Query generated from SQL:
@@ -35,12 +36,12 @@ const upsertGameViewIR: any = {"usedParamSet":{"game_id":true,"phase":true,"roun
  * INSERT INTO werewolf_game_view (
  *   game_id, phase, round, player_count, alive_count,
  *   werewolf_count, villager_count, alive_vector,
- *   finished, werewolf_indices, updated_block
+ *   finished, finished_at, werewolf_indices, updated_block
  * )
  * VALUES (
  *   :game_id!, :phase!, :round!, :player_count!, :alive_count!,
  *   :werewolf_count!, :villager_count!, :alive_vector!,
- *   :finished!, :werewolf_indices!, :updated_block!
+ *   :finished!, :finished_at, :werewolf_indices!, :updated_block!
  * )
  * ON CONFLICT (game_id) DO UPDATE SET
  *   phase            = EXCLUDED.phase,
@@ -51,6 +52,7 @@ const upsertGameViewIR: any = {"usedParamSet":{"game_id":true,"phase":true,"roun
  *   villager_count   = EXCLUDED.villager_count,
  *   alive_vector     = EXCLUDED.alive_vector,
  *   finished         = EXCLUDED.finished,
+ *   finished_at      = COALESCE(werewolf_game_view.finished_at, EXCLUDED.finished_at),
  *   werewolf_indices = EXCLUDED.werewolf_indices,
  *   updated_block    = EXCLUDED.updated_block
  * ```
@@ -68,6 +70,7 @@ export interface IGetGameViewResult {
   alive_count: number;
   alive_vector: string;
   finished: boolean;
+  finished_at: Date | null;
   game_id: string;
   leaderboard_processed: boolean;
   phase: string;

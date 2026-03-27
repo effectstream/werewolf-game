@@ -10,6 +10,7 @@ CREATE TABLE werewolf_game_view (
   villager_count   INTEGER NOT NULL DEFAULT 0,
   alive_vector     TEXT    NOT NULL DEFAULT '[]',
   finished               BOOLEAN NOT NULL DEFAULT FALSE,
+  finished_at            TIMESTAMPTZ,
   werewolf_indices       TEXT    NOT NULL DEFAULT '[]',
   updated_block          BIGINT  NOT NULL DEFAULT 0,
   leaderboard_processed  BOOLEAN NOT NULL DEFAULT FALSE
