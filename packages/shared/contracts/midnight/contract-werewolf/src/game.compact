@@ -164,6 +164,10 @@ export circuit testComputeHash(data: Bytes<32>): Bytes<32> {
     return Crypto_hash(data);
 }
 
+export circuit testComputeHash2(a: Bytes<32>, b: Bytes<32>): Bytes<32> {
+    return Crypto_hash2(a, b);
+}
+
 export circuit testComputeSalt(masterSecret: Bytes<32>, playerIdx: Uint<32>): Bytes<32> {
     return std_persistentHash<[Bytes<32>, Bytes<32>, Uint<32>]>([
         masterSecret,
@@ -203,4 +207,16 @@ export circuit testVerifyMerkleProof(
 
 export circuit testMerkleRoot(path: MerkleTreePath<5, Bytes<32>>): MerkleTreeDigest {
     return std_merkleTreePathRoot<5, Bytes<32>>(path);
+}
+
+export circuit testComputeNullifierNight(gameId: Uint<32>, round: Uint<32>, leafSecret: Bytes<32>): Bytes<32> {
+    return Crypto_computeNullifierNight(gameId, round, leafSecret);
+}
+
+export circuit testComputeNullifierDay(gameId: Uint<32>, round: Uint<32>, leafSecret: Bytes<32>): Bytes<32> {
+    return Crypto_computeNullifierDay(gameId, round, leafSecret);
+}
+
+export circuit testComputeTranscript(prevHash: Bytes<32>, roundDigest: Bytes<32>, outcomeIdx: Uint<32>, outcomeFlag: Boolean): Bytes<32> {
+    return Crypto_computeTranscript(prevHash, roundDigest, outcomeIdx, outcomeFlag);
 }

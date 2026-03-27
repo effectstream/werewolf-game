@@ -27,6 +27,50 @@ module Crypto {
         return std_merkleTreePathRoot<5, Bytes<32>>(path) == root;
     }
 
+    // Transient nullifier computation — "compute transiently, store persistently"
+    // Uses cheap field math for intermediate hashing, only upgrading the final
+    // result to Bytes<32> for ledger storage. Massive constraint reduction vs
+    // chaining std_persistentHash calls.
+
+    export circuit computeNullifierNight(gameId: Uint<32>, round: Uint<32>, leafSecret: Bytes<32>): Bytes<32> {
+        // Persistent conversion for Uint<32> → Bytes<32> (unavoidable)
+        const gameIdBytes = std_persistentHash<Uint<32>>(gameId);
+        const roundBytes = std_persistentHash<Uint<32>>(round);
+        // Degrade to Field, then combine transiently (cheap)
+        const fGameId = std_degradeToTransient(gameIdBytes);
+        const fRound = std_degradeToTransient(roundBytes);
+        const fLeaf = std_degradeToTransient(leafSecret);
+        const inner = std_transientHash<[Field, Field]>([fRound, fLeaf]);
+        const result = std_transientHash<[Field, Field]>([fGameId, inner]);
+        // Upgrade only the final result for ledger storage
+        return std_upgradeFromTransient(result);
+    }
+
+    export circuit computeNullifierDay(gameId: Uint<32>, round: Uint<32>, leafSecret: Bytes<32>): Bytes<32> {
+        const gameIdBytes = std_persistentHash<Uint<32>>(gameId);
+        const roundBytes = std_persistentHash<Uint<32>>(round);
+        const fGameId = std_degradeToTransient(gameIdBytes);
+        const fRound = std_degradeToTransient(roundBytes);
+        const fLeaf = std_degradeToTransient(leafSecret);
+        const fDayVote = std_degradeToTransient(pad(32, "day-vote"));
+        const dayDomain = std_transientHash<[Field, Field]>([fGameId, fDayVote]);
+        const roundLeaf = std_transientHash<[Field, Field]>([fRound, fLeaf]);
+        const result = std_transientHash<[Field, Field]>([dayDomain, roundLeaf]);
+        return std_upgradeFromTransient(result);
+    }
+
+    export circuit computeTranscript(prevHash: Bytes<32>, roundDigest: Bytes<32>, outcomeIdx: Uint<32>, outcomeFlag: Boolean): Bytes<32> {
+        // Persistent conversion for composite non-Bytes type (unavoidable)
+        const outcomeHash = std_persistentHash<[Uint<32>, Boolean]>([outcomeIdx, outcomeFlag]);
+        // Degrade all to Field, combine transiently
+        const fPrev = std_degradeToTransient(prevHash);
+        const fDigest = std_degradeToTransient(roundDigest);
+        const fOutcome = std_degradeToTransient(outcomeHash);
+        const roundTx = std_transientHash<[Field, Field]>([fPrev, fDigest]);
+        const result = std_transientHash<[Field, Field]>([roundTx, fOutcome]);
+        return std_upgradeFromTransient(result);
+    }
+
     export circuit isValidPoint(p: JubjubPoint): Boolean {
         return true; 
     }

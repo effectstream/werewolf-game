@@ -86,11 +86,7 @@ export circuit nightAction(
     const leaf = Crypto_hash(leafSecret);
     assert(Crypto_verifyMerkleProof(state.aliveTreeRoot, leaf, merklePath), "Invalid Merkle Proof or Player Dead");
 
-    const gameIdBytes = std_persistentHash<Uint<32>>(gameId);
-    const nullifier = Crypto_hash2(
-        gameIdBytes,
-        Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
-    );
+    const nullifier = Crypto_computeNullifierNight(gameId, state.round, leafSecret);
 
     const publicNullifier = disclose(nullifier);
     assert(!voteNullifiers.member(publicNullifier), "Action already submitted");
@@ -143,9 +139,7 @@ export circuit resolveNightPhase(
         }
     }
 
-    const outcomeHash = std_persistentHash<[Uint<32>, Boolean]>([deadPlayerIdx, hasDeath]);
-    const roundTranscript = Crypto_hash2(state.transcriptHash, roundActionsDigest);
-    const newTranscript = Crypto_hash2(roundTranscript, outcomeHash);
+    const newTranscript = Crypto_computeTranscript(state.transcriptHash, roundActionsDigest, deadPlayerIdx, hasDeath);
     const newState = GameState {
         adminKey: state.adminKey,
         adminVotePublicKey: state.adminVotePublicKey,
@@ -178,11 +172,7 @@ export circuit voteDay(
     const leaf = Crypto_hash(leafSecret);
     assert(Crypto_verifyMerkleProof(state.aliveTreeRoot, leaf, merklePath), "Invalid Merkle Proof");
 
-    const gameIdBytes = std_persistentHash<Uint<32>>(gameId);
-    const nullifier = Crypto_hash2(
-        Crypto_hash2(gameIdBytes, pad(32, "day-vote")),
-        Crypto_hash2(std_persistentHash<Uint<32>>(state.round), leafSecret)
-    );
+    const nullifier = Crypto_computeNullifierDay(gameId, state.round, leafSecret);
     const publicNullifier = disclose(nullifier);
     assert(!voteNullifiers.member(publicNullifier), "Double voting detected");
     voteNullifiers.insert(publicNullifier);
@@ -212,9 +202,7 @@ export circuit resolveDayPhase(
         players.insert(pk, PlayerState { ...current, isAlive: false });
     }
 
-    const outcomeHash = std_persistentHash<[Uint<32>, Boolean]>([eliminatedIdx, hasElimination]);
-    const roundTranscript = Crypto_hash2(state.transcriptHash, roundActionsDigest);
-    const newTranscript = Crypto_hash2(roundTranscript, outcomeHash);
+    const newTranscript = Crypto_computeTranscript(state.transcriptHash, roundActionsDigest, eliminatedIdx, hasElimination);
 
     const nextRound = (state.round + 1) as Uint<32>;
 
