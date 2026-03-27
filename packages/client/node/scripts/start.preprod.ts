@@ -7,8 +7,8 @@
  *   - No contract deployment — contract address is read from local JSON artifacts.
  *   - No debug explorer — not appropriate for public-facing deployments.
  *   - Logs to stdout by default (no TMUX / TUI) — suitable for server environments.
- *   - Local proof server IS spawned (needed by both the batcher and the node for
- *     circuit proving). It connects to the preprod Midnight node over WS.
+ *   - Local proof server can be optionally spawned (controlled by LAUNCH_PROOF_SERVER env var).
+ *     When enabled, it connects to the preprod Midnight node over WS.
  *     Override the node WS URL via SUBSTRATE_NODE_WS_URL if needed.
  */
 
@@ -16,23 +16,30 @@ import { OrchestratorConfig, start } from "@paimaexample/orchestrator";
 import { ComponentNames } from "@paimaexample/log";
 import { Value } from "@sinclair/typebox/value";
 
+// Read the LAUNCH_PROOF_SERVER environment variable (default: true)
+const launchProofServer = Deno.env.get("LAUNCH_PROOF_SERVER") !== "false";
+
 const customProcesses = [
-  {
-    // Local proof server — connects to the preprod Midnight node over WS.
-    // Both the batcher and the node use this for circuit proving.
-    // Override SUBSTRATE_NODE_WS_URL in .env if your preprod endpoint differs.
-    name: "midnight-proof-server",
-    args: [
-      "task",
-      "-f",
-      "@example-midnight/midnight-contracts",
-      "midnight-proof-server:start:preprod",
-    ],
-    waitToExit: false,
-    type: "system-dependency",
-    link: "http://localhost:6300",
-    stopProcessAtPort: [6300],
-  },
+  ...(launchProofServer
+    ? [
+        {
+          // Local proof server — connects to the preprod Midnight node over WS.
+          // Both the batcher and the node use this for circuit proving.
+          // Override SUBSTRATE_NODE_WS_URL in .env if your preprod endpoint differs.
+          name: "midnight-proof-server",
+          args: [
+            "task",
+            "-f",
+            "@example-midnight/midnight-contracts",
+            "midnight-proof-server:start:preprod",
+          ],
+          waitToExit: false,
+          type: "system-dependency",
+          link: "http://localhost:6300",
+          stopProcessAtPort: [6300],
+        },
+      ]
+    : []),
   {
     name: "batcher",
     args: ["task", "-f", "@example-midnight/batcher", "start"],
@@ -41,7 +48,7 @@ const customProcesses = [
     link: "http://localhost:3334",
     stopProcessAtPort: [3334],
     // Batcher proves circuits — wait for the proof server to be ready first.
-    dependsOn: ["midnight-proof-server"],
+    ...(launchProofServer ? { dependsOn: ["midnight-proof-server"] } : {}),
   },
   {
     name: "chat-server",
