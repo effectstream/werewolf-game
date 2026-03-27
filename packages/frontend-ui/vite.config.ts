@@ -230,7 +230,7 @@ export default defineConfig({
 
   server: {
     headers: threadedWasmHeaders,
-    port: 5173,
+    port: Number(process.env.VITE_FRONTEND_PORT) || 5173,
   },
 
   preview: {

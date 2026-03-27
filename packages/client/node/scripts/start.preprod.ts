@@ -19,6 +19,10 @@ import { Value } from "@sinclair/typebox/value";
 // Read the LAUNCH_PROOF_SERVER environment variable (default: true)
 const launchProofServer = Deno.env.get("LAUNCH_PROOF_SERVER") !== "false";
 
+// Read the USE_EXTERNAL_PG environment variable (default: false - use embedded PGLite)
+// Set to "true" in .env.preprod to use external PostgreSQL instead
+const useExternalPg = Deno.env.get("USE_EXTERNAL_PG") === "true";
+
 const customProcesses = [
   ...(launchProofServer
     ? [
@@ -69,8 +73,9 @@ const config = Value.Parse(OrchestratorConfig, {
     // No TMUX / TUI — run as a plain server process.
     [ComponentNames.TMUX]: false,
     [ComponentNames.TUI]: false,
-    // Local PGLite DB and block collector.
-    [ComponentNames.EFFECTSTREAM_PGLITE]: true,
+    // DB: Use embedded PGLite (default) or external PostgreSQL (if USE_EXTERNAL_PG=true)
+    // External PostgreSQL requires PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD env vars
+    [ComponentNames.EFFECTSTREAM_PGLITE]: !useExternalPg,
     [ComponentNames.COLLECTOR]: true,
   },
 

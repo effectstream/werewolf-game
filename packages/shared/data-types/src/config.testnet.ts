@@ -28,7 +28,8 @@ import { paimaL2Grammar } from "@werewolf-game/data-types/grammar";
 const mainSyncProtocolName = "mainNtp";
 let launchStartTime: number | undefined;
 
-// Start syncing from the current chain tips — no historical game data to replay.
+// Start syncing from the current chain tips, or from a specific block if configured.
+// Set EVM_SYNC_FROM or MIDNIGHT_SYNC_FROM environment variables to override.
 let arbSepoliaTip: number = 0;
 let midnightTip: number = 1;
 
@@ -70,40 +71,70 @@ if (Deno) {
     }
   }
 
-  // Fetch current Arbitrum Sepolia tip so we don't replay historical blocks.
-  try {
-    const rpcUrl = Deno.env.get("ARBITRUM_SEPOLIA_RPC") ?? "";
-    if (rpcUrl) {
-      const res = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
-      });
-      const data = await res.json();
-      if (data?.result) {
-        arbSepoliaTip = parseInt(data.result, 16);
-        console.log(`[config] Arb Sepolia tip: ${arbSepoliaTip}`);
-      }
+  // Read EVM_SYNC_FROM environment variable for custom EVM sync start block.
+  // If set, sync from this block number. Otherwise, fetch current tip.
+  const evmSyncFromEnv = Deno.env.get("EVM_SYNC_FROM");
+  if (evmSyncFromEnv !== undefined && evmSyncFromEnv !== "") {
+    const parsedBlock = parseInt(evmSyncFromEnv, 10);
+    if (!isNaN(parsedBlock) && parsedBlock >= 0) {
+      arbSepoliaTip = parsedBlock;
+      console.log(`[config] EVM sync from block (env var): ${arbSepoliaTip}`);
+    } else {
+      console.warn(`[config] Invalid EVM_SYNC_FROM value: "${evmSyncFromEnv}", fetching tip instead`);
     }
-  } catch (e) {
-    console.warn("[config] Could not fetch Arb Sepolia tip, starting from 0:", e);
   }
 
-  // Fetch current Midnight preprod tip so we don't replay historical blocks.
-  try {
-    const res = await fetch("https://rpc.preprod.midnight.network", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", method: "chain_getBlock", params: [], id: 1 }),
-    });
-    const data = await res.json();
-    const blockNumber = data?.result?.block?.header?.number;
-    if (blockNumber != null) {
-      midnightTip = parseInt(blockNumber, 16);
-      console.log(`[config] Midnight preprod tip: ${midnightTip}`);
+  // Fetch current Arbitrum Sepolia tip if EVM_SYNC_FROM is not set.
+  if (arbSepoliaTip === 0) {
+    try {
+      const rpcUrl = Deno.env.get("ARBITRUM_SEPOLIA_RPC") ?? "";
+      if (rpcUrl) {
+        const res = await fetch(rpcUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
+        });
+        const data = await res.json();
+        if (data?.result) {
+          arbSepoliaTip = parseInt(data.result, 16);
+          console.log(`[config] Arb Sepolia tip: ${arbSepoliaTip}`);
+        }
+      }
+    } catch (e) {
+      console.warn("[config] Could not fetch Arb Sepolia tip, starting from 0:", e);
     }
-  } catch (e) {
-    console.warn("[config] Could not fetch Midnight tip, starting from 1:", e);
+  }
+
+  // Read MIDNIGHT_SYNC_FROM environment variable for custom Midnight sync start block.
+  // If set, sync from this block number. Otherwise, fetch current tip.
+  const midnightSyncFromEnv = Deno.env.get("MIDNIGHT_SYNC_FROM");
+  if (midnightSyncFromEnv !== undefined && midnightSyncFromEnv !== "") {
+    const parsedBlock = parseInt(midnightSyncFromEnv, 10);
+    if (!isNaN(parsedBlock) && parsedBlock >= 0) {
+      midnightTip = parsedBlock;
+      console.log(`[config] Midnight sync from block (env var): ${midnightTip}`);
+    } else {
+      console.warn(`[config] Invalid MIDNIGHT_SYNC_FROM value: "${midnightSyncFromEnv}", fetching tip instead`);
+    }
+  }
+
+  // Fetch current Midnight preprod tip if MIDNIGHT_SYNC_FROM is not set.
+  if (midnightTip === 1) {
+    try {
+      const res = await fetch("https://rpc.preprod.midnight.network", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "chain_getBlock", params: [], id: 1 }),
+      });
+      const data = await res.json();
+      const blockNumber = data?.result?.block?.header?.number;
+      if (blockNumber != null) {
+        midnightTip = parseInt(blockNumber, 16);
+        console.log(`[config] Midnight preprod tip: ${midnightTip}`);
+      }
+    } catch (e) {
+      console.warn("[config] Could not fetch Midnight tip, starting from 1:", e);
+    }
   }
 
   const dbConn = getConnection();
