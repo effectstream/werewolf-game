@@ -258,11 +258,18 @@ export async function lobbyStatusHandler(dbConn: Pool, gameId: number) {
 
   const currentBlock = await getCurrentNtpBlock(dbConn);
 
+  const gameViewRows = await runPreparedQuery(
+    getGameView.run({ game_id: gameId }, dbConn),
+    "getGameView",
+  );
+  const finished = gameViewRows.length > 0 ? gameViewRows[0].finished : false;
+
   return {
     state,
     playerCount: Number(lobby.player_count),
     maxPlayers: Number(lobby.max_players),
     bundlesReady: lobby.bundles_ready,
+    finished,
     timeoutBlock: lobby.timeout_block ? Number(lobby.timeout_block) : undefined,
     currentBlock,
   };

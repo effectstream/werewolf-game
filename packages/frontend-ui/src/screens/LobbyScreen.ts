@@ -909,13 +909,20 @@ export class LobbyScreen {
         if (r.status === "rejected") clearSession(sessions[i].gameId);
       });
 
+      // Sessions whose game is finished → clean up from localStorage.
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled" && r.value.status.finished) {
+          clearSession(sessions[i].gameId);
+        }
+      });
+
       const active = results
         .filter(
           (
             r,
           ): r is PromiseFulfilledResult<
             { session: StoredSession; status: LobbyStatusResponse }
-          > => r.status === "fulfilled",
+          > => r.status === "fulfilled" && !r.value.status.finished,
         )
         .map((r) => r.value);
 

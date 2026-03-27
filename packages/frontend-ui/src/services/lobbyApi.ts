@@ -195,6 +195,7 @@ export interface LobbyStatusResponse {
   playerCount: number
   maxPlayers: number
   bundlesReady: boolean
+  finished: boolean
   timeoutBlock?: number
   currentBlock?: number | null
 }
