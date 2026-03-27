@@ -98,6 +98,7 @@ export class BatcherClient {
   private async callDelegated(
     circuitName: string,
     callFn: () => Promise<any>,
+    onProofDone?: () => void,
   ): Promise<void> {
     console.log(
       `🔍 [BatcherClient] Preparing delegated call for ${circuitName}...`,
@@ -113,6 +114,8 @@ export class BatcherClient {
       // before calling balanceTx. Serialize it directly without calling bind() so
       // the batcher receives an "unbound" stage tx and can do proper dust balancing
       // via balanceUnboundTransaction() rather than the less-efficient finalized path.
+      // Notify caller that proof generation is done and batcher submission is starting.
+      onProofDone?.();
       const serializedTx = toHex(tx.serialize());
 
       const txStage = this.detectTxStage(serializedTx);
@@ -283,15 +286,17 @@ export class BatcherClient {
 
   // --- Player Actions ---
 
-  async nightAction(gameId: bigint): Promise<void> {
+  async nightAction(gameId: bigint, onProofDone?: () => void): Promise<void> {
     await this.callDelegated("nightAction", () =>
-      this.contract.callTx.nightAction(gameId)
+      this.contract.callTx.nightAction(gameId),
+      onProofDone,
     );
   }
 
-  async voteDay(gameId: bigint): Promise<void> {
+  async voteDay(gameId: bigint, onProofDone?: () => void): Promise<void> {
     await this.callDelegated("voteDay", () =>
-      this.contract.callTx.voteDay(gameId)
+      this.contract.callTx.voteDay(gameId),
+      onProofDone,
     );
   }
 
