@@ -32,3 +32,6 @@ deployment-state.json
 contract-werewolf.undeployed.json
 midnight-level-db/
 midnight-level-db-*/
+
+# Credentials
+.env.preprod

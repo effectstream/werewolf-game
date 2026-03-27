@@ -391,7 +391,7 @@ export class TrustedNode implements TrustedNodeActor {
 // RUNTIME MERKLE TREE (uses contract circuits; no simulation import)
 // =============================================================================
 
-const MERKLE_DEPTH = 10;
+const MERKLE_DEPTH = 5;
 const TOTAL_LEAVES = 1 << MERKLE_DEPTH;
 
 export class RuntimeMerkleTree<Ctx = unknown> {

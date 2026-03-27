@@ -909,13 +909,20 @@ export class LobbyScreen {
         if (r.status === "rejected") clearSession(sessions[i].gameId);
       });
 
+      // Finished games outside the 60-minute window (server-evaluated) → clean up.
+      results.forEach((r, i) => {
+        if (r.status === "fulfilled" && r.value.status.finished && !r.value.status.finishedRecently) {
+          clearSession(sessions[i].gameId);
+        }
+      });
+
       const active = results
         .filter(
           (
             r,
           ): r is PromiseFulfilledResult<
             { session: StoredSession; status: LobbyStatusResponse }
-          > => r.status === "fulfilled",
+          > => r.status === "fulfilled" && (!r.value.status.finished || r.value.status.finishedRecently),
         )
         .map((r) => r.value);
 
@@ -927,7 +934,9 @@ export class LobbyScreen {
         ${
         active.map(({ session, status }) => {
           let statusLabel: string;
-          if (status.state === "open") {
+          if (status.finished) {
+            statusLabel = "✅ Finished";
+          } else if (status.state === "open") {
             statusLabel = "🟢 Open";
           } else if (!status.bundlesReady) {
             statusLabel = "⏳ Waiting for bundles";

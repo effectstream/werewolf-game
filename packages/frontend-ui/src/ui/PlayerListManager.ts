@@ -146,15 +146,17 @@ export class PlayerListManager {
     let txTimer: ReturnType<typeof setInterval> | null = null
     let elapsedSeconds = 0
 
-    const updateTxPhase = (elapsed: number) => {
-      // Transition from ZK proof phase to batcher phase after ~90 seconds
-      if (elapsed < 90) {
+    const setPhase = (phase: 'proving' | 'batcher') => {
+      if (phase === 'proving') {
         stepProving.className = 'vote-tx-step vote-tx-step-active'
         stepBatcher.className = 'vote-tx-step'
       } else {
         stepProving.className = 'vote-tx-step vote-tx-step-done'
         stepBatcher.className = 'vote-tx-step vote-tx-step-active'
       }
+    }
+
+    const updateTxTimer = (elapsed: number) => {
       txElapsed.textContent = `${elapsed}s elapsed`
       txFlavor.textContent = FLAVOR_TEXTS[Math.floor(elapsed / 15) % FLAVOR_TEXTS.length]
       if (elapsed >= 45) txReassurance.classList.remove('hidden')
@@ -162,15 +164,14 @@ export class PlayerListManager {
 
     const startTxProgress = () => {
       elapsedSeconds = 0
-      stepProving.className = 'vote-tx-step vote-tx-step-active'
-      stepBatcher.className = 'vote-tx-step'
+      setPhase('proving')
       txElapsed.textContent = '0s elapsed'
       txFlavor.textContent = FLAVOR_TEXTS[0]
       txReassurance.classList.add('hidden')
       txProgress.classList.remove('hidden')
       txTimer = setInterval(() => {
         elapsedSeconds++
-        updateTxPhase(elapsedSeconds)
+        updateTxTimer(elapsedSeconds)
       }, 1000)
     }
 
@@ -195,7 +196,7 @@ export class PlayerListManager {
 
     newYes.addEventListener('click', async () => {
       setLoading(true)
-      const closed = await this.handleVoteConfirmed(targetIndex)
+      const closed = await this.handleVoteConfirmed(targetIndex, { onProofDone: () => setPhase('batcher') })
       setLoading(false)
       if (closed) {
         backdrop.classList.add('hidden')
@@ -214,7 +215,7 @@ export class PlayerListManager {
    * Submits the vote. Returns true if the modal should close (success / already voted),
    * false if the modal should stay open for a retry (error).
    */
-  private async handleVoteConfirmed(targetIndex: number): Promise<boolean> {
+  private async handleVoteConfirmed(targetIndex: number, callbacks?: { onProofDone?: () => void }): Promise<boolean> {
     const bundle = gameState.playerBundle
     if (!bundle) {
       console.error('[PlayerListManager] No player bundle available for vote')
@@ -235,6 +236,7 @@ export class PlayerListManager {
         gameState.round,
         gameState.phase,
         gameState.lobbyGameId,
+        callbacks,
       )
 
       if (result.alreadyVoted) {

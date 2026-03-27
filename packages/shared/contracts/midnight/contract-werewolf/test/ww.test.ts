@@ -118,7 +118,7 @@ class RuntimeMerkleTree {
   }
 
   async build() {
-    const depth = 10;
+    const depth = 5;
     let currentLevel: MerkleTreeDigest[] = [];
     const totalLeaves = 1 << depth;
     const zeroBytes = new Uint8Array(32);
@@ -165,7 +165,7 @@ class RuntimeMerkleTree {
   getProof(index: number, leaf: Uint8Array): MerkleTreePath {
     const path: MerkleTreePathEntry[] = [];
     let idx = index;
-    for (let level = 0; level < 10; level++) {
+    for (let level = 0; level < 5; level++) {
       const isRight = idx % 2 === 1;
       const siblingIdx = isRight ? idx - 1 : idx + 1;
       const siblingDigest = this.levels[level][siblingIdx];

@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { PlayerConfig } from '../models/PlayerConfigInterface'
 import type { GameViewResponse } from '../services/lobbyApi'
+import { saveVoteRecord, loadVoteRecord } from '../services/sessionStore'
 
 export type Role = 'villager' | 'werewolf' | 'doctor' | 'seer' | 'angelDead'
 
@@ -195,6 +196,16 @@ class GameState {
       changed = true
     }
 
+    // Restore vote state from localStorage after a page refresh
+    if (!this.hasVotedThisRound && this.lobbyGameId !== null) {
+      const stored = loadVoteRecord(this.lobbyGameId)
+      if (stored && stored.round === view.round && stored.phase === mappedPhase) {
+        this.hasVotedThisRound = true
+        this.votedRoundPhaseKey = newVotedKey
+        changed = true
+      }
+    }
+
     if (view.finished !== this.finished) {
       this.finished = view.finished
       changed = true
@@ -263,6 +274,9 @@ class GameState {
   markVotedThisRound() {
     this.hasVotedThisRound = true
     this.votedRoundPhaseKey = `${this.round}:${this.phase}`
+    if (this.lobbyGameId !== null) {
+      saveVoteRecord(this.lobbyGameId, this.round, this.phase)
+    }
     this.notify()
   }
 

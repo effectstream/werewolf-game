@@ -17,9 +17,7 @@ export {
 
 export {
     Werewolf_games,
-    Werewolf_playerAlive,
-    Werewolf_playerRoleCommitments,
-    Werewolf_playerEncryptedRoles,
+    Werewolf_players,
     Werewolf_voteNullifiers,
     Werewolf_gameSecrets,
     Werewolf_roundVotes
@@ -143,8 +141,8 @@ export circuit isPlayerAlive(gameId: Uint<32>, playerIdx: Uint<32>): Boolean {
     const gid = disclose(gameId);
     const pid = disclose(playerIdx);
     const pk = PlayerKey { gameId: gid, playerIdx: pid };
-    if (!Werewolf_playerAlive.member(pk)) return false;
-    return Werewolf_playerAlive.lookup(pk);
+    if (!Werewolf_players.member(pk)) return false;
+    return Werewolf_players.lookup(pk).isAlive;
 }
 
 // Returns the game's admin public key (Bytes<33>) so players can encrypt
@@ -164,6 +162,10 @@ export circuit testComputeCommitment(role: Uint<8>, salt: Bytes<32>): Bytes<32> 
 
 export circuit testComputeHash(data: Bytes<32>): Bytes<32> {
     return Crypto_hash(data);
+}
+
+export circuit testComputeHash2(a: Bytes<32>, b: Bytes<32>): Bytes<32> {
+    return Crypto_hash2(a, b);
 }
 
 export circuit testComputeSalt(masterSecret: Bytes<32>, playerIdx: Uint<32>): Bytes<32> {
@@ -198,11 +200,23 @@ export circuit testNodeDigest(left: MerkleTreeDigest, right: MerkleTreeDigest): 
 export circuit testVerifyMerkleProof(
     root: MerkleTreeDigest,
     leaf: Bytes<32>,
-    path: MerkleTreePath<10, Bytes<32>>
+    path: MerkleTreePath<5, Bytes<32>>
 ): Boolean {
     return Crypto_verifyMerkleProof(root, leaf, path);
 }
 
-export circuit testMerkleRoot(path: MerkleTreePath<10, Bytes<32>>): MerkleTreeDigest {
-    return std_merkleTreePathRoot<10, Bytes<32>>(path);
+export circuit testMerkleRoot(path: MerkleTreePath<5, Bytes<32>>): MerkleTreeDigest {
+    return std_merkleTreePathRoot<5, Bytes<32>>(path);
+}
+
+export circuit testComputeNullifierNight(gameId: Uint<32>, round: Uint<32>, leafSecret: Bytes<32>): Bytes<32> {
+    return Crypto_computeNullifierNight(gameId, round, leafSecret);
+}
+
+export circuit testComputeNullifierDay(gameId: Uint<32>, round: Uint<32>, leafSecret: Bytes<32>): Bytes<32> {
+    return Crypto_computeNullifierDay(gameId, round, leafSecret);
+}
+
+export circuit testComputeTranscript(prevHash: Bytes<32>, roundDigest: Bytes<32>, outcomeIdx: Uint<32>, outcomeFlag: Boolean): Bytes<32> {
+    return Crypto_computeTranscript(prevHash, roundDigest, outcomeIdx, outcomeFlag);
 }

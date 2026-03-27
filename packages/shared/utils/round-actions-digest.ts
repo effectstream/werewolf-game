@@ -1,12 +1,16 @@
 import {
   Contract as WerewolfRuntimeContract,
   Phase,
+  pureCircuits,
 } from "../contracts/midnight/contract-werewolf/src/managed/contract/index.js";
 
+// Internal runtime methods used by computeRoundActionsDigest.
+// These suffixes are assigned by the Compact compiler and may change on
+// recompilation — verify against managed/contract/index.js if tests break.
 type RuntimeContractWithInternals = WerewolfRuntimeContract & {
-  _persistentHash_0(value: bigint): Uint8Array;
-  _persistentHash_1(value: Uint8Array): Uint8Array;
-  _hash2_0(a: Uint8Array, b: Uint8Array): Uint8Array;
+  _persistentHash_5(value: bigint): Uint8Array; // Uint<32> → Bytes<32>
+  _persistentHash_1(value: Uint8Array): Uint8Array; // Bytes<32> → Bytes<32>
+  _hash2_0(a: Uint8Array, b: Uint8Array): Uint8Array; // [Bytes<32>,Bytes<32>] → Bytes<32>
 };
 
 export type RoundActionDigestInput = {
@@ -87,16 +91,15 @@ export function computeVoteNullifier(
   phase: PhaseLike,
   leafSecret: Uint8Array,
 ): Uint8Array {
-  const gameIdHash = runtimeContract._persistentHash_0(BigInt(gameId));
-  const roundHash = runtimeContract._persistentHash_0(BigInt(round));
-  const roundLeafHash = runtimeContract._hash2_0(roundHash, normalizeBytes(leafSecret, 32));
+  const gid = BigInt(gameId);
+  const r = BigInt(round);
+  const secret = normalizeBytes(leafSecret, 32);
 
   if (normalizePhase(phase) === Phase.Day) {
-    const dayDomain = runtimeContract._hash2_0(gameIdHash, padLabel32("day-vote"));
-    return runtimeContract._hash2_0(dayDomain, roundLeafHash);
+    return pureCircuits.testComputeNullifierDay(gid, r, secret);
   }
 
-  return runtimeContract._hash2_0(gameIdHash, roundLeafHash);
+  return pureCircuits.testComputeNullifierNight(gid, r, secret);
 }
 
 export function computeRoundActionsDigest(
@@ -108,11 +111,11 @@ export function computeRoundActionsDigest(
   const normalizedPhase = normalizePhase(phase);
   let digest = runtimeContract._hash2_0(
     phaseDomainTag(normalizedPhase),
-    runtimeContract._persistentHash_0(BigInt(gameId)),
+    runtimeContract._persistentHash_5(BigInt(gameId)),
   );
   digest = runtimeContract._hash2_0(
     digest,
-    runtimeContract._persistentHash_0(BigInt(round)),
+    runtimeContract._persistentHash_5(BigInt(round)),
   );
 
   const orderedActions = [...actions].sort((left, right) =>

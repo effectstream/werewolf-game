@@ -19,7 +19,7 @@ module WerewolfTypes {
     export struct ActionData {
         // Compact Payload: [Target(7b) | Round(7b) | Random(10b)] = 24 bits
         encryptedAction: Bytes<3>,
-        merklePath: MerkleTreePath<10, Bytes<32>>,
+        merklePath: MerkleTreePath<5, Bytes<32>>,
         leafSecret: Bytes<32>
     }
 
@@ -32,6 +32,13 @@ module WerewolfTypes {
     export struct PlayerKey {
         gameId: Uint<32>,
         playerIdx: Uint<32>
+    }
+
+    // Consolidated per-player state — single Merkle tree instead of three
+    export struct PlayerState {
+        isAlive: Boolean,
+        roleCommitment: Bytes<32>,
+        encryptedRole: Bytes<3>
     }
 
     // Composite key for per-vote storage; nullifier is unique per player per (game, phase, round)

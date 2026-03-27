@@ -77,6 +77,36 @@ export function getAllSessions(): StoredSession[] {
   return sessions
 }
 
+// ---------------------------------------------------------------------------
+// Per-round vote persistence — survives page refresh
+// ---------------------------------------------------------------------------
+
+const VOTE_PREFIX = 'werewolf:voted:'
+
+export interface StoredVoteRecord {
+  round: number
+  phase: string
+}
+
+export function saveVoteRecord(gameId: number, round: number, phase: string): void {
+  try {
+    localStorage.setItem(VOTE_PREFIX + gameId, JSON.stringify({ round, phase }))
+  } catch { /* ignore */ }
+}
+
+export function loadVoteRecord(gameId: number): StoredVoteRecord | null {
+  try {
+    const raw = localStorage.getItem(VOTE_PREFIX + gameId)
+    return raw ? (JSON.parse(raw) as StoredVoteRecord) : null
+  } catch { return null }
+}
+
+export function clearVoteRecord(gameId: number): void {
+  try {
+    localStorage.removeItem(VOTE_PREFIX + gameId)
+  } catch { /* ignore */ }
+}
+
 export function bytesToHex(b: Uint8Array): string {
   return Array.from(b, (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
