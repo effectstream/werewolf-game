@@ -9,7 +9,9 @@
     "dev": "deno task -f @werewolf-game/node dev",
     "testnet": "deno task -f @werewolf-game/node dev:testnet",
     "start:frontend": "deno task -f @example-midnight/frontend dev",
-    "check": "deno task -f @werewolf-game/node check"
+    "check": "deno task -f @werewolf-game/node check",
+    "build:frontend:preprod": "cd packages/frontend-ui && npm run build:preprod",
+    "serve:frontend:preprod": "cd packages/frontend-ui && npm run serve:preprod"
   },
   "imports": {
     // TODO: This is a workaround for a missing dependency.

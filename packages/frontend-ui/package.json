@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:preprod": "vite build --mode preprod",
     "preview": "vite preview",
+    "serve:preprod": "deno run --allow-net --allow-read --allow-env scripts/serve-preprod.ts",
     "typecheck": "tsc --noEmit",
     "fetch-midnight-params": "node scripts/fetch-midnight-params.mjs"
   },
