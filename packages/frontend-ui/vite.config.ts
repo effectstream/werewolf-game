@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import wasm from 'vite-plugin-wasm'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { fileURLToPath } from 'node:url'
@@ -137,10 +137,13 @@ function resolvePolyfillShims() {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const envDir = resolve(__dirname, '../..')
+  const env = loadEnv(mode, envDir)
+  return {
   // Load .env files from the repo root so `vite build --mode preprod` picks up
   // .env.preprod (which lives at the workspace root, not inside packages/frontend-ui).
-  envDir: resolve(__dirname, '../..'),
+  envDir,
 
   plugins: [
     // Required: Midnight SDK packages contain WASM modules
@@ -230,10 +233,11 @@ export default defineConfig({
 
   server: {
     headers: threadedWasmHeaders,
-    port: Number(process.env.VITE_FRONTEND_PORT) || 5173,
+    port: Number(env.VITE_FRONTEND_PORT) || 5173,
   },
 
   preview: {
     headers: threadedWasmHeaders,
   },
+  }
 })
