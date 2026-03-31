@@ -67,8 +67,8 @@ export interface CallMidnightCircuitParams {
   circuitId: string;
   /**
    * Private state for witness evaluation, OR a factory that receives the wallet's
-   * coin public key so it can be embedded into the private state (needed for createGame,
-   * where adminKey must equal the coin public key that will be stored on-chain).
+   * coin public key so it can be embedded into the private state (used for
+   * encryption key setup during createGame).
    */
   privateState: PrivateState | ((coinPublicKey: Uint8Array) => PrivateState);
   /**
@@ -81,9 +81,8 @@ export interface CallMidnightCircuitParams {
   batcherUrl: string;
   /**
    * Optional wallet seed (32-byte hex). If provided, the same wallet identity
-   * is used across calls — required for admin circuits that check std_ownPublicKey()
-   * against the adminKey stored during createGame. If omitted, a fresh random
-   * seed is generated (suitable for createGame, where the coin key is being set).
+   * is used across calls for delegated balancing. If omitted, a fresh random
+   * seed is generated.
    */
   seed?: string;
 }
@@ -225,7 +224,7 @@ function createProviders(params: {
 export interface CallMidnightCircuitResult {
   /** The seed that was used for the wallet facade (random or provided). */
   seed: string;
-  /** The ZSwap coin public key from the wallet — stored on-chain as adminKey during createGame. */
+  /** The ZSwap coin public key from the wallet facade. */
   coinPublicKey: Uint8Array;
 }
 
@@ -239,7 +238,7 @@ export interface CallMidnightCircuitResult {
  * 5. Posts it to the batcher for balancing and on-chain submission
  *
  * Returns the seed and coin public key used, so callers can persist them for
- * subsequent admin circuit calls that must match std_ownPublicKey().
+ * subsequent circuit calls (delegated balancing).
  */
 export async function callMidnightCircuit(
   params: CallMidnightCircuitParams,
@@ -274,7 +273,7 @@ export async function callMidnightCircuit(
   );
 
   // 4. Resolve private state — if a factory was provided, call it with the coin public key
-  // so the factory can embed the coin key (e.g. as adminKey in createGame).
+  // so the factory can embed the coin key (e.g. for encryption setup in createGame).
   // zswapSecretKeys.coinPublicKey is a hex string; convert to Uint8Array for the factory.
   const coinPublicKeyHex = walletResult.zswapSecretKeys.coinPublicKey as string;
   const coinPublicKey = hexToBytes(coinPublicKeyHex);

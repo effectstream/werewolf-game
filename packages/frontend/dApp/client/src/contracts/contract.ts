@@ -154,6 +154,7 @@ const getPrivateStoragePassword = () => "PAIMA_STORAGE_PASSWORD";
 
 const createInitialPrivateState = (): WerewolfPrivateState => ({
   setupData: new Map(),
+  adminSecrets: new Map(),
 });
 
 const getPrivateStateAccountId = (coinPublicKey: unknown): string => {
@@ -267,6 +268,7 @@ export const WEREWOLF_METHODS = [
     args: [
       { name: "gameId", type: "uint32" },
       { name: "adminVotePublicKey", type: "bytes33" },
+      { name: "adminSecretCommitment", type: "field" },
       { name: "masterSecretCommitment", type: "bytes32" },
       { name: "actualCount", type: "uint32" },
       { name: "werewolfCount", type: "uint32" },

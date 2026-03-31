@@ -515,7 +515,10 @@ export async function resolvePhaseFromLedger(
     );
   }
 
-  const emptyPrivateState: PrivateState = { setupData: new Map() };
+  const adminPrivateState: PrivateState = {
+    setupData: new Map(),
+    adminSecrets: new Map([[String(gameId), secrets.adminSecret]]),
+  };
   const roundActionsDigest = buildRoundActionsDigestFromLedger(
     gameId,
     round,
@@ -526,7 +529,7 @@ export async function resolvePhaseFromLedger(
   if (isNight) {
     await callMidnightCircuit({
       circuitId: "resolveNightPhase",
-      privateState: emptyPrivateState,
+      privateState: adminPrivateState,
       batcherUrl: BATCHER_URL,
       seed: adminWalletSeed,
       callFn: async (contract) => {
@@ -543,7 +546,7 @@ export async function resolvePhaseFromLedger(
   } else {
     await callMidnightCircuit({
       circuitId: "resolveDayPhase",
-      privateState: emptyPrivateState,
+      privateState: adminPrivateState,
       batcherUrl: BATCHER_URL,
       seed: adminWalletSeed,
       callFn: async (contract) => {
@@ -596,7 +599,7 @@ export async function resolvePhaseFromLedger(
       try {
         await callMidnightCircuit({
           circuitId: "forceEndGame",
-          privateState: emptyPrivateState,
+          privateState: adminPrivateState,
           batcherUrl: BATCHER_URL,
           seed: adminWalletSeed,
           callFn: async (contract) => {
@@ -680,7 +683,7 @@ export async function resolvePhaseFromVotes(
     throw new Error(`[vote-resolver] No Merkle root for game=${gameId}`);
   }
 
-  // 5. Get admin wallet seed — required so std_ownPublicKey() matches state.adminKey
+  // 5. Get admin wallet seed (for delegated balancing) and admin secret (for ZK auth)
   const secrets = store.getGameSecrets(gameId);
   const adminWalletSeed = secrets?.adminWalletSeed;
   if (!adminWalletSeed) {
@@ -691,7 +694,10 @@ export async function resolvePhaseFromVotes(
 
   // 6. Submit to contract via delegated balancing.
   // resolveNight/resolveDay use disclose() for all arguments — no witnesses needed.
-  const emptyPrivateState: PrivateState = { setupData: new Map() };
+  const adminPrivateState: PrivateState = {
+    setupData: new Map(),
+    adminSecrets: new Map([[String(gameId), secrets!.adminSecret]]),
+  };
   const roundActionsDigest = buildRoundActionsDigestFromStore(
     gameId,
     round,
@@ -701,7 +707,7 @@ export async function resolvePhaseFromVotes(
   if (isNight) {
     await callMidnightCircuit({
       circuitId: "resolveNightPhase",
-      privateState: emptyPrivateState,
+      privateState: adminPrivateState,
       batcherUrl: BATCHER_URL,
       seed: adminWalletSeed,
       callFn: async (contract) => {
@@ -718,7 +724,7 @@ export async function resolvePhaseFromVotes(
   } else {
     await callMidnightCircuit({
       circuitId: "resolveDayPhase",
-      privateState: emptyPrivateState,
+      privateState: adminPrivateState,
       batcherUrl: BATCHER_URL,
       seed: adminWalletSeed,
       callFn: async (contract) => {
@@ -765,7 +771,7 @@ export async function resolvePhaseFromVotes(
       try {
         await callMidnightCircuit({
           circuitId: "forceEndGame",
-          privateState: emptyPrivateState,
+          privateState: adminPrivateState,
           batcherUrl: BATCHER_URL,
           seed: adminWalletSeed,
           callFn: async (contract) => {

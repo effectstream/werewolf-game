@@ -224,6 +224,7 @@ export async function handleLobbyClosed(
   // 5. Store game secrets (including the decrypted game seed for future key derivation).
   store.storeGameSecrets(gameId, {
     masterSecret: result.masterSecret,
+    adminSecret: result.adminSecret,
     adminVoteKeypair: result.adminVoteKeypair,
     adminSignKeypair: result.adminSignKeypair,
     gameSeed,
@@ -244,8 +245,8 @@ export async function handleLobbyClosed(
 
   // 8. Create the Midnight game via delegated balancing.
   // Derive a deterministic admin wallet seed from WEREWOLF_KEY_SECRET + gameId so
-  // the wallet identity (std_ownPublicKey) is always recoverable after a restart
-  // without any DB storage.
+  // the wallet identity is always recoverable after a restart (used for delegated
+  // balancing, not for on-chain authorization).
   const adminWalletSeed = await deriveAdminWalletSeed(WEREWOLF_KEY_SECRET, gameId);
 
   try {
@@ -253,6 +254,7 @@ export async function handleLobbyClosed(
       gameId: BigInt(gameId),
       adminVotePublicKey: result.adminVoteKeypair.publicKey,
       adminSignPublicKey: result.adminSignKeypair.publicKey,
+      adminSecretCommitment: result.adminSecretCommitment,
       masterSecretCommitment: result.masterSecretCommitment,
       actualCount: BigInt(playerCount),
       werewolfCount: BigInt(werewolfCount),
@@ -379,6 +381,7 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
   // 6. Restore game secrets.
   store.storeGameSecrets(gameId, {
     masterSecret: result.masterSecret,
+    adminSecret: result.adminSecret,
     adminVoteKeypair: result.adminVoteKeypair,
     adminSignKeypair: result.adminSignKeypair,
     gameSeed,

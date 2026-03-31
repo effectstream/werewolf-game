@@ -47,6 +47,8 @@ export type PlayerBundle = {
 export type BundleGenerationResult = {
   masterSecret: Uint8Array;
   masterSecretCommitment: Uint8Array;
+  adminSecret: Uint8Array;
+  adminSecretCommitment: bigint; // Field — transient hash for cheap in-circuit comparison
   adminVoteKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
   adminVotePublicKeyHex: string;
   adminSignKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
@@ -233,6 +235,11 @@ export function generateBundles(
     pureCircuits.testComputeHash(masterSecret),
   );
 
+  // --- Generate admin secret (ZK admin authorization) ---
+  const adminSecret = detRandomBytes(32);
+  const adminSecretCommitment = (pureCircuits as any)
+    .testComputeAdminSecretCommitment(adminSecret) as bigint;
+
   // --- Shuffle roles ---
   const roles = shuffle(
     Array.from(
@@ -292,6 +299,8 @@ export function generateBundles(
   return {
     masterSecret,
     masterSecretCommitment,
+    adminSecret,
+    adminSecretCommitment,
     adminVoteKeypair,
     adminVotePublicKeyHex,
     adminSignKeypair,

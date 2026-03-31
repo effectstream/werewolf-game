@@ -186,6 +186,8 @@ type GameState = {
   gameId: bigint;
   masterSecret: Uint8Array;
   masterSecretCommitment: Uint8Array;
+  /** ZK admin secret for proving game creator authority (never disclosed on-chain) */
+  adminSecret: Uint8Array;
   /** Nacl box secret key for admin vote decryption (Curve25519) */
   adminVoteSecretKey: Uint8Array;
   adminVotePublicKeyHex: string;
@@ -1273,6 +1275,7 @@ function App() {
     adminVotePublicKeyBytes: Uint8Array,
     commitments: Uint8Array[],
     initialRoot: { field: bigint },
+    adminSecret?: Uint8Array,
   ) => {
     if (!midnightProviders?.privateStateProvider?.set) {
       throw new Error("Private state provider not available.");
@@ -1297,6 +1300,9 @@ function App() {
           initialRoot,
         },
       ]]),
+      adminSecrets: adminSecret
+        ? new Map([[key, adminSecret]])
+        : new Map(),
       nextAction: undefined,
     };
     await midnightProviders.privateStateProvider.set(
@@ -1647,6 +1653,9 @@ function App() {
       const masterSecretCommitment = new Uint8Array(
         pureCircuits.testComputeHash(masterSecret),
       );
+      const adminSecret = randomBytes32();
+      const adminSecretCommitment = (pureCircuits as any)
+        .testComputeAdminSecretCommitment(adminSecret) as bigint;
 
       const roles = shuffle(
         Array.from(
@@ -1742,6 +1751,7 @@ function App() {
         adminVotePublicKeyBytes,
         players.map((p) => p.commitment),
         initialRoot,
+        adminSecret,
       );
 
       setStatus("Creating game (via batcher)…");
@@ -1750,6 +1760,7 @@ function App() {
       await batcherClient.createGame(
         gameId,
         adminVotePublicKeyBytes,
+        adminSecretCommitment,
         masterSecretCommitment,
         BigInt(playerCount),
         BigInt(werewolfCount),
@@ -1844,6 +1855,7 @@ function App() {
         gameId,
         masterSecret,
         masterSecretCommitment,
+        adminSecret,
         adminVoteSecretKey: adminVoteKeypair.secretKey,
         adminVotePublicKeyHex,
         adminVotePublicKeyBytes,
