@@ -26,7 +26,7 @@ async function runTestSuite() {
 
   console.log("\n\uD83E\uDDEA WEREWOLF CONTRACT TEST SUITE");
 
-  // 1. SETUP KEYS & COMMITMENTS (adminKey in witness is for state only; no auth check)
+  // 1. SETUP KEYS & COMMITMENTS
   try {
     sim.adminKey = new Uint8Array(32);
 
@@ -34,6 +34,10 @@ async function runTestSuite() {
       circuits.testComputeHash(ctx, sim.masterSecret)
     );
     sim.masterSecretCommitment = r2 as unknown as Uint8Array;
+
+    sim.adminSecretCommitment = await sim.runCircuit((ctx) =>
+      circuits.testComputeAdminSecretCommitment(ctx, sim.adminSecret)
+    ) as unknown as bigint;
 
     logPass("Keys & Secrets Generated");
   } catch (e) {
@@ -128,6 +132,9 @@ async function runTestSuite() {
         adminKey: { bytes: sim.adminKey },
         initialRoot: root,
       });
+      state.adminSecrets = new Map([
+        [String(sim.gameId), sim.adminSecret],
+      ]);
     });
 
     await sim.runCircuit((ctx) =>
@@ -135,6 +142,7 @@ async function runTestSuite() {
         ctx,
         sim.gameId,
         sim.adminVotePublicKeyBytes,
+        sim.adminSecretCommitment,
         sim.masterSecretCommitment,
         BigInt(playerCount),
         BigInt(werewolfCount),

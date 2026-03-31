@@ -29,6 +29,7 @@ constructor() {}
 export circuit createGame(
     gameId: Uint<32>,
     adminVotePublicKey: Bytes<33>,
+    adminSecretCommitment: Field,
     masterSecretCommitment: Bytes<32>,
     actualCount: Uint<32>,
     werewolfCount: Uint<32>
@@ -36,6 +37,7 @@ export circuit createGame(
     return Werewolf_createGame(
         disclose(gameId),
         disclose(adminVotePublicKey),
+        disclose(adminSecretCommitment),
         disclose(masterSecretCommitment),
         disclose(actualCount),
         disclose(werewolfCount)
@@ -219,4 +221,8 @@ export circuit testComputeNullifierDay(gameId: Uint<32>, round: Uint<32>, leafSe
 
 export circuit testComputeTranscript(prevHash: Bytes<32>, roundDigest: Bytes<32>, outcomeIdx: Uint<32>, outcomeFlag: Boolean): Bytes<32> {
     return Crypto_computeTranscript(prevHash, roundDigest, outcomeIdx, outcomeFlag);
+}
+
+export circuit testComputeAdminSecretCommitment(adminSecret: Bytes<32>): Field {
+    return Crypto_computeAdminSecretCommitment(adminSecret);
 }

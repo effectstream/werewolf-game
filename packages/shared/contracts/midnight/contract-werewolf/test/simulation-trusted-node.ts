@@ -128,6 +128,7 @@ export class TrustedNode implements TrustedNodeActor {
   public adminEncKey: Uint8Array;
 
   private masterSecret: Uint8Array;
+  public adminSecret: Uint8Array;
   private initialRoot: MerkleTreeDigest = { field: 0n };
   private encKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
 
@@ -144,6 +145,9 @@ export class TrustedNode implements TrustedNodeActor {
   constructor() {
     this.masterSecret = new Uint8Array(
       createHash("sha256").update("master").digest(),
+    );
+    this.adminSecret = new Uint8Array(
+      createHash("sha256").update("admin-secret").digest(),
     );
     this.encKeypair = nacl.box.keyPair();
     this.adminEncKey = this.encKeypair.publicKey;
@@ -299,6 +303,9 @@ export class TrustedNode implements TrustedNodeActor {
       },
       wit_getActionData() {
         throw new Error("TrustedNode does not provide action data");
+      },
+      wit_getAdminSecret(ctx) {
+        return [ctx.privateState, admin.adminSecret];
       },
     };
   }

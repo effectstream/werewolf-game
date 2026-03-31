@@ -49,6 +49,10 @@ export type WitnessSet<PS = Record<string, unknown>, L = unknown> = {
     gid: unknown,
     round: bigint,
   ) => [PS, ActionData];
+  wit_getAdminSecret: (
+    ctx: WitnessContext<L, PS>,
+    gid: unknown,
+  ) => [PS, Uint8Array];
 };
 
 const ENCRYPTION_LIMITS = {
@@ -204,6 +208,9 @@ export class Player {
       },
       wit_getActionData(ctx, _gid, round) {
         return [ctx.privateState, p.getActionData(round)];
+      },
+      wit_getAdminSecret() {
+        throw new Error("Player does not provide admin secret witness");
       },
     };
   }

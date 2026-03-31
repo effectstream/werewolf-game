@@ -640,35 +640,24 @@ async function runSecurityTests() {
   // ========================================
   console.log("\n--- GROUP 6: Admin Authorization ---");
 
-  // NOTE: The compact-runtime local simulator uses a single Zswap identity
-  // (derived from the constructor seed). All Contract instances created with
-  // the same seed share the same std_ownPublicKey(), making it impossible to
-  // simulate a different caller identity locally.
-  //
-  // The admin checks DO exist in the contract (verified by code inspection):
-  //   - resolveNightPhase:  assert(std_ownPublicKey() == state.adminKey, "Only Admin can resolve")
-  //   - resolveDayPhase:    assert(std_ownPublicKey() == state.adminKey, "Only Admin")
-  //   - adminPunishPlayer:  assert(std_ownPublicKey() == state.adminKey, "Only Admin can punish")
-  //   - forceEndGame:       assert(std_ownPublicKey() == state.adminKey, "Only Admin")
-  //
-  // These checks are enforced on the actual Midnight network where each wallet
-  // has a unique Zswap coin public key. Full admin auth testing requires a
-  // testnet deployment with two distinct wallets.
+  // Admin authorization uses a ZK secret commitment. The game creator proves
+  // knowledge of adminSecret via witness — the hash is compared to the stored
+  // adminSecretCommitment (Field) on-chain. This can be tested locally by
+  // swapping the adminSecret in private state.
 
   {
     const { sim } = await setupGameReady(5, 1);
     const { circuits } = sim.contract;
 
-    // 6a. Verify admin key is set correctly on game creation
+    // 6a. Verify admin secret commitment is set correctly on game creation
     await expectPass(
-      "6a. Game stores admin key from creator's std_ownPublicKey()",
+      "6a. Game stores adminSecretCommitment from creator",
       async () => {
         const gameState = await sim.runCircuit((ctx) =>
           circuits.getGameState(ctx, sim.gameId)
         );
-        // The adminKey should be set (non-zero struct)
-        if (!gameState || !gameState.adminKey) {
-          throw new Error("Game state missing adminKey");
+        if (!gameState || !gameState.adminSecretCommitment) {
+          throw new Error("Game state missing adminSecretCommitment");
         }
       },
     );
@@ -706,9 +695,31 @@ async function runSecurityTests() {
       },
     );
 
-    console.log(
-      "  \u2139\uFE0F  NOTE: Negative admin auth tests (non-admin caller) require testnet with distinct wallets",
+    // 6e. Non-admin caller (wrong adminSecret) should fail
+    await expectFail(
+      "6e. Non-admin caller with wrong adminSecret rejected",
+      "Only Admin",
+      async () => {
+        // Temporarily swap adminSecret to a wrong value
+        sim.updatePrivateState((state) => {
+          const wrongSecret = new Uint8Array(32);
+          wrongSecret[0] = 0xFF;
+          state.adminSecrets = new Map([
+            [String(sim.gameId), wrongSecret],
+          ]);
+        });
+        await sim.runCircuit((ctx) =>
+          circuits.adminPunishPlayer(ctx, sim.gameId, 3n)
+        );
+      },
     );
+
+    // Restore correct adminSecret for subsequent tests
+    sim.updatePrivateState((state) => {
+      state.adminSecrets = new Map([
+        [String(sim.gameId), sim.adminSecret],
+      ]);
+    });
   }
 
   // ========================================
@@ -773,6 +784,7 @@ async function runSecurityTests() {
             ctx,
             sim.gameId, // same ID
             sim.adminVotePublicKeyBytes,
+            sim.adminSecretCommitment,
             sim.masterSecretCommitment,
             5n,
             1n,

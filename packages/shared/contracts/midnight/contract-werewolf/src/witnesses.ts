@@ -105,11 +105,28 @@ export type ContractActionData = {
 
 export type PrivateState = {
   setupData: Map<string, SetupData>;
+  adminSecrets: Map<string, Uint8Array>; // gameId → 32-byte adminSecret for ZK admin auth
   encryptionKeypair?: { secretKey: Uint8Array; publicKey: Uint8Array };
   nextAction?: RawActionData;
 };
 
 export const witnesses = {
+  wit_getAdminSecret: (
+    { privateState }: WitnessContext<Ledger, PrivateState>,
+    gameId: number | bigint,
+  ): [PrivateState, Uint8Array] => {
+    const key = String(gameId);
+    const secret = privateState.adminSecrets.get(key);
+
+    if (!secret) {
+      throw new Error(
+        `Witness Error: No adminSecret found for gameId ${key}`,
+      );
+    }
+
+    return [privateState, secret];
+  },
+
   wit_getRoleCommitment: (
     { privateState }: WitnessContext<Ledger, PrivateState>,
     gameId: number | bigint,

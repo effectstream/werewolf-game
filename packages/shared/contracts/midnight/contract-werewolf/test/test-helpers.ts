@@ -220,12 +220,15 @@ export class WerewolfSimulator {
   // Game Secrets
   masterSecret: Uint8Array;
   masterSecretCommitment: Uint8Array;
+  adminSecret: Uint8Array;
+  adminSecretCommitment: bigint;
 
   constructor() {
     this.contract = new Contract(witnesses);
 
     const initialPrivateState: PrivateState = {
       setupData: new Map(),
+      adminSecrets: new Map(),
       nextAction: undefined,
     };
 
@@ -261,6 +264,11 @@ export class WerewolfSimulator {
       createHash("sha256").update(Math.random().toString()).digest(),
     );
     this.masterSecretCommitment = new Uint8Array(32);
+
+    this.adminSecret = new Uint8Array(
+      createHash("sha256").update(Math.random().toString()).digest(),
+    );
+    this.adminSecretCommitment = 0n; // computed in setupGameReady
   }
 
   async runCircuit<T>(
@@ -277,6 +285,7 @@ export class WerewolfSimulator {
   updatePrivateState(update: (state: PrivateState) => void) {
     const newState = { ...this.context.currentPrivateState };
     newState.setupData = new Map(newState.setupData);
+    newState.adminSecrets = new Map(newState.adminSecrets);
     update(newState);
     this.context.currentPrivateState = newState;
   }
@@ -319,6 +328,11 @@ export async function setupGameReady(
     circuits.testComputeHash(ctx, sim.masterSecret)
   );
   sim.masterSecretCommitment = r2 as unknown as Uint8Array;
+
+  // Generate admin secret commitment (Field)
+  sim.adminSecretCommitment = await sim.runCircuit((ctx) =>
+    circuits.testComputeAdminSecretCommitment(ctx, sim.adminSecret)
+  ) as unknown as bigint;
 
   // Generate players
   const leaves: Uint8Array[] = [];
@@ -382,6 +396,9 @@ export async function setupGameReady(
       adminKey: { bytes: sim.adminKey },
       initialRoot: root,
     });
+    state.adminSecrets = new Map([
+      [String(sim.gameId), sim.adminSecret],
+    ]);
   });
 
   await sim.runCircuit((ctx) =>
@@ -389,6 +406,7 @@ export async function setupGameReady(
       ctx,
       sim.gameId,
       sim.adminVotePublicKeyBytes,
+      sim.adminSecretCommitment,
       sim.masterSecretCommitment,
       BigInt(playerCount),
       BigInt(werewolfCount),

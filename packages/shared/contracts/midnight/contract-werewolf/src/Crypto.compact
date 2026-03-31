@@ -71,6 +71,13 @@ module Crypto {
         return std_upgradeFromTransient(result);
     }
 
+    // Transient admin-secret commitment — stores as Field for cheap in-circuit
+    // equality (1 constraint vs 32-byte comparison). Uses persistent hash for
+    // preimage resistance, then degrades to Field.
+    export circuit computeAdminSecretCommitment(adminSecret: Bytes<32>): Field {
+        return std_degradeToTransient(std_persistentHash<Bytes<32>>(adminSecret));
+    }
+
     export circuit isValidPoint(p: JubjubPoint): Boolean {
         return true; 
     }

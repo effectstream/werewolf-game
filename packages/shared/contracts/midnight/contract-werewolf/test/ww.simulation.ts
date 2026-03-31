@@ -71,6 +71,11 @@ export class WitnessRegistry {
         if (!w) throw new Error(DEFAULT_WITNESS_MSG);
         return w.wit_getActionData(ctx, gid, round);
       },
+      wit_getAdminSecret(ctx, gid) {
+        const w = self.getCurrent();
+        if (!w) throw new Error(DEFAULT_WITNESS_MSG);
+        return w.wit_getAdminSecret(ctx, gid);
+      },
     };
   }
 }
@@ -170,6 +175,10 @@ class Simulation {
       circuits.testComputeHash(this.context, new Uint8Array(32))
     );
 
+    const adminSecretCommitment = await this.runCircuit(() =>
+      circuits.testComputeAdminSecretCommitment(this.context, this.admin.adminSecret)
+    );
+
     const adminVotePubKeyPadded = new Uint8Array(33);
     adminVotePubKeyPadded.set(this.admin.adminEncKey);
 
@@ -178,6 +187,7 @@ class Simulation {
         this.context,
         this.gameId,
         adminVotePubKeyPadded,
+        adminSecretCommitment,
         masterCommit,
         BigInt(this.players.length),
         BigInt(roles.filter((r) => r === Role.Werewolf).length),

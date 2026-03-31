@@ -297,6 +297,7 @@ const deployConfig: DeployConfig = {
   privateStateId: "privateState",
   initialPrivateState: {
     setupData: new Map(),
+    adminSecrets: new Map(),
   } as PrivateState,
   privateStateStoreName: "werewolf-private-state",
 };
