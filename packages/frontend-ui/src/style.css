@@ -209,8 +209,7 @@ body {
 
 .ui-btn:disabled {
   opacity: 0.38;
-  cursor: default;
-  pointer-events: none;
+  cursor: not-allowed;
 }
 
 .ui-btn.small {
