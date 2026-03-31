@@ -38,6 +38,21 @@ server {
         proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
 
         proxy_cache_bypass $http_upgrade;
+
+        # CORS HEADERS:
+        # Strip upstream CORS headers so nginx is the sole source of truth.
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Methods;
+        proxy_hide_header Access-Control-Allow-Headers;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        add_header Access-Control-Allow-Origin "https://werewolf.paimastudios.com" always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+        add_header Access-Control-Allow-Credentials "true" always;
+
+        if ($request_method = OPTIONS) {
+            return 204;
+        }
     }
 }
 
@@ -59,6 +74,21 @@ server {
         proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
 
         proxy_cache_bypass $http_upgrade;
+
+        # CORS HEADERS:
+        # Strip upstream CORS headers so nginx is the sole source of truth.
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Methods;
+        proxy_hide_header Access-Control-Allow-Headers;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        add_header Access-Control-Allow-Origin "https://werewolf.paimastudios.com" always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+        add_header Access-Control-Allow-Credentials "true" always;
+
+        if ($request_method = OPTIONS) {
+            return 204;
+        }
     }
 }
 
@@ -79,6 +109,21 @@ server {
         proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
 
         proxy_cache_bypass $http_upgrade;
+
+        # CORS HEADERS:
+        # Strip upstream CORS headers so nginx is the sole source of truth.
+        proxy_hide_header Access-Control-Allow-Origin;
+        proxy_hide_header Access-Control-Allow-Methods;
+        proxy_hide_header Access-Control-Allow-Headers;
+        proxy_hide_header Access-Control-Allow-Credentials;
+        add_header Access-Control-Allow-Origin "https://werewolf.paimastudios.com" always;
+        add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+        add_header Access-Control-Allow-Credentials "true" always;
+
+        if ($request_method = OPTIONS) {
+            return 204;
+        }
     }
 }
 
