@@ -136,6 +136,7 @@ export class PlayerListManager {
     targetNameEl.textContent = targetName
     backdrop.classList.remove('hidden')
     backdrop.setAttribute('aria-hidden', 'false')
+    this._disableVoteButtons()
 
     // Replace buttons to remove any stale event listeners
     const newYes = yesBtn.cloneNode(true) as HTMLButtonElement
@@ -199,6 +200,7 @@ export class PlayerListManager {
       const closed = await this.handleVoteConfirmed(targetIndex, { onProofDone: () => setPhase('batcher') })
       setLoading(false)
       if (closed) {
+        this._restoreVoteButtons()
         backdrop.classList.add('hidden')
         backdrop.setAttribute('aria-hidden', 'true')
       }
@@ -206,6 +208,7 @@ export class PlayerListManager {
 
     newNo.addEventListener('click', () => {
       stopTxProgress()
+      this._restoreVoteButtons()
       backdrop.classList.add('hidden')
       backdrop.setAttribute('aria-hidden', 'true')
     })
@@ -262,6 +265,18 @@ export class PlayerListManager {
       console.error('[PlayerListManager] Vote submission error:', err)
       return false
     }
+  }
+
+  private _disableVoteButtons(): void {
+    document.querySelectorAll<HTMLButtonElement>('.vote-btn:not(.voted)').forEach((btn) => {
+      btn.disabled = true
+    })
+  }
+
+  private _restoreVoteButtons(): void {
+    document.querySelectorAll<HTMLButtonElement>('.vote-btn:not(.voted)').forEach((btn) => {
+      btn.disabled = false
+    })
   }
 
   private rebuildIfNeeded(): void {

@@ -207,6 +207,12 @@ body {
   transform: translateY(0);
 }
 
+.ui-btn:disabled {
+  opacity: 0.38;
+  cursor: default;
+  pointer-events: none;
+}
+
 .ui-btn.small {
   font-size: 0.75rem;
   padding: 6px 8px;
