@@ -13,6 +13,9 @@ export witness wit_getInitialRoot(gameId: Uint<32>): MerkleTreeDigest;
 // Implemented by user to pass his secret vote.
 export witness wit_getActionData(gameId: Uint<32>, round: Uint<32>): ActionData;
 
+// Implemented by the game creator to prove admin authority (ZK secret proof).
+export witness wit_getAdminSecret(gameId: Uint<32>): Bytes<32>;
+
 // ── Ledger state — Maps only, no Vectors ────────────────────────────────────
 export ledger games: Map<Uint<32>, GameState>;
 
@@ -25,13 +28,10 @@ export ledger gameSecrets: Map<Uint<32>, Bytes<32>>;
 // Per-vote storage keyed by (gameId, phase, round, nullifier) — collision-free, no counter needed
 export ledger roundVotes: Map<VoteKey, Bytes<3>>;
 
-export circuit getAdminKey(): ZswapCoinPublicKey {
-    return std_ownPublicKey();
-}
-
 export circuit createGame(
     gameId: Uint<32>,
     adminVotePublicKey: Bytes<33>,
+    adminSecretCommitment: Field,
     masterSecretCommitment: Bytes<32>,
     actualCount: Uint<32>,
     werewolfCount: Uint<32>
@@ -42,7 +42,7 @@ export circuit createGame(
     const initialRoot = wit_getInitialRoot(gameId);
 
     const state = GameState {
-        adminKey: std_ownPublicKey(),
+        adminSecretCommitment: disclose(adminSecretCommitment),
         adminVotePublicKey: adminVotePublicKey,
         phase: Phase.Night,
         round: 1,
@@ -104,7 +104,8 @@ export circuit adminPunishPlayer(
     const gameId = disclose(_gameId);
     const playerIdx = disclose(_playerIdx);
     const state = games.lookup(gameId);
-    assert(std_ownPublicKey() == state.adminKey, "Only Admin can punish");
+    const adminSecret = wit_getAdminSecret(gameId);
+    assert(Crypto_computeAdminSecretCommitment(adminSecret) == state.adminSecretCommitment, "Only Admin can punish");
 
     const pk = PlayerKey { gameId: gameId, playerIdx: playerIdx };
     if (players.member(pk) && players.lookup(pk).isAlive) {
@@ -129,7 +130,8 @@ export circuit resolveNightPhase(
     const newMerkleRoot = disclose(_newMerkleRoot);
     const roundActionsDigest = disclose(_roundActionsDigest);
     const state = games.lookup(gameId);
-    assert(std_ownPublicKey() == state.adminKey, "Only Admin can resolve");
+    const adminSecret = wit_getAdminSecret(gameId);
+    assert(Crypto_computeAdminSecretCommitment(adminSecret) == state.adminSecretCommitment, "Only Admin can resolve");
 
     if (hasDeath) {
         const pk = PlayerKey { gameId: gameId, playerIdx: deadPlayerIdx };
@@ -141,7 +143,7 @@ export circuit resolveNightPhase(
 
     const newTranscript = Crypto_computeTranscript(state.transcriptHash, roundActionsDigest, deadPlayerIdx, hasDeath);
     const newState = GameState {
-        adminKey: state.adminKey,
+        adminSecretCommitment: state.adminSecretCommitment,
         adminVotePublicKey: state.adminVotePublicKey,
         phase: Phase.Day,
         round: state.round,
@@ -194,7 +196,8 @@ export circuit resolveDayPhase(
     const roundActionsDigest = disclose(_roundActionsDigest);
 
     const state = games.lookup(gameId);
-    assert(std_ownPublicKey() == state.adminKey, "Only Admin");
+    const adminSecret = wit_getAdminSecret(gameId);
+    assert(Crypto_computeAdminSecretCommitment(adminSecret) == state.adminSecretCommitment, "Only Admin");
 
     if (hasElimination) {
         const pk = PlayerKey { gameId: gameId, playerIdx: eliminatedIdx };
@@ -207,7 +210,7 @@ export circuit resolveDayPhase(
     const nextRound = (state.round + 1) as Uint<32>;
 
     const newState = GameState {
-        adminKey: state.adminKey,
+        adminSecretCommitment: state.adminSecretCommitment,
         adminVotePublicKey: state.adminVotePublicKey,
         phase: Phase.Night,
         round: nextRound,
@@ -277,7 +280,8 @@ export circuit forceEndGame(
     const masterSecret = disclose(_masterSecret);
 
     const state = games.lookup(gameId);
-    assert(std_ownPublicKey() == state.adminKey, "Only Admin");
+    const adminSecret = wit_getAdminSecret(gameId);
+    assert(Crypto_computeAdminSecretCommitment(adminSecret) == state.adminSecretCommitment, "Only Admin");
 
     const calculatedCommit = Crypto_hash(masterSecret);
     assert(calculatedCommit == state.masterSecretCommitment, "Invalid Master Secret for this Game");

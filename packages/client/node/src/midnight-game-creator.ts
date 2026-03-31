@@ -2,13 +2,13 @@
  * Creates a Midnight game on-chain via delegated balancing.
  *
  * Uses the factory pattern: privateState is a function that receives the
- * wallet's ZSwap coin public key so it can be stored as adminKey on-chain.
+ * wallet's ZSwap coin public key so adminKey can be set for encryption.
  * callMidnightCircuit generates the wallet, calls the factory, then connects
  * to the contract — resolving the chicken-and-egg dependency cleanly.
  *
- * The returned adminWalletSeed MUST be stored in GameSecrets and reused for
- * all subsequent admin circuits (resolveNightPhase, resolveDayPhase, etc.)
- * which check std_ownPublicKey() == state.adminKey.
+ * Admin authorization uses a ZK secret commitment (adminSecretCommitment)
+ * instead of wallet identity. The adminWalletSeed is still used for delegated
+ * balancing but no longer for on-chain authorization.
  */
 
 import type { PrivateState } from "../../../shared/contracts/midnight/contract-werewolf/src/witnesses.ts";
@@ -28,24 +28,22 @@ export interface CreateMidnightGameParams {
   gameId: bigint;
   adminVotePublicKey: Uint8Array;
   adminSignPublicKey: Uint8Array;
+  /** Field commitment of adminSecret — stored on-chain for ZK admin authorization. */
+  adminSecretCommitment: bigint;
   masterSecretCommitment: Uint8Array;
   actualCount: bigint;
   werewolfCount: bigint;
   roleCommitments: Uint8Array[];
   merkleRoot: { field: bigint };
   batcherUrl: string;
-  /** Deterministic admin wallet seed (64-char hex). When provided the same
-   *  ZSwap coin identity is always produced, so std_ownPublicKey() will keep
-   *  matching state.adminKey after a server restart. */
+  /** Deterministic admin wallet seed (64-char hex) for delegated balancing. */
   seed?: string;
 }
 
 export interface CreateMidnightGameResult {
-  /** Seed used to build the admin wallet facade. Must be stored and reused for all
-   *  subsequent admin circuit calls (resolveNightPhase, resolveDayPhase, etc.) so that
-   *  std_ownPublicKey() matches the adminKey stored on-chain. */
+  /** Seed used to build the admin wallet facade for delegated balancing. */
   adminWalletSeed: string;
-  /** ZSwap coin public key stored on-chain as GameState.adminKey. */
+  /** ZSwap coin public key from the wallet facade. */
   adminCoinPublicKey: Uint8Array;
 }
 
@@ -57,7 +55,7 @@ export interface CreateMidnightGameResult {
  * Returns a factory that receives the wallet's ZSwap coin public key and
  * builds the initial private state for createGame. Using a factory (rather than
  * a concrete PrivateState) breaks the circular dependency: we need the coin
- * key to set adminKey, but the coin key is only known after building the wallet.
+ * key for encryption setup, but the coin key is only known after building the wallet.
  */
 function makePrivateStateFactory(
   params: CreateMidnightGameParams,
@@ -91,15 +89,13 @@ function makePrivateStateFactory(
         {
           roleCommitments,
           encryptedRoles,
-          // Use the wallet's ZSwap coin key as adminKey — subsequent admin circuits
-          // (resolveNightPhase, resolveDayPhase) rebuild the same wallet from
-          // adminWalletSeed so std_ownPublicKey() matches.
           adminKey: { bytes: coinPublicKey },
           adminVotePublicKey: { bytes: adminVoteBytes },
           initialRoot: params.merkleRoot,
         },
       ],
     ]),
+    adminSecrets: new Map(), // createGame doesn't call wit_getAdminSecret
   });
 }
 
@@ -132,7 +128,7 @@ export async function createMidnightGame(
 
   const result = await callMidnightCircuit({
     circuitId: "createGame",
-    // Factory receives the wallet's coin public key so adminKey is set correctly
+    // Factory receives the wallet's coin public key for encryption setup
     privateState: makePrivateStateFactory(params),
     batcherUrl,
     seed: params.seed,
@@ -140,6 +136,7 @@ export async function createMidnightGame(
       await contract.callTx.createGame(
         gameId,
         adminVotePublicKeyBytes,
+        params.adminSecretCommitment,
         params.masterSecretCommitment,
         params.actualCount,
         params.werewolfCount,

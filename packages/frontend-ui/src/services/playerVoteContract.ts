@@ -183,6 +183,7 @@ function buildVotePrivateState(
         },
       ],
     ]),
+    adminSecrets: new Map(), // not needed for player vote circuits
     // The player's leaf secret is used as their Curve25519 private key for vote encryption
     encryptionKeypair: {
       secretKey: leafSecretBytes,

@@ -74,7 +74,10 @@ export async function executePendingPunishments(
     `[punishment] Executing ${pending.length} punishment(s) for game=${gameId}`,
   );
 
-  const emptyPrivateState: PrivateState = { setupData: new Map() };
+  const adminPrivateState: PrivateState = {
+    setupData: new Map(),
+    adminSecrets: new Map([[String(gameId), secrets.adminSecret]]),
+  };
   let executed = 0;
   const punishedIndices: number[] = [];
 
@@ -82,7 +85,7 @@ export async function executePendingPunishments(
     try {
       await callMidnightCircuit({
         circuitId: "adminPunishPlayer",
-        privateState: emptyPrivateState,
+        privateState: adminPrivateState,
         batcherUrl: BATCHER_URL,
         seed: adminWalletSeed,
         callFn: async (contract) => {
@@ -195,12 +198,15 @@ export async function checkGameOverAfterPunishment(
     return false;
   }
 
-  const emptyPrivateState: PrivateState = { setupData: new Map() };
+  const adminPrivateState: PrivateState = {
+    setupData: new Map(),
+    adminSecrets: new Map([[String(gameId), secrets.adminSecret]]),
+  };
 
   try {
     await callMidnightCircuit({
       circuitId: "forceEndGame",
-      privateState: emptyPrivateState,
+      privateState: adminPrivateState,
       batcherUrl: BATCHER_URL,
       seed: adminWalletSeed,
       callFn: async (contract) => {

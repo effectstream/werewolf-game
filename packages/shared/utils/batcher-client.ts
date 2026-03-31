@@ -207,6 +207,7 @@ export class BatcherClient {
   async createGame(
     gameId: bigint,
     adminVotePublicKey: Uint8Array,
+    adminSecretCommitment: bigint,
     masterSecretCommitment: Uint8Array,
     actualCount: bigint,
     werewolfCount: bigint,
@@ -217,6 +218,7 @@ export class BatcherClient {
         await this.contract.callTx.createGame(
           gameId,
           adminVotePublicKey,
+          adminSecretCommitment,
           masterSecretCommitment,
           actualCount,
           werewolfCount,

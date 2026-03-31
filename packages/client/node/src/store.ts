@@ -38,14 +38,13 @@ export type PhaseVote = {
 
 export type GameSecrets = {
   masterSecret: Uint8Array;
+  /** ZK admin secret — proves game creator authority via witness (never disclosed on-chain). */
+  adminSecret: Uint8Array;
   adminVoteKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
   adminSignKeypair: { publicKey: Uint8Array; secretKey: Uint8Array };
   /**
-   * Hex seed used to build the admin wallet facade for on-chain admin circuits.
-   * The ZSwap coin public key derived from this seed is stored as `adminKey` in
-   * the Midnight contract's GameState. Must be reused for all admin circuit calls
-   * (resolveNightPhase, resolveDayPhase, adminPunishPlayer, forceEndGame) so that
-   * std_ownPublicKey() matches state.adminKey.
+   * Hex seed used to build the admin wallet facade for delegated balancing.
+   * No longer used for on-chain authorization (replaced by adminSecret ZK proof).
    *
    * Optional because it is not available until after createMidnightGame returns.
    * lobby-closer.ts updates GameSecrets with the seed once createGame succeeds.
