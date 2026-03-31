@@ -33,6 +33,7 @@ function createRuntimeContract(): RuntimeContractWithInternals {
     wit_getEncryptedRole: () => stubWitnessError("wit_getEncryptedRole"),
     wit_getInitialRoot: () => stubWitnessError("wit_getInitialRoot"),
     wit_getActionData: () => stubWitnessError("wit_getActionData"),
+    wit_getAdminSecret: () => stubWitnessError("wit_getAdminSecret"),
   };
 
   return new WerewolfRuntimeContract(

@@ -693,6 +693,12 @@ function App() {
           `Witness not configured in frontend (action for ${id} round ${round}).`,
         );
       },
+      wit_getAdminSecret: (_: unknown, gameId: number | bigint) => {
+        const id = String(gameId);
+        throw new Error(
+          `Witness not configured in frontend (admin secret for ${id}).`,
+        );
+      },
     }),
     [],
   );
