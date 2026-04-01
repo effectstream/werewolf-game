@@ -84,7 +84,13 @@ export class AvatarPreview {
     }
   }
 
-  destroy(): void {
+  /**
+   * Pauses the render loop and disconnects the ResizeObserver without
+   * disposing the WebGL renderer. Call this when the avatar preview is
+   * temporarily hidden (e.g. transitioning to the game scene) so that
+   * `mount()` can restart it later without needing a full recreation.
+   */
+  stop(): void {
     if (this.animationFrame !== null) {
       cancelAnimationFrame(this.animationFrame)
       this.animationFrame = null
@@ -92,6 +98,15 @@ export class AvatarPreview {
 
     this.resizeObserver?.disconnect()
     this.resizeObserver = null
+    this.container = null
+  }
+
+  /**
+   * Fully tears down the preview, releasing all GPU resources. Use this
+   * when the avatar preview will never be shown again.
+   */
+  destroy(): void {
+    this.stop()
 
     if (this.model) {
       this.pivot.remove(this.model)
@@ -100,8 +115,6 @@ export class AvatarPreview {
     }
 
     this.renderer.dispose()
-    this.container?.replaceChildren()
-    this.container = null
   }
 
   private resize(): void {
