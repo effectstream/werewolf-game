@@ -27,6 +27,7 @@ import { saveSession } from './services/sessionStore'
 import { appearanceToPlayerConfig } from './avatarAppearance'
 import type { PlayerConfig } from './models/PlayerConfigInterface'
 import { AudioManager } from './services/audioManager'
+import { AudioSettingsModal } from './ui/AudioSettingsModal'
 
 /** Shows a full-screen announcement overlay for 4 seconds then fades out */
 function showAnnouncement(message: string): void {
@@ -59,6 +60,7 @@ interface GameManagers {
   poller: GameViewPoller
   votePoller: VoteStatusPoller
   audioManager: AudioManager
+  audioSettingsModal: AudioSettingsModal
 }
 
 type LobbyPlayer = {
@@ -109,6 +111,7 @@ function destroyGame(managers: GameManagers): void {
   managers.poller.stop()
   managers.votePoller.stop()
   managers.audioManager.destroy()
+  managers.audioSettingsModal.destroy()
 }
 
 async function bootGame(): Promise<GameManagers> {
@@ -168,6 +171,7 @@ async function bootGame(): Promise<GameManagers> {
   const gameEndModal = new GameEndModal()
   const audioManager = new AudioManager()
   audioManager.init()
+  const audioSettingsModal = new AudioSettingsModal(audioManager)
 
   // Track the highest round in which the local player was alive (rounds survived).
   let highestAliveRound = 0
@@ -320,6 +324,7 @@ async function bootGame(): Promise<GameManagers> {
     poller,
     votePoller,
     audioManager,
+    audioSettingsModal,
   }
 }
 

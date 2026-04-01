@@ -1,44 +1,52 @@
-export type SoundState = 'MUSIC_SOUNDFX' | 'SOUNDFX_ONLY' | 'MUTED'
+export interface AudioSettings {
+  musicEnabled: boolean
+  sfxEnabled: boolean
+  currentTrack: string
+}
+
+export interface Track {
+  file: string
+  label: string
+}
+
+export const AVAILABLE_TRACKS: readonly Track[] = [
+  { file: 'Twelve_Steps_Behind.mp3', label: 'Twelve Steps Behind' },
+  { file: 'Whispers_in_the_Frostwood.mp3', label: 'Whispers in the Frostwood' },
+]
 
 const STORAGE_KEY = 'werewolf:soundSettings'
 
-interface SoundSettings {
-  soundState: SoundState
+const DEFAULT_SETTINGS: AudioSettings = {
+  musicEnabled: true,
+  sfxEnabled: true,
+  currentTrack: 'Twelve_Steps_Behind.mp3',
 }
 
 export class AudioManager {
   private backgroundMusic: HTMLAudioElement | null = null
   private wolfHowl: HTMLAudioElement | null = null
-  private soundState: SoundState = 'MUSIC_SOUNDFX'
-  private soundButton: HTMLButtonElement | null = null
-  private boundToggle: (() => void) | null = null
+  private musicEnabled: boolean = DEFAULT_SETTINGS.musicEnabled
+  private sfxEnabled: boolean = DEFAULT_SETTINGS.sfxEnabled
+  private currentTrack: string = DEFAULT_SETTINGS.currentTrack
 
   constructor() {
     this.loadSettings()
   }
 
   init(): void {
-    this.backgroundMusic = new Audio('/Whispers_in_the_Frostwood.mp3')
+    this.backgroundMusic = new Audio('/' + this.currentTrack)
     this.backgroundMusic.loop = true
     this.backgroundMusic.volume = 0.5
 
     this.wolfHowl = new Audio('/dragon-studio-a-lone-wolf-cries-359871.mp3')
     this.wolfHowl.volume = 1.0
 
-    this.soundButton = document.querySelector<HTMLButtonElement>('#soundToggleBtn')
-
-    if (this.soundButton) {
-      this.boundToggle = () => this.toggleSound()
-      this.soundButton.addEventListener('click', this.boundToggle)
-      this.updateButtonAppearance()
-    }
-
     this.startMusicOnInteraction()
   }
 
   private startMusicOnInteraction(): void {
     const handler = () => {
-      if (this.soundState === 'MUSIC_SOUNDFX') {
+      if (this.musicEnabled) {
         this.backgroundMusic?.play().catch(() => {})
       }
     }
@@ -50,9 +58,11 @@ export class AudioManager {
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
-        const settings = JSON.parse(raw) as SoundSettings
-        if (this.isValidSoundState(settings.soundState)) {
-          this.soundState = settings.soundState
+        const parsed = JSON.parse(raw) as Partial<AudioSettings>
+        if (typeof parsed.musicEnabled === 'boolean') this.musicEnabled = parsed.musicEnabled
+        if (typeof parsed.sfxEnabled === 'boolean') this.sfxEnabled = parsed.sfxEnabled
+        if (typeof parsed.currentTrack === 'string' && AVAILABLE_TRACKS.some((t) => t.file === parsed.currentTrack)) {
+          this.currentTrack = parsed.currentTrack
         }
       }
     } catch {
@@ -61,77 +71,63 @@ export class AudioManager {
 
   private saveSettings(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ soundState: this.soundState }))
+      const settings: AudioSettings = {
+        musicEnabled: this.musicEnabled,
+        sfxEnabled: this.sfxEnabled,
+        currentTrack: this.currentTrack,
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
     } catch {
     }
   }
 
-  private isValidSoundState(state: string): state is SoundState {
-    return state === 'MUSIC_SOUNDFX' || state === 'SOUNDFX_ONLY' || state === 'MUTED'
-  }
-
-  private applySoundState(): void {
-    switch (this.soundState) {
-      case 'MUSIC_SOUNDFX':
-        this.backgroundMusic?.play().catch(() => {})
-        break
-      case 'SOUNDFX_ONLY':
-      case 'MUTED':
-        this.backgroundMusic?.pause()
-        break
+  setMusicEnabled(v: boolean): void {
+    this.musicEnabled = v
+    if (v) {
+      this.backgroundMusic?.play().catch(() => {})
+    } else {
+      this.backgroundMusic?.pause()
     }
-  }
-
-  toggleSound(): void {
-    const states: SoundState[] = ['MUSIC_SOUNDFX', 'SOUNDFX_ONLY', 'MUTED']
-    const currentIndex = states.indexOf(this.soundState)
-    this.soundState = states[(currentIndex + 1) % states.length]
-    this.applySoundState()
-    this.updateButtonAppearance()
     this.saveSettings()
   }
 
-  private updateButtonAppearance(): void {
-    if (!this.soundButton) return
+  setSfxEnabled(v: boolean): void {
+    this.sfxEnabled = v
+    this.saveSettings()
+  }
 
-    const icon = this.soundButton.querySelector('.sound-icon')
-    if (!icon) return
+  setTrack(filename: string): void {
+    if (!AVAILABLE_TRACKS.some((t) => t.file === filename)) return
+    this.currentTrack = filename
+    if (this.backgroundMusic) {
+      const wasPlaying = !this.backgroundMusic.paused
+      this.backgroundMusic.src = '/' + filename
+      this.backgroundMusic.load()
+      if (wasPlaying && this.musicEnabled) {
+        this.backgroundMusic.play().catch(() => {})
+      }
+    }
+    this.saveSettings()
+  }
 
-    this.soundButton.className = 'sound-toggle-btn'
-
-    switch (this.soundState) {
-      case 'MUSIC_SOUNDFX':
-        icon.textContent = '🎵🔊'
-        break
-      case 'SOUNDFX_ONLY':
-        icon.textContent = '🔊'
-        break
-      case 'MUTED':
-        icon.textContent = '🔇'
-        this.soundButton.classList.add('muted')
-        break
+  getSettings(): AudioSettings {
+    return {
+      musicEnabled: this.musicEnabled,
+      sfxEnabled: this.sfxEnabled,
+      currentTrack: this.currentTrack,
     }
   }
 
   playWolfHowl(): void {
-    if (this.soundState !== 'MUTED' && this.wolfHowl) {
+    if (this.sfxEnabled && this.wolfHowl) {
       this.wolfHowl.currentTime = 0
       this.wolfHowl.play().catch(() => {})
     }
-  }
-
-  getSoundState(): SoundState {
-    return this.soundState
   }
 
   destroy(): void {
     this.backgroundMusic?.pause()
     this.backgroundMusic = null
     this.wolfHowl = null
-    if (this.soundButton && this.boundToggle) {
-      this.soundButton.removeEventListener('click', this.boundToggle)
-    }
-    this.soundButton = null
-    this.boundToggle = null
   }
 }
