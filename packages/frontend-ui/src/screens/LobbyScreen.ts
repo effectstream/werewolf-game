@@ -355,6 +355,14 @@ export class LobbyScreen {
     const app = document.querySelector<HTMLDivElement>("#app")!;
     app.innerHTML = "";
     app.appendChild(this.container);
+
+    // If wallet is already connected (e.g. returning from a finished game), refresh lobby state.
+    const evmAddress = evmWallet.getAddress();
+    if (evmAddress) {
+      this.setStatus("Searching for open lobby…");
+      void this.autoDiscoverLobby();
+      void this.loadActiveGames(evmAddress);
+    }
   }
 
   hide(): void {

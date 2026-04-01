@@ -23,7 +23,7 @@ import { gameMaster } from './debug/GameMaster'
 import { evmWallet } from './services/evmWallet'
 import { fetchGameView, fetchGamePlayers } from './services/lobbyApi'
 import { GameViewPoller, VoteStatusPoller } from './services/gameViewPoller'
-import { saveSession, clearSession } from './services/sessionStore'
+import { saveSession } from './services/sessionStore'
 import { appearanceToPlayerConfig } from './avatarAppearance'
 import type { PlayerConfig } from './models/PlayerConfigInterface'
 import { AudioManager } from './services/audioManager'
@@ -177,8 +177,6 @@ async function bootGame(): Promise<GameManagers> {
   gameState.subscribe(() => {
     if (gameState.finished && !gameEndShown) {
       gameEndShown = true
-      // Game is over — remove the persisted session so the tile disappears on next load.
-      clearSession(gameId)
       const bundle = gameState.playerBundle
       const completionMsg = gameState.winner === 'WEREWOLVES'
         ? 'Game over! The werewolves have won!'
