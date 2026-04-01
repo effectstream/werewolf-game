@@ -101,7 +101,35 @@ export function initLayout() {
       <div id="announcementText" class="announcement-text"></div>
     </div>
     <div id="toastContainer" class="toast-container"></div>
-    <button id="soundToggleBtn" class="sound-toggle-btn" aria-label="Toggle sound">
+    <div id="audioSettingsBackdrop" class="audio-settings-backdrop hidden" aria-hidden="true">
+      <div class="audio-settings-modal" role="dialog" aria-modal="true" aria-labelledby="audioSettingsTitle">
+        <h3 id="audioSettingsTitle" class="audio-settings-title">Audio Settings</h3>
+        <div class="audio-settings-section">
+          <div class="audio-settings-row">
+            <span class="audio-settings-label">Music</span>
+            <label class="audio-toggle-switch">
+              <input type="checkbox" id="audioMusicToggle" />
+              <span class="audio-toggle-track"></span>
+            </label>
+          </div>
+          <div class="audio-track-list" id="audioTrackList"></div>
+        </div>
+        <div class="audio-settings-divider"></div>
+        <div class="audio-settings-section">
+          <div class="audio-settings-row">
+            <span class="audio-settings-label">Sound Effects</span>
+            <label class="audio-toggle-switch">
+              <input type="checkbox" id="audioSfxToggle" />
+              <span class="audio-toggle-track"></span>
+            </label>
+          </div>
+        </div>
+        <div class="audio-settings-actions">
+          <button id="audioSettingsCloseBtn" class="ui-btn full">Close</button>
+        </div>
+      </div>
+    </div>
+    <button id="soundToggleBtn" class="sound-toggle-btn" aria-label="Audio settings">
       <span class="sound-icon"></span>
     </button>
   `

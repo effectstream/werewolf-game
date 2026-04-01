@@ -356,6 +356,9 @@ export class LobbyScreen {
     app.innerHTML = "";
     app.appendChild(this.container);
 
+    // Re-mount the avatar preview (may have been stopped when hide() was called).
+    this.avatarPreview.mount(this.avatarPreviewEl);
+
     // If wallet is already connected (e.g. returning from a finished game), refresh lobby state.
     const evmAddress = evmWallet.getAddress();
     if (evmAddress) {
@@ -374,7 +377,9 @@ export class LobbyScreen {
       clearInterval(this.gameInfoPollTimer);
       this.gameInfoPollTimer = null;
     }
-    this.avatarPreview.destroy();
+    // Pause the render loop without disposing the WebGL renderer so it can
+    // be restarted via mount() when the lobby is shown again.
+    this.avatarPreview.stop();
     this.container.remove();
   }
 
@@ -389,6 +394,11 @@ export class LobbyScreen {
     this.joinBtn.hidden = true;
     this.currentGame = null;
     this.setStatus("");
+
+    // Reset any lingering loading states on the action buttons so they
+    // are not left disabled/spinning when the lobby is shown again.
+    this.setLoading(this.findBtn, false, "Find Game");
+    this.setLoading(this.joinBtn, false, "Join Game");
 
     // Stop any existing game info polling
     if (this.gameInfoPollTimer) {
