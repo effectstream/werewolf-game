@@ -13,8 +13,11 @@
  */
 
 import { OrchestratorConfig, start } from "@paimaexample/orchestrator";
-import { ComponentNames } from "@paimaexample/log";
+import { attachTransport, ComponentNames } from "@paimaexample/log";
 import { Value } from "@sinclair/typebox/value";
+import { createStream } from "rotating-file-stream";
+import type { ILogObj } from "tslog";
+import { mkdirSync, lstatSync } from "node:fs";
 
 // Read the LAUNCH_PROOF_SERVER environment variable (default: true)
 const launchProofServer = Deno.env.get("LAUNCH_PROOF_SERVER") !== "false";
@@ -87,6 +90,32 @@ const config = Value.Parse(OrchestratorConfig, {
 
   // Always log to stdout in preprod.
   logs: "stdout",
+});
+
+// ── File-based logging (mirrors the TUI logs-standalone pattern) ──
+const logDirectory = Deno.env.get("LOGS_PATH") ?? `${Deno.cwd()}/logs`;
+try { lstatSync(logDirectory); } catch { mkdirSync(logDirectory, { recursive: true }); }
+
+const streams: Record<string, ReturnType<typeof createStream>> = {};
+const getStream = (namespace: string) => {
+  if (!streams[namespace]) {
+    streams[namespace] = createStream(`${logDirectory}/${namespace}.log`, {
+      size: "10M",
+      interval: "1d",
+      compress: "gzip",
+    });
+  }
+  return streams[namespace];
+};
+
+const ansiRegex = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?(?:\u0007|\u001B\u005C|\u009C)|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/g;
+
+attachTransport((logObj: ILogObj) => {
+  const message = logObj[0] as string;
+  const cleanMessage = message.replace(ansiRegex, "");
+  const date = (logObj._meta as { date: Date }).date;
+  const namespace = cleanMessage.match(/^([\w-]+):\s/)?.[1] ?? "no-namespace";
+  getStream(namespace).write(`${date.toISOString()} ${cleanMessage}\n`);
 });
 
 await start(config);

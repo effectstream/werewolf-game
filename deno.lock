@@ -17,6 +17,7 @@
     "jsr:@paimaexample/coroutine@~0.10.17": "0.10.17",
     "jsr:@paimaexample/crypto@~0.10.17": "0.10.21",
     "jsr:@paimaexample/crypto@~0.10.23": "0.10.23",
+    "jsr:@paimaexample/db@*": "0.10.17",
     "jsr:@paimaexample/db@0.10.17": "0.10.17",
     "jsr:@paimaexample/db@~0.10.17": "0.10.17",
     "jsr:@paimaexample/event-client@~0.10.17": "0.10.21",
@@ -36,6 +37,7 @@
     "jsr:@paimaexample/sync@~0.10.17": "0.10.17",
     "jsr:@paimaexample/tui@0.10.17": "0.10.17",
     "jsr:@paimaexample/utils@0.10.17": "0.10.17",
+    "jsr:@paimaexample/utils@0.10.23": "0.10.23",
     "jsr:@paimaexample/utils@~0.10.12": "0.10.21",
     "jsr:@paimaexample/utils@~0.10.17": "0.10.23",
     "jsr:@paimaexample/utils@~0.10.18": "0.10.21",
@@ -137,6 +139,7 @@
     "npm:@paimaexample/npm-midnight-indexer@0.10.17": "0.10.17",
     "npm:@paimaexample/npm-midnight-node@*": "0.10.17",
     "npm:@paimaexample/npm-midnight-node@0.10.17": "0.10.17",
+    "npm:@paimaexample/npm-midnight-proof-server@*": "0.10.17",
     "npm:@paimaexample/npm-midnight-proof-server@0.10.17": "0.10.17",
     "npm:@paimaexample/wallets@0.10.17": "0.10.17_algosdk@3.5.2_@polkadot+util@13.5.9_@polkadot+util-crypto@13.5.9__@polkadot+util@13.5.9__@polkadot+x-randomvalues@13.5.9___@polkadot+util@13.5.9___@polkadot+wasm-util@7.5.4____@polkadot+util@13.5.9__@polkadot+wasm-util@7.5.4___@polkadot+util@13.5.9_typescript@5.9.3",
     "npm:@pgtyped/parser@2.4.2": "2.4.2",
@@ -200,6 +203,7 @@
     "npm:mqtt@^5.14.0": "5.15.1",
     "npm:node-gyp@^10.3.0": "10.3.1",
     "npm:ntp-time-sync@0.5": "0.5.0",
+    "npm:pg-gateway@~0.3.0-beta.4": "0.3.0-beta.4",
     "npm:pg@8.17.2": "8.17.2",
     "npm:pg@^8.14.0": "8.20.0",
     "npm:prando@^6.0.1": "6.0.1",
@@ -383,10 +387,12 @@
         "jsr:@paimaexample/log@~0.10.17",
         "jsr:@paimaexample/utils@~0.10.17",
         "jsr:@std/encoding@~1.0.8",
+        "npm:@electric-sql/pglite",
         "npm:@pgtyped/runtime@2.4.2",
         "npm:@types/pg",
         "npm:effection@3.5.0",
         "npm:effection@^3.5.0",
+        "npm:pg-gateway",
         "npm:pg@8.17.2"
       ]
     },
@@ -12192,6 +12198,9 @@
     "pg-connection-string@2.12.0": {
       "integrity": "sha512-U7qg+bpswf3Cs5xLzRqbXbQl85ng0mfSV/J0nnA31MCLgvEaAo7CIhmeyrmJpOr7o+zm0rXK+hNnT5l9RHkCkQ=="
     },
+    "pg-gateway@0.3.0-beta.4": {
+      "integrity": "sha512-CTjsM7Z+0Nx2/dyZ6r8zRsc3f9FScoD5UAOlfUx1Fdv/JOIWvRbF7gou6l6vP+uypXQVoYPgw8xZDXgMGvBa4Q=="
+    },
     "pg-int8@1.0.1": {
       "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw=="
     },
@@ -15065,7 +15074,9 @@
           "npm:node-gyp@^10.3.0",
           "npm:pg@^8.14.0",
           "npm:prando@^6.0.1",
+          "npm:rotating-file-stream@^3.2.6",
           "npm:rxjs@^7.8.2",
+          "npm:tslog@^4.9.3",
           "npm:tweetnacl@^1.0.3",
           "npm:viem@2.37.3"
         ],
