@@ -72,6 +72,13 @@
         "deploy:preprod:clean"
       ]
     },
+    "deploy:mainnet:clean": "rm -rf ignition/deployments/chain-42161 || true",
+    "deploy:mainnet": {
+      "command": "EFFECTSTREAM_ENV=mainnet deno run -A --env-file=../../../../.env.mainnet deploy.ts",
+      "dependencies": [
+        "deploy:mainnet:clean"
+      ]
+    },
     "chain:start": "deno run -A npm:hardhat@3.0.4 node",
     "chain:stop": "kill -9 $(lsof -ti tcp:8545) || true",
     "chain:wait": "deno run -A npm:hardhat@3.0.4 node wait"

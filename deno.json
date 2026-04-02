@@ -11,7 +11,9 @@
     "start:frontend": "deno task -f @example-midnight/frontend dev",
     "check": "deno task -f @werewolf-game/node check",
     "build:frontend:preprod": "cd packages/frontend-ui && npm run build:preprod",
-    "serve:frontend:preprod": "cd packages/frontend-ui && npm run serve:preprod"
+    "serve:frontend:preprod": "cd packages/frontend-ui && npm run serve:preprod",
+    "build:frontend:mainnet": "cd packages/frontend-ui && npm run build:mainnet",
+    "serve:frontend:mainnet": "cd packages/frontend-ui && npm run serve:mainnet"
   },
   "imports": {
     // TODO: This is a workaround for a missing dependency.

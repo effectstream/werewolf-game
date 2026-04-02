@@ -13,6 +13,8 @@
     "dev": "NODE_ENV=development deno run -A --check --unstable-raw-imports scripts/start.ts",
     "testnet": "EFFECTSTREAM_ENV=testnet deno run -A --check --unstable-raw-imports scripts/start.testnet.ts",
     "preprod": "EFFECTSTREAM_ENV=testnet deno run -A --env-file=../../../.env.preprod --check --unstable-raw-imports scripts/start.preprod.ts",
+    "node:start:mainnet": "deno run -A --env-file=../../../.env.mainnet --unstable-raw-imports src/main.mainnet.ts",
+    "mainnet": "EFFECTSTREAM_ENV=mainnet deno run -A --env-file=../../../.env.mainnet --check --unstable-raw-imports scripts/start.mainnet.ts",
     "test": "deno run -A --unstable-raw-imports --check scripts/e2e.test.ts"
   },
   "imports": {

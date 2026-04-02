@@ -7,8 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "build:preprod": "vite build --mode preprod",
+    "build:mainnet": "vite build --mode mainnet",
     "preview": "vite preview",
     "serve:preprod": "deno run --allow-net --allow-read --allow-env scripts/serve-preprod.ts",
+    "serve:mainnet": "deno run --allow-net --allow-read --allow-env scripts/serve-mainnet.ts",
     "typecheck": "tsc --noEmit",
     "fetch-midnight-params": "node scripts/fetch-midnight-params.mjs"
   },

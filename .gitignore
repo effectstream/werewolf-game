@@ -35,3 +35,4 @@ midnight-level-db-*/
 
 # Credentials
 .env.preprod
+.env.mainnet

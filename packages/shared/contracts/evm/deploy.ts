@@ -9,6 +9,7 @@ import process from "node:process";
 
 const __dirname: any = import.meta.dirname;
 const isTestnet = process.env.EFFECTSTREAM_ENV === "testnet";
+const isMainnet = process.env.EFFECTSTREAM_ENV === "mainnet";
 
 type Deployment = {
   module: ReturnType<typeof buildModule>;
@@ -23,7 +24,7 @@ type Deployment = {
 const myDeployments: Deployment[] = [
   {
     module: PaimaL2ContractModule,
-    network: isTestnet ? "arbitrumSepoliaHttp" : "evmMainHttp",
+    network: isMainnet ? "arbitrumOneHttp" : isTestnet ? "arbitrumSepoliaHttp" : "evmMainHttp",
     parameters: {
       PaimaL2ContractModule: {
         owner: "0xEFfE522D441d971dDC7153439a7d10235Ae6301f",

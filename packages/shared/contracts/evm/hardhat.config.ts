@@ -49,6 +49,13 @@ const config: HardhatUserConfig = createHardhatConfig({
       url: configVariable("ARBITRUM_SEPOLIA_RPC"),
       accounts: [configVariable("SYSTEM_PRIVATE_KEY")],
     },
+    // Arbitrum One mainnet — used by deploy:mainnet (EFFECTSTREAM_ENV=mainnet)
+    arbitrumOneHttp: {
+      type: "http",
+      chainType: "l1",
+      url: configVariable("ARBITRUM_ONE_RPC"),
+      accounts: [configVariable("SYSTEM_PRIVATE_KEY")],
+    },
   },
 });
 

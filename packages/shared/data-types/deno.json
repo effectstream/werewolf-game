@@ -5,6 +5,7 @@
   "exports": {
     "./config": "./src/config.ts",
     "./config.testnet": "./src/config.testnet.ts",
+    "./config.mainnet": "./src/config.mainnet.ts",
     "./grammar": "./src/grammar.ts"
   },
   "imports": {

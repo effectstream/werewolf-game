@@ -7,16 +7,18 @@ import process from "node:process";
 import type { Chain } from "viem";
 import { verifyMessage } from "viem";
 
-// This file loads either a local hardhat chain contract or a testnet contract.
+// This file loads either a local hardhat chain contract, a testnet contract, or a mainnet contract.
 //
 // Config values mirroring e2e/client/node/scripts/start.{env}.ts
 const isTestnet = ENV.EFFECTSTREAM_ENV === "testnet";
+const isMainnet = ENV.EFFECTSTREAM_ENV === "mainnet";
 const evm_enabled = !ENV.getBoolean("DISABLE_EVM");
 
-const chainNameId: "chain31338" | "chain31337" | "chain421614" =
-  ("chain" + (isTestnet ? 421614 : 31337)) as
+const chainNameId: "chain31337" | "chain421614" | "chain42161" =
+  ("chain" + (isMainnet ? 42161 : isTestnet ? 421614 : 31337)) as
     | "chain31337"
-    | "chain421614";
+    | "chain421614"
+    | "chain42161";
 const paimaSyncProtocolName = "parallelEvmRPC_fast";
 
 const paimaL2Address = evm_enabled
@@ -26,17 +28,31 @@ const paimaL2Address = evm_enabled
   : `0x0`;
 
 const batcherPrivateKey =
-  (process.env.SYSTEM_PRIVATE_KEY ?? "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d") as `0x${string}`;
+  (process.env.SYSTEM_PRIVATE_KEY ??
+    "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d") as `0x${string}`;
 
 // Defaults consistent with E2E usage
 const paimaL2Fee = 0n; // old batcher defaulted to 0 for local dev
 
 let chain: Chain;
-if (isTestnet) {
+if (isMainnet) {
+  chain = chains.arbitrum;
+  chain.rpcUrls = {
+    default: {
+      http: [
+        ENV.getString("ARBITRUM_ONE_RPC_WRITE") ??
+          ENV.getString("ARBITRUM_ONE_RPC"),
+      ],
+    },
+  };
+} else if (isTestnet) {
   chain = chains.arbitrumSepolia;
   chain.rpcUrls = {
     default: {
-      http: [ENV.getString("ARBITRUM_SEPOLIA_RPC")],
+      http: [
+        ENV.getString("ARBITRUM_SEPOLIA_RPC_WRITE") ??
+          ENV.getString("ARBITRUM_SEPOLIA_RPC"),
+      ],
     },
   };
 } else {
