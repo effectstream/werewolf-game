@@ -17,7 +17,7 @@ import { attachTransport, ComponentNames } from "@paimaexample/log";
 import { Value } from "@sinclair/typebox/value";
 import { createStream } from "rotating-file-stream";
 import type { ILogObj } from "tslog";
-import { mkdirSync, lstatSync } from "node:fs";
+import { lstatSync, mkdirSync } from "node:fs";
 
 // Read the LAUNCH_PROOF_SERVER environment variable (default: true)
 const launchProofServer = Deno.env.get("LAUNCH_PROOF_SERVER") !== "false";
@@ -26,26 +26,31 @@ const launchProofServer = Deno.env.get("LAUNCH_PROOF_SERVER") !== "false";
 // Set to "true" in .env.preprod to use external PostgreSQL instead
 const useExternalPg = Deno.env.get("USE_EXTERNAL_PG") === "true";
 
+if (!useExternalPg) {
+  Deno.env.set("DB_USER", "postgres");
+  Deno.env.set("DB_PW", "postgres");
+}
+
 const customProcesses = [
   ...(launchProofServer
     ? [
-        {
-          // Local proof server — connects to the preprod Midnight node over WS.
-          // Both the batcher and the node use this for circuit proving.
-          // Override SUBSTRATE_NODE_WS_URL in .env if your preprod endpoint differs.
-          name: "midnight-proof-server",
-          args: [
-            "task",
-            "-f",
-            "@example-midnight/midnight-contracts",
-            "midnight-proof-server:start:preprod",
-          ],
-          waitToExit: false,
-          type: "system-dependency",
-          link: "http://localhost:6300",
-          stopProcessAtPort: [6300],
-        },
-      ]
+      {
+        // Local proof server — connects to the preprod Midnight node over WS.
+        // Both the batcher and the node use this for circuit proving.
+        // Override SUBSTRATE_NODE_WS_URL in .env if your preprod endpoint differs.
+        name: "midnight-proof-server",
+        args: [
+          "task",
+          "-f",
+          "@example-midnight/midnight-contracts",
+          "midnight-proof-server:start:preprod",
+        ],
+        waitToExit: false,
+        type: "system-dependency",
+        link: "http://localhost:6300",
+        stopProcessAtPort: [6300],
+      },
+    ]
     : []),
   {
     name: "batcher",
@@ -94,7 +99,11 @@ const config = Value.Parse(OrchestratorConfig, {
 
 // ── File-based logging (mirrors the TUI logs-standalone pattern) ──
 const logDirectory = Deno.env.get("LOGS_PATH") ?? `${Deno.cwd()}/logs`;
-try { lstatSync(logDirectory); } catch { mkdirSync(logDirectory, { recursive: true }); }
+try {
+  lstatSync(logDirectory);
+} catch {
+  mkdirSync(logDirectory, { recursive: true });
+}
 
 const streams: Record<string, ReturnType<typeof createStream>> = {};
 const getStream = (namespace: string) => {
@@ -108,7 +117,8 @@ const getStream = (namespace: string) => {
   return streams[namespace];
 };
 
-const ansiRegex = /[\u001B\u009B][[\]()#;?]*(?:(?:(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?(?:\u0007|\u001B\u005C|\u009C)|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/g;
+const ansiRegex =
+  /[\u001B\u009B][[\]()#;?]*(?:(?:(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?(?:\u0007|\u001B\u005C|\u009C)|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/g;
 
 attachTransport((logObj: ILogObj) => {
   const message = logObj[0] as string;
