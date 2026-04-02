@@ -56,6 +56,8 @@
     "rxjs": "npm:rxjs@^7.8.2",
     "tweetnacl": "npm:tweetnacl@^1.0.3",
     "viem": "npm:viem@2.37.3",
-    "prando": "npm:prando@^6.0.1"
+    "prando": "npm:prando@^6.0.1",
+    "rotating-file-stream": "npm:rotating-file-stream@^3.2.6",
+    "tslog": "npm:tslog@^4.9.3"
   }
 }
