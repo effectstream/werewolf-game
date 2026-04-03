@@ -476,5 +476,6 @@ export async function scheduleNextLobby(
     }
   } catch (err) {
     console.warn("[lobby-closer] Failed to schedule next lobby:", err);
+    throw err;
   }
 }
