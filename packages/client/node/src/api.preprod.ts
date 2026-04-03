@@ -324,7 +324,17 @@ export const apiRouter: StartConfigApiRouter = async function (
           );
           const firstSeed: Uint8Array = new Uint8Array(32);
           firstSeed.fill(1);
-          await scheduleNextLobby(firstSeed);
+          while (Date.now() < deadline) {
+            try {
+              await scheduleNextLobby(firstSeed);
+              break;
+            } catch {
+              console.log(
+                "[api] Batcher not ready — retrying lobby schedule in 2s…",
+              );
+              await new Promise((r) => setTimeout(r, RETRY_MS));
+            }
+          }
         } else {
           console.log(
             `[api] Found ${count} open lobby(ies) — skipping bootstrap`,
