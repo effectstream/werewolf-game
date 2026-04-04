@@ -30,7 +30,9 @@ import {
   HAIR_COLORS,
   HAIR_STYLE_LABELS,
   HAIR_STYLES,
+  hasAvatarSelection,
   loadAvatarSelection,
+  randomAvatarSelection,
   saveAvatarSelection,
   SHIRT_COLORS,
   SKIN_TONES,
@@ -111,6 +113,7 @@ export class LobbyScreen {
   private gameInfoEl!: HTMLDivElement;
   private avatarSection!: HTMLDivElement;
   private avatarPreviewEl!: HTMLDivElement;
+  private avatarShuffleBtn!: HTMLButtonElement;
   private joinBtn!: HTMLButtonElement;
   private laceModalBackdrop!: HTMLDivElement;
   private proxyBadgeEl!: HTMLSpanElement;
@@ -121,8 +124,9 @@ export class LobbyScreen {
   private derivedNickname: string | null = null;
   private lobbyPollTimer: ReturnType<typeof setInterval> | null = null;
   private gameInfoPollTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly avatarPreview = new AvatarPreview(loadAvatarSelection());
-  private avatarSelection: AvatarSelection = loadAvatarSelection();
+  private readonly _initialAvatarSelection: AvatarSelection = hasAvatarSelection() ? loadAvatarSelection() : randomAvatarSelection();
+  private readonly avatarPreview = new AvatarPreview(this._initialAvatarSelection);
+  private avatarSelection: AvatarSelection = this._initialAvatarSelection;
 
   constructor() {
     this.container = document.createElement("div");
@@ -246,6 +250,7 @@ export class LobbyScreen {
     }
             </div>
           </div>
+          <button type="button" id="lobbyAvatarShuffleBtn" class="ui-btn lobby-btn lobby-btn--secondary lobby-avatar-shuffle-btn">🎲 Shuffle</button>
         </div>
       </div>
 
@@ -309,6 +314,9 @@ export class LobbyScreen {
     )!;
     this.avatarPreviewEl = this.container.querySelector<HTMLDivElement>(
       "#lobbyAvatarPreview",
+    )!;
+    this.avatarShuffleBtn = this.container.querySelector<HTMLButtonElement>(
+      "#lobbyAvatarShuffleBtn",
     )!;
     this.joinBtn = this.container.querySelector<HTMLButtonElement>(
       "#lobbyJoinBtn",
@@ -445,6 +453,12 @@ export class LobbyScreen {
         saveAvatarSelection(this.avatarSelection);
         this.syncAvatarSelection();
       });
+    });
+
+    this.avatarShuffleBtn.addEventListener("click", () => {
+      this.avatarSelection = randomAvatarSelection();
+      saveAvatarSelection(this.avatarSelection);
+      this.syncAvatarSelection();
     });
   }
 

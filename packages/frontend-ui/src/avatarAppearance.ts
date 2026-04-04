@@ -99,7 +99,24 @@ export function appearanceToPlayerConfig(
   }
 }
 
+export function randomAvatarSelection(): AvatarSelection {
+  return {
+    skinTone: Math.floor(Math.random() * SKIN_TONES.length),
+    shirtColor: Math.floor(Math.random() * SHIRT_COLORS.length),
+    hairColor: Math.floor(Math.random() * HAIR_COLORS.length),
+    hairStyle: Math.floor(Math.random() * HAIR_STYLES.length),
+  }
+}
+
 const AVATAR_STORAGE_KEY = 'werewolf-avatar-selection'
+
+export function hasAvatarSelection(): boolean {
+  try {
+    return localStorage.getItem(AVATAR_STORAGE_KEY) !== null
+  } catch {
+    return false
+  }
+}
 
 export function saveAvatarSelection(selection: AvatarSelection): void {
   try {
