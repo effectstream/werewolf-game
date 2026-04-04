@@ -668,6 +668,10 @@ body {
   box-shadow: 0 0 0 2px rgba(180, 205, 255, 0.34);
 }
 
+.lobby-avatar-shuffle-btn {
+  margin-top: 4px;
+}
+
 .lobby-btn {
   width: 100%;
 }
