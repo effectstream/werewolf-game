@@ -1049,6 +1049,24 @@ body {
   display: none;
 }
 
+/* Round punishment timer */
+.round-timer-bar {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  color: rgba(180, 200, 255, 0.65);
+  text-align: center;
+  border-top: 1px solid rgba(100, 140, 220, 0.15);
+  margin-top: 0.25rem;
+}
+
+.round-timer-bar.hidden {
+  display: none;
+}
+
+.round-timer-label {
+  font-variant-numeric: tabular-nums;
+}
+
 /* ACCUSE button variant (blue) */
 .ui-btn.small.accuse-btn {
   background: rgba(40, 80, 180, 0.5);

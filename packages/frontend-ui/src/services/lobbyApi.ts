@@ -94,6 +94,8 @@ export async function fetchGameView(gameId: number): Promise<GameViewResponse> {
 export interface VoteStatusResponse {
   voteCount: number;
   aliveCount: number;
+  timeoutBlock?: number | null;
+  currentBlock?: number | null;
 }
 
 export async function fetchVoteStatus(

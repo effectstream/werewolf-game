@@ -14,6 +14,8 @@ export class HUDManager {
   private maskedRoleBtn: HTMLButtonElement;
   private endVoteBtn: HTMLButtonElement;
   private nicknameBadge: HTMLDivElement;
+  private roundTimerBar: HTMLDivElement;
+  private roundTimerLabel: HTMLSpanElement;
   private roleRevealTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribe: () => void;
   /** Tracks previous vote count to detect increments for the bump animation */
@@ -32,6 +34,8 @@ export class HUDManager {
     this.nicknameBadge = document.querySelector<HTMLDivElement>(
       "#playerNicknameBadge",
     )!;
+    this.roundTimerBar = document.querySelector<HTMLDivElement>("#roundTimerBar")!;
+    this.roundTimerLabel = document.querySelector<HTMLSpanElement>("#roundTimerLabel")!;
 
     this.initEventListeners();
 
@@ -114,6 +118,43 @@ export class HUDManager {
             `${gameState.voteCount}/${gameState.aliveCount} voted`;
         }
       }
+    }
+
+    this.updateRoundTimer();
+  }
+
+  private formatRemainingTime(seconds: number): string {
+    if (seconds <= 0) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    if (m < 60) return `${m}:${s.toString().padStart(2, "0")}`;
+    return `${Math.floor(m / 60)}h ${m % 60}m`;
+  }
+
+  private updateRoundTimer(): void {
+    const {
+      phase,
+      finished,
+      allVotesIn,
+      gameStarted,
+      roundTimeoutBlock,
+      roundCurrentBlock,
+    } = gameState;
+
+    const shouldShow =
+      !finished &&
+      !allVotesIn &&
+      (phase === "DAY" || phase === "NIGHT") &&
+      gameStarted &&
+      roundTimeoutBlock !== null &&
+      roundCurrentBlock !== null;
+
+    this.roundTimerBar.classList.toggle("hidden", !shouldShow);
+
+    if (shouldShow) {
+      const remaining = Math.max(0, roundTimeoutBlock! - roundCurrentBlock!);
+      this.roundTimerLabel.textContent =
+        `Punishment timer: ${this.formatRemainingTime(remaining)}`;
     }
   }
 

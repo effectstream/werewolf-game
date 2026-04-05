@@ -18,6 +18,9 @@ export function initLayout() {
       <aside class="sidebar">
         <h2>Players</h2>
         <div id="playersList" class="players-list"></div>
+        <div id="roundTimerBar" class="round-timer-bar hidden">
+          <span id="roundTimerLabel" class="round-timer-label"></span>
+        </div>
         <div id="voteStatusBar" class="vote-status-bar hidden">
           <span id="voteCountLabel">0/0 voted</span>
         </div>

@@ -16,6 +16,7 @@ import {
 } from "@werewolf-game/database";
 import type {
   IGetLeaderboardResult,
+  IGetRoundStateResult,
   IGetWalletMappingByEvmResult,
 } from "@werewolf-game/database";
 import nacl from "tweetnacl";
@@ -446,16 +447,20 @@ export async function getVoteStatusHandler(
   gameId: number,
   round: number,
   phase: string,
-): Promise<{ voteCount: number; aliveCount: number }> {
+): Promise<{ voteCount: number; aliveCount: number; timeoutBlock: number | null; currentBlock: number | null }> {
   const roundRows = await runPreparedQuery(
     getWerewolfRoundState.run({ game_id: gameId, round, phase }, dbConn),
     "getWerewolfRoundState",
   );
+  const row = roundRows.length > 0
+    ? (roundRows[0] as unknown as IGetRoundStateResult)
+    : null;
+  const currentBlock = await getCurrentNtpBlock(dbConn);
   return {
     voteCount: store.countVotes(gameId, round, phase),
-    aliveCount: roundRows.length > 0
-      ? Number((roundRows[0] as unknown as { alive_count: string }).alive_count)
-      : 0,
+    aliveCount: row !== null ? Number(row.alive_count) : 0,
+    timeoutBlock: row?.timeout_block != null ? Number(row.timeout_block) : null,
+    currentBlock,
   };
 }
 

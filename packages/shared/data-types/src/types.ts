@@ -143,6 +143,8 @@ export const GetVoteStatusQuerystringSchema = Type.Object({
 export const GetVoteStatusResponseSchema = Type.Object({
   voteCount: Type.Number(),
   aliveCount: Type.Number(),
+  timeoutBlock: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  currentBlock: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
 });
 
 export const GetVotesForRoundQuerystringSchema = Type.Object({
