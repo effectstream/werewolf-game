@@ -3,15 +3,18 @@ import { grammar } from "@werewolf-game/data-types/grammar";
 import type { BaseStfInput } from "@paimaexample/sm";
 import { createScheduledData, runPreparedQuery } from "@paimaexample/db";
 import {
+  claimRealWallet,
   closeLobby,
   getAliveSnapshots,
   getGameView,
   getLobby,
+  getWalletMappingByProxy,
   getWerewolfRoundState,
   type IGetAliveSnapshotsResult,
   type IGetGameViewResult,
   type IGetLobbyResult,
   type IGetRoundStateResult,
+  type IGetWalletMappingByProxyResult,
   incrementLobbyPlayerCount,
   insertLobbyPlayer,
   insertPendingPunishment,
@@ -26,21 +29,32 @@ import {
   upsertLobby,
   upsertRoundState,
   upsertWalletMapping,
-  getWalletMappingByProxy,
-  claimRealWallet,
-  type IGetWalletMappingByProxyResult,
 } from "@werewolf-game/database";
 import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
 import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
 import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
-import { clearGameMemory, getAllBundlesForGame, getGameSecrets, isResolutionTriggered, purgeVotes, setResolutionTriggered, storePlayerPublicKey } from "./store.ts";
+import {
+  clearGameMemory,
+  getAllBundlesForGame,
+  getGameSecrets,
+  isResolutionTriggered,
+  purgeVotes,
+  setResolutionTriggered,
+  storePlayerPublicKey,
+} from "./store.ts";
 import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
 import { identifyVoters, resolvePhaseFromLedger } from "./vote-resolver.ts";
 import { fetchCurrentLedgerVotes } from "./midnight-circuit-caller.ts";
 import { getDbPool } from "./db-pool.ts";
-import { calculateAndPersistScores, migrateLeaderboardPoints } from "./leaderboard.ts";
-import { executePendingPunishments, checkGameOverAfterPunishment } from "./punishment-executor.ts";
+import {
+  calculateAndPersistScores,
+  migrateLeaderboardPoints,
+} from "./leaderboard.ts";
+import {
+  checkGameOverAfterPunishment,
+  executePendingPunishments,
+} from "./punishment-executor.ts";
 
 const stm = new PaimaSTM<typeof grammar, any>(grammar);
 
@@ -122,7 +136,10 @@ stm.addStateTransition(
           `[midnight] game=${gameId}: GameSecrets not in memory — triggering recovery`,
         );
         void restoreGameSecrets(gameId).catch((err) =>
-          console.error(`[midnight] game=${gameId}: secret recovery failed`, err)
+          console.error(
+            `[midnight] game=${gameId}: secret recovery failed`,
+            err,
+          )
         );
       }
 
@@ -175,18 +192,25 @@ stm.addStateTransition(
         // Derive the correct winner from in-memory bundles + alive state.
         // We cannot use gameView.winner (derived from on-chain werewolfCount /
         // villagerCount) because those fields are not maintained during gameplay.
-        let correctWinner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null = gameView.winner;
+        let correctWinner: "VILLAGERS" | "WEREWOLVES" | "DRAW" | null =
+          gameView.winner;
         const aliveSet = new Set(gameView.aliveIndices);
         if (bundles.length > 0 && gameView.isFinished) {
           // Fresh run: derive from in-memory bundles.
-          const aliveWolves = bundles.filter((b) => b.role === 1 && aliveSet.has(b.playerId)).length;
-          const aliveVillagers = bundles.filter((b) => b.role !== 1 && aliveSet.has(b.playerId)).length;
+          const aliveWolves = bundles.filter((b) =>
+            b.role === 1 && aliveSet.has(b.playerId)
+          ).length;
+          const aliveVillagers = bundles.filter((b) =>
+            b.role !== 1 && aliveSet.has(b.playerId)
+          ).length;
           if (aliveWolves === 0 && aliveVillagers === 0) correctWinner = "DRAW";
           else if (aliveWolves === 0) correctWinner = "VILLAGERS";
           else correctWinner = "WEREWOLVES";
         } else if (werewolfIndices.length > 0 && gameView.isFinished) {
           // Restart: bundles not in memory, derive from stored DB indices instead.
-          const aliveWolves = werewolfIndices.filter((idx) => aliveSet.has(idx)).length;
+          const aliveWolves = werewolfIndices.filter((idx) =>
+            aliveSet.has(idx)
+          ).length;
           const aliveVillagers = gameView.aliveCount - aliveWolves;
           if (aliveWolves === 0 && aliveVillagers === 0) correctWinner = "DRAW";
           else if (aliveWolves === 0) correctWinner = "VILLAGERS";
@@ -264,6 +288,12 @@ stm.addStateTransition(
             !isResolutionTriggered(gameId, gameView.round, gameView.phase)
           ) {
             setResolutionTriggered(gameId, gameView.round, gameView.phase);
+            chatPost("/broadcast", {
+              gameId,
+              text: gameView.phase === "NIGHT"
+                ? "All werewolves have voted. Calculating result..."
+                : "All players have voted. Calculating result...",
+            });
             const voteEntries = ledger.getVoteEntriesForRoundAndPhase(
               gameId,
               gameView.round,
@@ -307,9 +337,7 @@ stm.addStateTransition(
         )
         : [];
       const eligibleVoterCount = gameView.phase === "NIGHT"
-        ? nightBundles.length > 0
-          ? nightBundles.length
-          : gameView.werewolfCount // fallback until bundles are restored
+        ? nightBundles.length > 0 ? nightBundles.length : gameView.werewolfCount // fallback until bundles are restored
         : gameView.aliveCount;
 
       yield* World.resolve(upsertRoundState, {
@@ -412,8 +440,9 @@ stm.addStateTransition(
 
       chatPost("/broadcast", {
         gameId,
-        text: `Round ${gameView.round} started (${gameView.phase} phase).` +
-          ` Alive: ${gameView.aliveCount} players.`,
+        text: gameView.phase === "NIGHT"
+          ? `Night phase of round ${gameView.round} begins. Werewolves are voting who to eliminate.`
+          : `Day phase of round ${gameView.round} begins. All alive players are voting who is the werewolf to eliminate.`,
       });
     }
   },
@@ -495,7 +524,11 @@ stm.addStateTransition(
       void (async () => {
         try {
           // 1. Fetch ledger votes to determine exactly who voted.
-          const voteEntries = await fetchCurrentLedgerVotes(gameId, round, phase);
+          const voteEntries = await fetchCurrentLedgerVotes(
+            gameId,
+            round,
+            phase,
+          );
 
           // 2. Decrypt ciphertexts to recover the voter index of each vote.
           //    Restore secrets/bundles on demand if the node recently restarted.
@@ -523,9 +556,12 @@ stm.addStateTransition(
             getAliveSnapshots.run({ game_id: gameId, round, phase }, dbConn),
             "getAliveSnapshots",
           );
-          const werewolfSet = (phase.toUpperCase() === "NIGHT" && bundles.length > 0)
-            ? new Set(bundles.filter((b) => b.role === 1).map((b) => b.playerId))
-            : null;
+          const werewolfSet =
+            (phase.toUpperCase() === "NIGHT" && bundles.length > 0)
+              ? new Set(
+                bundles.filter((b) => b.role === 1).map((b) => b.playerId),
+              )
+              : null;
 
           const toPublish = aliveRows.filter((r) => {
             const idx = Number(r.player_idx);
@@ -557,7 +593,10 @@ stm.addStateTransition(
 
           // 6. Check if punishments alone ended the game (e.g., all werewolves timed out).
           if (punishResult.count > 0) {
-            const gameEnded = await checkGameOverAfterPunishment(gameId, punishResult.punishedIndices);
+            const gameEnded = await checkGameOverAfterPunishment(
+              gameId,
+              punishResult.punishedIndices,
+            );
             if (gameEnded) {
               console.log(
                 `[timeout] Game=${gameId} ended after punishments — skipping phase resolution`,
@@ -567,7 +606,13 @@ stm.addStateTransition(
           }
 
           // 7. Resolve the phase using the already-fetched ledger votes.
-          await resolvePhaseFromLedger(gameId, round, phase, voteEntries, punishResult.punishedIndices);
+          await resolvePhaseFromLedger(
+            gameId,
+            round,
+            phase,
+            voteEntries,
+            punishResult.punishedIndices,
+          );
         } catch (err) {
           console.error(
             `[timeout] Punishment+resolution failed game=${gameId} round=${round} phase=${phase}:`,
@@ -636,26 +681,34 @@ stm.addStateTransition(
 stm.addStateTransition(
   "join_game",
   function* (data) {
-    const { gameId, publicKey, nickname, appearanceCode, midnightAddress } = data.parsedInput as {
-      gameId: number;
-      publicKey: string;
-      nickname: string;
-      appearanceCode: number;
-      midnightAddress: string;
-    };
+    const { gameId, publicKey, nickname, appearanceCode, midnightAddress } =
+      data.parsedInput as {
+        gameId: number;
+        publicKey: string;
+        nickname: string;
+        appearanceCode: number;
+        midnightAddress: string;
+      };
     const blockHeight = data.blockHeight;
     // The EVM address that signed the batcher input — verified by the Paima batcher,
     // recorded on the Paima chain, and replayed deterministically on resync.
     const evmAddress = data.signerAddress;
 
-    if (!Number.isInteger(appearanceCode) || appearanceCode < 0 || appearanceCode >= 256) {
-      throw new Error(`Invalid appearanceCode for join_game: ${appearanceCode}`);
+    if (
+      !Number.isInteger(appearanceCode) || appearanceCode < 0 ||
+      appearanceCode >= 256
+    ) {
+      throw new Error(
+        `Invalid appearanceCode for join_game: ${appearanceCode}`,
+      );
     }
 
     console.log(
       `[lobby] join_game game=${gameId} publicKey=${
         publicKey.slice(0, 12)
-      }… nickname=${nickname} appearanceCode=${appearanceCode} evmAddress=${evmAddress ?? "none"} at block=${blockHeight}`,
+      }… nickname=${nickname} appearanceCode=${appearanceCode} evmAddress=${
+        evmAddress ?? "none"
+      } at block=${blockHeight}`,
     );
 
     const insertResult = (yield* World.resolve(insertLobbyPlayer, {
@@ -942,12 +995,16 @@ stm.addStateTransition(
     const blockHeight = data.blockHeight as number;
 
     if (!evmAddress || !proxyMidnightAddress) {
-      console.warn("[proxy] register_proxy_wallet: missing evmAddress or proxyMidnightAddress — skipping");
+      console.warn(
+        "[proxy] register_proxy_wallet: missing evmAddress or proxyMidnightAddress — skipping",
+      );
       return;
     }
 
     console.log(
-      `[proxy] register_proxy_wallet evm=${evmAddress} proxy=${proxyMidnightAddress.slice(0, 16)}… block=${blockHeight}`,
+      `[proxy] register_proxy_wallet evm=${evmAddress} proxy=${
+        proxyMidnightAddress.slice(0, 16)
+      }… block=${blockHeight}`,
     );
 
     // ON CONFLICT DO NOTHING — idempotent; safe to replay
@@ -975,7 +1032,9 @@ stm.addStateTransition(
     }
 
     console.log(
-      `[proxy] claim_real_wallet evm=${evmAddress} proxy=${proxyMidnightAddress.slice(0, 16)}… real=${realMidnightAddress.slice(0, 16)}… block=${blockHeight}`,
+      `[proxy] claim_real_wallet evm=${evmAddress} proxy=${
+        proxyMidnightAddress.slice(0, 16)
+      }… real=${realMidnightAddress.slice(0, 16)}… block=${blockHeight}`,
     );
 
     // Verify the proxy address belongs to this EVM signer
@@ -984,7 +1043,11 @@ stm.addStateTransition(
     })) as IGetWalletMappingByProxyResult[];
 
     if (mappingRows.length === 0) {
-      console.warn(`[proxy] claim_real_wallet: no mapping for proxy=${proxyMidnightAddress.slice(0, 16)}… — skipping`);
+      console.warn(
+        `[proxy] claim_real_wallet: no mapping for proxy=${
+          proxyMidnightAddress.slice(0, 16)
+        }… — skipping`,
+      );
       return;
     }
 
@@ -992,13 +1055,17 @@ stm.addStateTransition(
 
     if (mapping.evm_address !== evmAddress) {
       console.warn(
-        `[proxy] claim_real_wallet: signer=${evmAddress} does not own proxy=${proxyMidnightAddress.slice(0, 16)}… — rejecting`,
+        `[proxy] claim_real_wallet: signer=${evmAddress} does not own proxy=${
+          proxyMidnightAddress.slice(0, 16)
+        }… — rejecting`,
       );
       return;
     }
 
     if (mapping.real_midnight_address !== null) {
-      console.log(`[proxy] claim_real_wallet: already claimed for evm=${evmAddress} — skipping`);
+      console.log(
+        `[proxy] claim_real_wallet: already claimed for evm=${evmAddress} — skipping`,
+      );
       return;
     }
 
@@ -1016,7 +1083,9 @@ stm.addStateTransition(
       getDbPool(),
     ).catch((err) =>
       console.error(
-        `[proxy] Leaderboard migration failed proxy=${proxyMidnightAddress.slice(0, 16)}…:`,
+        `[proxy] Leaderboard migration failed proxy=${
+          proxyMidnightAddress.slice(0, 16)
+        }…:`,
         err,
       )
     );
