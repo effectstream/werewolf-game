@@ -387,6 +387,16 @@ body {
   overflow-y: auto;
 }
 
+.lobby-avatar-card--locked .lobby-avatar-controls {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+.lobby-avatar-card--locked .lobby-avatar-copy::after {
+  content: " Appearance locked — already submitted to the contract.";
+  color: rgba(140, 210, 140, 0.8);
+}
+
 .lobby-title {
   margin: 0;
   font-size: 2rem;

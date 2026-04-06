@@ -127,8 +127,10 @@
     "npm:@paimaexample/evm-contracts@0.10.17": "0.10.17_@openzeppelin+contracts@5.1.0",
     "npm:@paimaexample/explorer@0.10.23": "0.10.23",
     "npm:@paimaexample/grafana-alloy@*": "0.8.1",
+    "npm:@paimaexample/grafana-loki@*": "0.8.1",
     "npm:@paimaexample/npm-midnight-indexer@0.10.23": "0.10.23",
     "npm:@paimaexample/npm-midnight-node@0.10.23": "0.10.23",
+    "npm:@paimaexample/npm-midnight-proof-server@*": "0.10.23",
     "npm:@paimaexample/npm-midnight-proof-server@0.10.23": "0.10.23",
     "npm:@paimaexample/wallets@0.10.23": "0.10.23_algosdk@3.5.2_@polkadot+util@13.5.9_@polkadot+util-crypto@13.5.9__@polkadot+util@13.5.9__@polkadot+x-randomvalues@13.5.9___@polkadot+util@13.5.9___@polkadot+wasm-util@7.5.4____@polkadot+util@13.5.9__@polkadot+wasm-util@7.5.4___@polkadot+util@13.5.9_typescript@5.9.3",
     "npm:@pgtyped/parser@2.4.2": "2.4.2",
@@ -192,6 +194,7 @@
     "npm:mqtt@^5.14.0": "5.15.1",
     "npm:node-gyp@^10.3.0": "10.3.1",
     "npm:ntp-time-sync@0.5": "0.5.0",
+    "npm:pg@8.17.2": "8.17.2",
     "npm:pg@^8.14.0": "8.20.0",
     "npm:prando@^6.0.1": "6.0.1",
     "npm:puppeteer@^24.37.5": "24.40.0_devtools-protocol@0.0.1581282_typescript@5.9.3",
@@ -385,7 +388,8 @@
         "npm:@pgtyped/runtime@2.4.2",
         "npm:@types/pg",
         "npm:effection@3.5.0",
-        "npm:effection@^3.5.0"
+        "npm:effection@^3.5.0",
+        "npm:pg@8.17.2"
       ]
     },
     "@paimaexample/db@0.10.24": {
@@ -399,7 +403,8 @@
         "npm:@pgtyped/runtime@2.4.2",
         "npm:@types/pg",
         "npm:effection@3.5.0",
-        "npm:effection@^3.5.0"
+        "npm:effection@^3.5.0",
+        "npm:pg@8.17.2"
       ]
     },
     "@paimaexample/event-client@0.10.25": {
@@ -4181,6 +4186,13 @@
     },
     "@paimaexample/grafana-alloy@0.8.1": {
       "integrity": "sha512-Sp6Kkn1NTsEIXbxjR+JP0ReaZqz/JAqplEdtkNFvcWV1INDyuVYpBGdcyPhAef8tujLO6+zeSRZVCwwcdpVR+g==",
+      "dependencies": [
+        "@xhmikosr/bin-wrapper"
+      ],
+      "bin": true
+    },
+    "@paimaexample/grafana-loki@0.8.1": {
+      "integrity": "sha512-E2I66ridEpXZXIsP/ZIG7qiCoE1HKGzJA4MAIdztMOX2yjHQWMXLIqJUZfXJiAeRUYpDCxTgJ9Ttx1v9pTxz0w==",
       "dependencies": [
         "@xhmikosr/bin-wrapper"
       ],
@@ -12110,10 +12122,16 @@
     "pg-int8@1.0.1": {
       "integrity": "sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw=="
     },
+    "pg-pool@3.13.0_pg@8.17.2": {
+      "integrity": "sha512-gB+R+Xud1gLFuRD/QgOIgGOBE2KCQPaPwkzBBGC9oG69pHTkhQeIuejVIk3/cnDyX39av2AxomQiyPT13WKHQA==",
+      "dependencies": [
+        "pg@8.17.2"
+      ]
+    },
     "pg-pool@3.13.0_pg@8.20.0": {
       "integrity": "sha512-gB+R+Xud1gLFuRD/QgOIgGOBE2KCQPaPwkzBBGC9oG69pHTkhQeIuejVIk3/cnDyX39av2AxomQiyPT13WKHQA==",
       "dependencies": [
-        "pg"
+        "pg@8.20.0"
       ]
     },
     "pg-protocol@1.13.0": {
@@ -12129,11 +12147,24 @@
         "postgres-interval"
       ]
     },
+    "pg@8.17.2": {
+      "integrity": "sha512-vjbKdiBJRqzcYw1fNU5KuHyYvdJ1qpcQg1CeBrHFqV1pWgHeVR6j/+kX0E1AAXfyuLUGY1ICrN2ELKA/z2HWzw==",
+      "dependencies": [
+        "pg-connection-string",
+        "pg-pool@3.13.0_pg@8.17.2",
+        "pg-protocol",
+        "pg-types",
+        "pgpass"
+      ],
+      "optionalDependencies": [
+        "pg-cloudflare"
+      ]
+    },
     "pg@8.20.0": {
       "integrity": "sha512-ldhMxz2r8fl/6QkXnBD3CR9/xg694oT6DZQ2s6c/RI28OjtSOpxnPrUCGOBJ46RCUxcWdx3p6kw/xnDHjKvaRA==",
       "dependencies": [
         "pg-connection-string",
-        "pg-pool",
+        "pg-pool@3.13.0_pg@8.20.0",
         "pg-protocol",
         "pg-types",
         "pgpass"

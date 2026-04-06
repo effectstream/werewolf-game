@@ -464,6 +464,7 @@ export class LobbyScreen {
   private resetLobbyState(): void {
     this.gameInfoEl.hidden = true;
     this.avatarSection.hidden = true;
+    this.avatarSection.classList.remove("lobby-avatar-card--locked");
     this.joinBtn.hidden = true;
     this.currentGame = null;
     this.setStatus("");
@@ -994,7 +995,7 @@ export class LobbyScreen {
       this.setStatus("Joined! Waiting for lobby to close…");
       this.joinBtn.hidden = true;
       this.nicknameInfoEl.hidden = true;
-      this.avatarSection.hidden = true;
+      this.avatarSection.classList.add("lobby-avatar-card--locked");
 
       const gameId = this.currentGame.id;
       await this.pollForBundles(
