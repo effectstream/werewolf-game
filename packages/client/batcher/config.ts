@@ -31,8 +31,6 @@ const midnightBalancingAdapter = midnight_enabled
       node: midnightNetworkConfig.node,
       proofServer: midnightNetworkConfig.proofServer,
       walletNetworkId: midnightNetworkConfig.id,
-      shieldedPaddingTokenID:
-        "0000000000000000000000000000000000000000000000000000000000000000",
       addShieldedPadding: false,
     } as MidnightBalancingAdapterConfig,
   )
@@ -41,7 +39,7 @@ const midnightBalancingAdapter = midnight_enabled
 export const config: BatcherConfig = {
   pollingIntervalMs: batchIntervalMs,
   adapters: {
-    paimaL2: paimaL2Adapter,
+    ...(paimaL2Adapter ? { paimaL2: paimaL2Adapter } : {}),
     ...(midnightBalancingAdapter
       ? { midnight_balancing: midnightBalancingAdapter }
       : {}),
