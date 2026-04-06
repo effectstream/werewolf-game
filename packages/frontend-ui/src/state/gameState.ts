@@ -81,6 +81,10 @@ class GameState {
   hasVotedThisRound: boolean = false
   /** Number of votes submitted so far this round (from polling) */
   voteCount: number = 0
+  /** Timeout block for the current round's punishment timer (from vote_status poll) */
+  roundTimeoutBlock: number | null = null
+  /** Current NTP block at last vote_status poll */
+  roundCurrentBlock: number | null = null
   /** Internal key to detect round/phase changes for auto-reset */
   private votedRoundPhaseKey: string = ''
   private listeners: (() => void)[] = []
@@ -127,6 +131,8 @@ class GameState {
     this.lastUpdatedBlock = -1
     this.hasVotedThisRound = false
     this.voteCount = 0
+    this.roundTimeoutBlock = null
+    this.roundCurrentBlock = null
     this.votedRoundPhaseKey = ''
     // Keep: listeners, lobbyGameId, playerEvmAddress, playerNickname, playerAppearanceCode
   }
@@ -283,6 +289,14 @@ class GameState {
   setVoteCount(count: number) {
     if (count !== this.voteCount) {
       this.voteCount = count
+      this.notify()
+    }
+  }
+
+  setTimerBlocks(timeoutBlock: number | null, currentBlock: number | null) {
+    if (timeoutBlock !== this.roundTimeoutBlock || currentBlock !== this.roundCurrentBlock) {
+      this.roundTimeoutBlock = timeoutBlock
+      this.roundCurrentBlock = currentBlock
       this.notify()
     }
   }

@@ -387,6 +387,16 @@ body {
   overflow-y: auto;
 }
 
+.lobby-avatar-card--locked .lobby-avatar-controls {
+  pointer-events: none;
+  opacity: 0.45;
+}
+
+.lobby-avatar-card--locked .lobby-avatar-copy::after {
+  content: " Appearance locked — already submitted to the contract.";
+  color: rgba(140, 210, 140, 0.8);
+}
+
 .lobby-title {
   margin: 0;
   font-size: 2rem;
@@ -819,6 +829,41 @@ body {
   color: #c8d8ff;
 }
 
+.midnight-choice-modal .midnight-choice-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+.midnight-choice-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.midnight-choice-actions-row .ui-btn {
+  flex: 1 1 140px;
+  min-width: min(100%, 160px);
+  justify-content: center;
+}
+
+.midnight-choice-cancel {
+  background: transparent;
+  border: none;
+  color: rgba(180, 200, 255, 0.55);
+  font-size: 0.85rem;
+  padding: 6px 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.midnight-choice-cancel:hover {
+  color: rgba(200, 220, 255, 0.85);
+}
+
 /* ============================================================ */
 
 @media (max-width: 980px) {
@@ -1047,6 +1092,24 @@ body {
 
 .vote-status-bar.hidden {
   display: none;
+}
+
+/* Round punishment timer */
+.round-timer-bar {
+  padding: 0.35rem 0.5rem;
+  font-size: 0.78rem;
+  color: rgba(180, 200, 255, 0.65);
+  text-align: center;
+  border-top: 1px solid rgba(100, 140, 220, 0.15);
+  margin-top: 0.25rem;
+}
+
+.round-timer-bar.hidden {
+  display: none;
+}
+
+.round-timer-label {
+  font-variant-numeric: tabular-nums;
 }
 
 /* ACCUSE button variant (blue) */

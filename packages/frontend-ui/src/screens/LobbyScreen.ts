@@ -44,6 +44,8 @@ const MIDNIGHT_NETWORK_ID =
   (import.meta.env.VITE_MIDNIGHT_NETWORK_ID as string | undefined) ??
     "undeployed";
 const LOBBY_POLL_INTERVAL_MS = 4000;
+
+type MidnightConnectChoice = "lace" | "local" | "cancel";
 const GAME_INFO_POLL_INTERVAL_MS = 10000;
 
 function formatRemainingTime(seconds: number): string {
@@ -116,16 +118,26 @@ export class LobbyScreen {
   private avatarShuffleBtn!: HTMLButtonElement;
   private joinBtn!: HTMLButtonElement;
   private laceModalBackdrop!: HTMLDivElement;
+  private midnightChoiceBackdrop!: HTMLDivElement;
+  private midnightChoiceLaceBtn!: HTMLButtonElement;
+  private midnightChoiceLeadEl!: HTMLParagraphElement;
   private proxyBadgeEl!: HTMLSpanElement;
   private associateSection!: HTMLDivElement;
+
+  private _midnightChoiceResolve:
+    | ((choice: MidnightConnectChoice) => void)
+    | null = null;
 
   private _usingProxy: boolean = false;
   private currentGame: GameInfo | null = null;
   private derivedNickname: string | null = null;
   private lobbyPollTimer: ReturnType<typeof setInterval> | null = null;
   private gameInfoPollTimer: ReturnType<typeof setInterval> | null = null;
-  private readonly _initialAvatarSelection: AvatarSelection = hasAvatarSelection() ? loadAvatarSelection() : randomAvatarSelection();
-  private readonly avatarPreview = new AvatarPreview(this._initialAvatarSelection);
+  private readonly _initialAvatarSelection: AvatarSelection =
+    hasAvatarSelection() ? loadAvatarSelection() : randomAvatarSelection();
+  private readonly avatarPreview = new AvatarPreview(
+    this._initialAvatarSelection,
+  );
   private avatarSelection: AvatarSelection = this._initialAvatarSelection;
 
   constructor() {
@@ -254,6 +266,21 @@ export class LobbyScreen {
         </div>
       </div>
 
+    <div id="midnightChoiceBackdrop" class="lace-install-backdrop midnight-choice-backdrop" hidden>
+      <div class="lace-install-modal midnight-choice-modal" role="dialog" aria-modal="true" aria-labelledby="midnightChoiceTitle">
+        <div class="lace-install-icon">🌙</div>
+        <h2 id="midnightChoiceTitle" class="lace-install-title">Midnight wallet</h2>
+        <p id="midnightChoiceLead" class="lace-install-body"></p>
+        <div class="midnight-choice-actions">
+          <div class="midnight-choice-actions-row">
+            <button type="button" id="midnightChoiceLaceBtn" class="ui-btn lace-install-cta">Browser wallet (Lace)</button>
+            <button type="button" id="midnightChoiceLocalBtn" class="ui-btn lace-install-dismiss">Local wallet</button>
+          </div>
+          <button type="button" id="midnightChoiceCancelBtn" class="ui-btn midnight-choice-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <div id="laceInstallBackdrop" class="lace-install-backdrop" hidden>
       <div class="lace-install-modal" role="dialog" aria-modal="true" aria-labelledby="laceInstallTitle">
         <div class="lace-install-icon">🔐</div>
@@ -325,6 +352,43 @@ export class LobbyScreen {
       "#lobbyStatus",
     )!;
 
+    this.midnightChoiceBackdrop = this.container.querySelector<HTMLDivElement>(
+      "#midnightChoiceBackdrop",
+    )!;
+    this.midnightChoiceLaceBtn = this.container.querySelector<
+      HTMLButtonElement
+    >(
+      "#midnightChoiceLaceBtn",
+    )!;
+    const midnightChoiceLocalBtn = this.container.querySelector<
+      HTMLButtonElement
+    >("#midnightChoiceLocalBtn")!;
+    const midnightChoiceCancelBtn = this.container.querySelector<
+      HTMLButtonElement
+    >("#midnightChoiceCancelBtn")!;
+    this.midnightChoiceLeadEl = this.container.querySelector<
+      HTMLParagraphElement
+    >(
+      "#midnightChoiceLead",
+    )!;
+    this.midnightChoiceLaceBtn.addEventListener(
+      "click",
+      () => this.finishMidnightChoiceModal("lace"),
+    );
+    midnightChoiceLocalBtn.addEventListener(
+      "click",
+      () => this.finishMidnightChoiceModal("local"),
+    );
+    midnightChoiceCancelBtn.addEventListener(
+      "click",
+      () => this.finishMidnightChoiceModal("cancel"),
+    );
+    this.midnightChoiceBackdrop.addEventListener("click", (e) => {
+      if (e.target === this.midnightChoiceBackdrop) {
+        this.finishMidnightChoiceModal("cancel");
+      }
+    });
+
     this.laceModalBackdrop = this.container.querySelector<HTMLDivElement>(
       "#laceInstallBackdrop",
     )!;
@@ -385,6 +449,7 @@ export class LobbyScreen {
       clearInterval(this.gameInfoPollTimer);
       this.gameInfoPollTimer = null;
     }
+    this.finishMidnightChoiceModal("cancel");
     // Pause the render loop without disposing the WebGL renderer so it can
     // be restarted via mount() when the lobby is shown again.
     this.avatarPreview.stop();
@@ -399,6 +464,7 @@ export class LobbyScreen {
   private resetLobbyState(): void {
     this.gameInfoEl.hidden = true;
     this.avatarSection.hidden = true;
+    this.avatarSection.classList.remove("lobby-avatar-card--locked");
     this.joinBtn.hidden = true;
     this.currentGame = null;
     this.setStatus("");
@@ -425,6 +491,30 @@ export class LobbyScreen {
   ): void {
     btn.disabled = loading;
     btn.textContent = loading ? "..." : label;
+  }
+
+  private finishMidnightChoiceModal(choice: MidnightConnectChoice): void {
+    if (!this._midnightChoiceResolve) return;
+    this.midnightChoiceBackdrop.hidden = true;
+    const resolve = this._midnightChoiceResolve;
+    this._midnightChoiceResolve = null;
+    resolve(choice);
+  }
+
+  private openMidnightChoiceModal(): Promise<MidnightConnectChoice> {
+    return new Promise((resolve) => {
+      this._midnightChoiceResolve = resolve;
+      const laceAvailable = midnightWallet.isAvailable();
+      this.midnightChoiceLaceBtn.hidden = !laceAvailable;
+      if (laceAvailable) {
+        this.midnightChoiceLeadEl.textContent =
+          "A Midnight-compatible wallet is available in this browser. Connect through your browser wallet, or use a local Midnight wallet derived from your EVM account.";
+      } else {
+        this.midnightChoiceLeadEl.textContent =
+          "No Midnight browser wallet was detected. Continue with a local Midnight wallet derived from your EVM account, or install Lace and refresh this page.";
+      }
+      this.midnightChoiceBackdrop.hidden = false;
+    });
   }
 
   private bindAvatarControls(): void {
@@ -520,23 +610,28 @@ export class LobbyScreen {
       return;
     }
 
-    // ── 2. Midnight wallet (Lace or proxy fallback) ───────────────────────────
-    // Always attempt Lace first; isAvailable() is used only as a tiebreaker
-    // when connect() throws, to distinguish "Lace present but failed" from
-    // "Lace not installed".
-    this.setStatus("Connecting Midnight wallet…");
+    this.setLoading(this.walletBtn, false, "Connect Wallet");
+    this.setStatus("");
 
+    const choice = await this.openMidnightChoiceModal();
+    if (choice === "cancel") {
+      this.setStatus("");
+      return;
+    }
+
+    this.setLoading(this.walletBtn, true, "Connect Wallet");
+
+    // ── 2. Midnight wallet (user-chosen: Lace or local proxy) ─────────────────
     let shielded: string;
 
-    try {
-      const midnightState = await midnightWallet.connect(MIDNIGHT_NETWORK_ID);
-      shielded = midnightState.shieldedAddress!;
-      this._usingProxy = false;
-      console.log("[LobbyScreen] Midnight wallet connected:", shielded);
-    } catch (laceErr) {
-      if (midnightWallet.isAvailable()) {
-        // Lace is installed but the connection failed (user rejected, wrong network, etc.).
-        // Surface the error — do not silently fall back to proxy.
+    if (choice === "lace") {
+      this.setStatus("Connecting Midnight wallet…");
+      try {
+        const midnightState = await midnightWallet.connect(MIDNIGHT_NETWORK_ID);
+        shielded = midnightState.shieldedAddress!;
+        this._usingProxy = false;
+        console.log("[LobbyScreen] Midnight wallet connected:", shielded);
+      } catch (laceErr) {
         this.setLoading(this.walletBtn, false, "Connect Wallet");
         this.derivedNickname = null;
         this.nicknameValueEl.textContent = "";
@@ -547,9 +642,8 @@ export class LobbyScreen {
         );
         return;
       }
-
-      // Lace not installed → derive proxy wallet from EVM seed.
-      this.setStatus("Lace not detected — initialising proxy wallet…");
+    } else {
+      this.setStatus("Initialising local Midnight wallet…");
       try {
         const walletClient = evmWallet.getWalletClient()!;
         const proxyState = await proxyMidnightWallet.initialize(
@@ -567,12 +661,11 @@ export class LobbyScreen {
           "[LobbyScreen] Proxy wallet activated:",
           shielded.slice(0, 16) + "…",
         );
-        // Inform the player they are on a temporary wallet.
         this.laceModalBackdrop.hidden = false;
       } catch (proxyErr) {
         this.setLoading(this.walletBtn, false, "Connect Wallet");
         this.setStatus(
-          `Proxy wallet initialisation failed: ${(proxyErr as Error).message}`,
+          `Local wallet initialisation failed: ${(proxyErr as Error).message}`,
           true,
         );
         return;
@@ -678,7 +771,10 @@ export class LobbyScreen {
               0,
               lobbyStatus.timeoutBlock - lobbyStatus.currentBlock,
             );
-            timerRow = `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${formatRemainingTime(remaining)}</strong></div>`;
+            timerRow =
+              `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${
+                formatRemainingTime(remaining)
+              }</strong></div>`;
           }
         } catch {
           // non-critical — just skip the timer
@@ -747,12 +843,15 @@ export class LobbyScreen {
               0,
               status.timeoutBlock - status.currentBlock,
             );
-            timerRow = `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${formatRemainingTime(remaining)}</strong></div>`;
+            timerRow =
+              `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${
+                formatRemainingTime(remaining)
+              }</strong></div>`;
           }
           this.gameInfoEl.innerHTML = `
             <div class="lobby-game-row"><span>Game Phrase</span><strong>${
-              encodeGameId(gameId)
-            }</strong></div>
+            encodeGameId(gameId)
+          }</strong></div>
             <div class="lobby-game-row"><span>Status</span><strong>${stateLabel}</strong></div>
             <div class="lobby-game-row"><span>Players</span><strong>${status.playerCount} / ${status.maxPlayers}</strong></div>
             ${timerRow}
@@ -896,7 +995,7 @@ export class LobbyScreen {
       this.setStatus("Joined! Waiting for lobby to close…");
       this.joinBtn.hidden = true;
       this.nicknameInfoEl.hidden = true;
-      this.avatarSection.hidden = true;
+      this.avatarSection.classList.add("lobby-avatar-card--locked");
 
       const gameId = this.currentGame.id;
       await this.pollForBundles(
@@ -943,7 +1042,10 @@ export class LobbyScreen {
 
       // Finished games outside the 60-minute window (server-evaluated) → clean up.
       results.forEach((r, i) => {
-        if (r.status === "fulfilled" && r.value.status.finished && !r.value.status.finishedRecently) {
+        if (
+          r.status === "fulfilled" && r.value.status.finished &&
+          !r.value.status.finishedRecently
+        ) {
           clearSession(sessions[i].gameId);
         }
       });
@@ -954,7 +1056,9 @@ export class LobbyScreen {
             r,
           ): r is PromiseFulfilledResult<
             { session: StoredSession; status: LobbyStatusResponse }
-          > => r.status === "fulfilled" && (!r.value.status.finished || r.value.status.finishedRecently),
+          > =>
+            r.status === "fulfilled" &&
+            (!r.value.status.finished || r.value.status.finishedRecently),
         )
         .map((r) => r.value);
 
@@ -1080,14 +1184,14 @@ export class LobbyScreen {
         );
       } catch (err) {
         console.error(
-          '[LobbyScreen] Session restore bundle fetch error:',
+          "[LobbyScreen] Session restore bundle fetch error:",
           err,
           {
             gameId: session.gameId,
             publicKeyHex: session.publicKeyHex,
           },
         );
-        toastManager.error('Failed to fetch bundle — try again.');
+        toastManager.error("Failed to fetch bundle — try again.");
         this.setStatus(
           `Failed to fetch bundle: ${(err as Error).message}`,
           true,
@@ -1145,7 +1249,10 @@ export class LobbyScreen {
                 0,
                 status.timeoutBlock - status.currentBlock,
               );
-              timerRow = `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${formatRemainingTime(remaining)}</strong></div>`;
+              timerRow =
+                `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${
+                  formatRemainingTime(remaining)
+                }</strong></div>`;
             }
             this.gameInfoEl.innerHTML = `
               <div class="lobby-game-row"><span>Game Phrase</span><strong>${
@@ -1171,16 +1278,22 @@ export class LobbyScreen {
               gameState.setPlayerBundle(bundle);
 
               this.setStatus("Bundle received! Loading game…");
-              this.onJoined(gameId, true, publicKeyHex, nickname, appearanceCode);
+              this.onJoined(
+                gameId,
+                true,
+                publicKeyHex,
+                nickname,
+                appearanceCode,
+              );
               resolve();
             } catch (err) {
               console.error(
-                '[LobbyScreen] PollForBundles bundle fetch error:',
+                "[LobbyScreen] PollForBundles bundle fetch error:",
                 err,
                 { gameId, publicKeyHex },
               );
-              toastManager.error('Failed to fetch bundle — try again.');
-              this.setStatus('Failed to fetch bundle — try again.', true);
+              toastManager.error("Failed to fetch bundle — try again.");
+              this.setStatus("Failed to fetch bundle — try again.", true);
               // Keep polling even after error - don't resolve
             }
           } else if (status.state === "closed" && !status.bundlesReady) {

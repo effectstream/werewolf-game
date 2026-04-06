@@ -84,6 +84,10 @@ export class VoteStatusPoller {
     try {
       const status = await fetchVoteStatus(this.gameId, round, phase);
       gameState.setVoteCount(status.voteCount);
+      gameState.setTimerBlocks(
+        status.timeoutBlock ?? null,
+        status.currentBlock ?? null,
+      );
     } catch (err) {
       console.warn("[VoteStatusPoller] poll failed:", err);
     }
