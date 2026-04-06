@@ -103,6 +103,7 @@ export class LobbyScreen {
 
   private container: HTMLDivElement;
   private statusEl!: HTMLParagraphElement;
+  private startHintEl!: HTMLParagraphElement;
   private walletBtn!: HTMLButtonElement;
   private evmAddressEl!: HTMLSpanElement;
   private midnightAddressEl!: HTMLSpanElement;
@@ -183,6 +184,7 @@ export class LobbyScreen {
         </section>
 
         <p id="lobbyStatus" class="lobby-status"></p>
+        <p id="lobbyStartHint" class="lobby-start-hint" hidden>Game starts when 16 players have joined, or every 30 minutes if at least 6 players have joined.</p>
       </div>
       <div id="lobbyAvatarSection" class="lobby-avatar-card" hidden>
         <div class="lobby-avatar-panel">
@@ -351,6 +353,9 @@ export class LobbyScreen {
     this.statusEl = this.container.querySelector<HTMLParagraphElement>(
       "#lobbyStatus",
     )!;
+    this.startHintEl = this.container.querySelector<HTMLParagraphElement>(
+      "#lobbyStartHint",
+    )!;
 
     this.midnightChoiceBackdrop = this.container.querySelector<HTMLDivElement>(
       "#midnightChoiceBackdrop",
@@ -465,6 +470,7 @@ export class LobbyScreen {
     this.gameInfoEl.hidden = true;
     this.avatarSection.hidden = true;
     this.avatarSection.classList.remove("lobby-avatar-card--locked");
+    this.startHintEl.hidden = true;
     this.joinBtn.hidden = true;
     this.currentGame = null;
     this.setStatus("");
@@ -1302,6 +1308,7 @@ export class LobbyScreen {
             this.setStatus(
               `Waiting for players… (${status.playerCount}/${status.maxPlayers})`,
             );
+            this.startHintEl.hidden = false;
           }
         } catch (err) {
           console.error("[LobbyScreen] lobby poll error:", err);

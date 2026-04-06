@@ -740,6 +740,14 @@ body {
   color: rgba(255, 130, 140, 0.9);
 }
 
+.lobby-start-hint {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: rgba(160, 180, 230, 0.55);
+  text-align: center;
+  line-height: 1.4;
+}
+
 /* ============================================================
    Lace Install Modal
    ============================================================ */
