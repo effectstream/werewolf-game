@@ -20,7 +20,7 @@ import { apiRouter } from "./api.ts";
 
 main(function* () {
   yield* init();
-  console.log("Starting EffectStream Node (Local)");
+  console.log("\n🚀 Starting EffectStream Node (Local)\n");
 
   yield* withEffectstreamStaticConfig(nodeConfig, function* () {
     yield* start({

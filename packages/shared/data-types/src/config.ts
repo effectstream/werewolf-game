@@ -113,25 +113,31 @@ export const config = new ConfigBuilder()
     builder
       .addPrimitive(
         (syncProtocols) => syncProtocols.parallelMidnight,
-        (network, deployments, syncProtocol) => ({
-          name: "MidnightContractState",
-          type: PrimitiveTypeMidnightGeneric,
-          startBlockHeight: 1,
-          contractAddress: readMidnightContract(
+        (network, deployments, syncProtocol) => {
+          const midnightContractAddr = readMidnightContract(
             "contract-werewolf",
             { networkId: midnightNetworkConfig.id },
-          ).contractAddress,
-          stateMachinePrefix: "midnightContractState",
-          contract: {
-            ledger: (data: any) => {
-              const result = ContractContract.ledger(
-                normalizeMidnightLedgerStateInput(data),
-              );
-              return convertMidnightLedger(result);
+          ).contractAddress;
+          console.log(`\n${"=".repeat(70)}`);
+          console.log(`📋 MIDNIGHT CONTRACT ADDRESS: ${midnightContractAddr}`);
+          console.log(`${"=".repeat(70)}\n`);
+          return {
+            name: "MidnightContractState",
+            type: PrimitiveTypeMidnightGeneric,
+            startBlockHeight: 1,
+            contractAddress: midnightContractAddr,
+            stateMachinePrefix: "midnightContractState",
+            contract: {
+              ledger: (data: any) => {
+                const result = ContractContract.ledger(
+                  normalizeMidnightLedgerStateInput(data),
+                );
+                return convertMidnightLedger(result);
+              },
             },
-          },
-          networkId: midnightNetworkConfig.id,
-        }),
+            networkId: midnightNetworkConfig.id,
+          };
+        },
       )
       .addPrimitive(
         (syncProtocols) => (syncProtocols as any).parallelEvmRPC_fast,

@@ -61,6 +61,9 @@ if (Deno) {
       );
       midnightContractAddress = counterContract.contractAddress;
       midnightArtifactsReady = Boolean(midnightContractAddress);
+      console.log(`\n${"=".repeat(70)}`);
+      console.log(`📋 MIDNIGHT CONTRACT ADDRESS: ${midnightContractAddress}`);
+      console.log(`${"=".repeat(70)}\n`);
     } catch (error) {
       console.warn(
         `[midnight] Failed to read contract artifacts: ${

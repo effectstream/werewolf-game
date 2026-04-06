@@ -26,7 +26,7 @@ import { apiRouter } from "./api.preprod.ts";
 
 main(function* () {
   yield* init();
-  console.log("Starting EffectStream Node (Mainnet)");
+  console.log("\n🚀 Starting EffectStream Node (Mainnet)\n");
 
   yield* withEffectstreamStaticConfig(nodeConfig, function* () {
     yield* start({
