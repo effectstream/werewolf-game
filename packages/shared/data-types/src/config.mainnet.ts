@@ -32,15 +32,15 @@ let launchStartTime: number | undefined;
 // Set EVM_SYNC_FROM or MIDNIGHT_SYNC_FROM environment variables to override.
 let arbOneTip: number = 0;
 let midnightTip: number = 1;
+let midnightStepSize: number | undefined = 1;
 
-const arbitrumOneRpc = Deno
-  ? Deno.env.get("ARBITRUM_ONE_RPC")
-  : undefined;
+const arbitrumOneRpc = Deno ? Deno.env.get("ARBITRUM_ONE_RPC") : undefined;
 
 type ContractAddressBook = Record<string, Record<string, `0x${string}`>>;
 const contractAddressBook = contractAddressesEvmMain() as ContractAddressBook;
 const paimaL2MainnetContractAddress =
-  contractAddressBook["chain42161"]?.["PaimaL2ContractModule#MyPaimaL2Contract"] ||
+  contractAddressBook["chain42161"]
+    ?.["PaimaL2ContractModule#MyPaimaL2Contract"] ||
   "0x0000000000000000000000000000000000000000";
 
 const midnightNetworkInputsValid = Boolean(
@@ -159,9 +159,29 @@ if (Deno) {
     const parsedBlock = parseInt(midnightSyncFromEnv, 10);
     if (!isNaN(parsedBlock) && parsedBlock >= 0) {
       midnightTip = parsedBlock;
-      console.log(`[config] Midnight sync from block (env var): ${midnightTip}`);
+      console.log(
+        `[config] Midnight sync from block (env var): ${midnightTip}`,
+      );
     } else {
-      console.warn(`[config] Invalid MIDNIGHT_SYNC_FROM value: "${midnightSyncFromEnv}", fetching tip instead`);
+      console.warn(
+        `[config] Invalid MIDNIGHT_SYNC_FROM value: "${midnightSyncFromEnv}", fetching tip instead`,
+      );
+    }
+  }
+
+  // Read MIDNIGHT_PARALLEL_STEP_SIZE for the parallelMidnight sync protocol.
+  const midnightStepSizeEnv = Deno.env.get("MIDNIGHT_PARALLEL_STEP_SIZE");
+  if (midnightStepSizeEnv !== undefined && midnightStepSizeEnv !== "") {
+    const parsed = parseInt(midnightStepSizeEnv, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      midnightStepSize = parsed;
+      console.log(
+        `[config] Midnight parallel step size (env var): ${midnightStepSize}`,
+      );
+    } else {
+      console.warn(
+        `[config] Invalid MIDNIGHT_PARALLEL_STEP_SIZE value: "${midnightStepSizeEnv}", using default`,
+      );
     }
   }
 
@@ -171,7 +191,12 @@ if (Deno) {
       const res = await fetch("https://rpc.mainnet.midnight.network", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", method: "chain_getBlock", params: [], id: 1 }),
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "chain_getBlock",
+          params: [],
+          id: 1,
+        }),
       });
       const data = await res.json();
       const blockNumber = data?.result?.block?.header?.number;
@@ -180,7 +205,10 @@ if (Deno) {
         console.log(`[config] Midnight mainnet tip: ${midnightTip}`);
       }
     } catch (e) {
-      console.warn("[config] Could not fetch Midnight tip, starting from 1:", e);
+      console.warn(
+        "[config] Could not fetch Midnight tip, starting from 1:",
+        e,
+      );
     }
   }
 
@@ -272,6 +300,9 @@ export const config = new ConfigBuilder()
           delayMs: 6000,
           indexer: midnightNetworkConfig.indexer,
           indexerWs: midnightNetworkConfig.indexerWS,
+          ...(midnightStepSize !== undefined
+            ? { stepSize: midnightStepSize }
+            : {}),
         }),
       );
     }
