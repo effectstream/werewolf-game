@@ -99,7 +99,7 @@ export class LobbyScreen {
   onLeaderboardClick: () => void = () => {};
 
   private static readonly DISCOVER_POLL_MS = 3_000; // ms between /api/open_lobby retries
-  private static readonly DISCOVER_TIMEOUT_MS = 60_000; // give up after 60 s
+  private static readonly DISCOVER_TIMEOUT_MS = 300_000; // give up after 5 minutes
 
   private container: HTMLDivElement;
   private statusEl!: HTMLParagraphElement;
@@ -869,16 +869,10 @@ export class LobbyScreen {
               clearInterval(this.gameInfoPollTimer);
               this.gameInfoPollTimer = null;
             }
-            // Update UI based on new state
-            if (status.state === "closed" && !status.bundlesReady) {
-              this.avatarSection.hidden = true;
-              this.joinBtn.hidden = true;
-              this.setStatus("Game is closing. Generating bundles…");
-            } else if (status.bundlesReady) {
-              this.avatarSection.hidden = true;
-              this.joinBtn.hidden = true;
-              this.setStatus("Bundles are ready!");
-            }
+            // Player hasn't joined — game started without them. Find the next lobby.
+            this.resetLobbyState();
+            this.setStatus("Game has started. Searching for a new lobby…");
+            void this.autoDiscoverLobby();
           } else if (status.playerCount >= status.maxPlayers) {
             this.avatarSection.hidden = true;
             this.joinBtn.hidden = true;
