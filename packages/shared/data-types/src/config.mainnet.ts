@@ -74,37 +74,81 @@ if (Deno) {
     }
   }
 
+  // Helper: fetch the current Arbitrum One tip via JSON-RPC.
+  // Returns `undefined` if the RPC call fails or the response is malformed.
+  const fetchArbOneTip = async (): Promise<number | undefined> => {
+    const rpcUrl = Deno.env.get("ARBITRUM_ONE_RPC") ?? "";
+    if (!rpcUrl) return undefined;
+    try {
+      const res = await fetch(rpcUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          method: "eth_blockNumber",
+          params: [],
+          id: 1,
+        }),
+      });
+      const data = await res.json();
+      if (typeof data?.result !== "string") return undefined;
+      const parsed = parseInt(data.result, 16);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    } catch (e) {
+      console.warn("[config] Could not fetch Arb One tip:", e);
+      return undefined;
+    }
+  };
+
+  // Always fetch the real chain tip — we use it both as a fallback and as a
+  // sanity bound for any user-supplied EVM_SYNC_FROM value.
+  const liveArbOneTip = await fetchArbOneTip();
+  if (liveArbOneTip !== undefined) {
+    console.log(`[config] Arb One live tip: ${liveArbOneTip}`);
+  }
+
   // Read EVM_SYNC_FROM environment variable for custom EVM sync start block.
-  // If set, sync from this block number. Otherwise, fetch current tip.
+  // If set, sync from this block number. Otherwise, use the live chain tip.
   const evmSyncFromEnv = Deno.env.get("EVM_SYNC_FROM");
   if (evmSyncFromEnv !== undefined && evmSyncFromEnv !== "") {
     const parsedBlock = parseInt(evmSyncFromEnv, 10);
     if (!isNaN(parsedBlock) && parsedBlock >= 0) {
+      // Sanity-check the override against the live tip. If the user (or a
+      // stale env file) asked us to start from a block that doesn't exist
+      // yet on chain, the sync protocol will spin forever producing
+      // "requested block is greater than highest block" errors and the
+      // main NTP stream will never advance.
+      if (
+        liveArbOneTip !== undefined && parsedBlock > liveArbOneTip
+      ) {
+        throw new Error(
+          `[config] EVM_SYNC_FROM=${parsedBlock} is greater than the current ` +
+            `Arbitrum One tip (${liveArbOneTip}). Refusing to start — this ` +
+            `would wedge the EVM sync protocol. Fix EVM_SYNC_FROM or unset it.`,
+        );
+      }
       arbOneTip = parsedBlock;
       console.log(`[config] EVM sync from block (env var): ${arbOneTip}`);
     } else {
-      console.warn(`[config] Invalid EVM_SYNC_FROM value: "${evmSyncFromEnv}", fetching tip instead`);
+      console.warn(
+        `[config] Invalid EVM_SYNC_FROM value: "${evmSyncFromEnv}", fetching tip instead`,
+      );
     }
   }
 
-  // Fetch current Arbitrum One tip if EVM_SYNC_FROM is not set.
+  // Fall back to the live chain tip if EVM_SYNC_FROM was not set (or invalid).
   if (arbOneTip === 0) {
-    try {
-      const rpcUrl = Deno.env.get("ARBITRUM_ONE_RPC") ?? "";
-      if (rpcUrl) {
-        const res = await fetch(rpcUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ jsonrpc: "2.0", method: "eth_blockNumber", params: [], id: 1 }),
-        });
-        const data = await res.json();
-        if (data?.result) {
-          arbOneTip = parseInt(data.result, 16);
-          console.log(`[config] Arb One tip: ${arbOneTip}`);
-        }
-      }
-    } catch (e) {
-      console.warn("[config] Could not fetch Arb One tip, starting from 0:", e);
+    if (liveArbOneTip !== undefined) {
+      arbOneTip = liveArbOneTip;
+      console.log(`[config] Arb One tip: ${arbOneTip}`);
+    } else {
+      // Hard-fail instead of silently starting from 0, which would make the
+      // sync protocol try to re-scan the entire history of Arbitrum One.
+      throw new Error(
+        "[config] Could not determine Arbitrum One tip and EVM_SYNC_FROM is " +
+          "not set. Refusing to start — set ARBITRUM_ONE_RPC to a reachable " +
+          "endpoint or set EVM_SYNC_FROM explicitly.",
+      );
     }
   }
 
