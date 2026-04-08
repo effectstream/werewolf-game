@@ -96,7 +96,6 @@ export function initLayout() {
           <button class="ui-btn full role-option-btn" data-role="werewolf">Werewolf</button>
           <button class="ui-btn full role-option-btn" data-role="doctor">Doctor</button>
           <button class="ui-btn full role-option-btn" data-role="seer">Seer</button>
-          <button class="ui-btn full role-option-btn" data-role="angelDead">Angel (dead)</button>
         </div>
       </div>
     </div>
