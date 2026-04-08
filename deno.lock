@@ -128,6 +128,7 @@
     "npm:@paimaexample/explorer@0.10.23": "0.10.23",
     "npm:@paimaexample/grafana-alloy@*": "0.8.1",
     "npm:@paimaexample/grafana-loki@*": "0.8.1",
+    "npm:@paimaexample/npm-midnight-indexer@*": "0.10.23",
     "npm:@paimaexample/npm-midnight-indexer@0.10.23": "0.10.23",
     "npm:@paimaexample/npm-midnight-node@0.10.23": "0.10.23",
     "npm:@paimaexample/npm-midnight-proof-server@*": "0.10.23",
