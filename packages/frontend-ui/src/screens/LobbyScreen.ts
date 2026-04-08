@@ -153,7 +153,7 @@ export class LobbyScreen {
         </div>
 
         <section class="lobby-wallet-section">
-          <button id="lobbyWalletBtn" class="ui-btn lobby-btn">Connect Wallet</button>
+          <button id="lobbyWalletBtn" class="ui-btn lobby-btn">Start Now</button>
           <div id="lobbyWalletInfo" class="lobby-wallet-info" hidden>
             <span id="lobbyEvmAddress" class="lobby-address lobby-address--evm"></span>
             <br />
@@ -173,18 +173,38 @@ export class LobbyScreen {
 
         <section id="lobbyGameSection" class="lobby-game-section" hidden>
           <div class="lobby-row">
-            <input id="lobbyGameIdInput" class="lobby-input" type="text" placeholder="Game ID or 4-word phrase" />
-            <button id="lobbyFindBtn" class="ui-btn lobby-btn">Find Game</button>
+            <input
+              id="lobbyGameIdInput"
+              class="lobby-input"
+              type="text"
+              placeholder="Game ID or 4-word phrase"
+              title="Optional — enter a Game ID or 4-word phrase to join a specific game. Leave blank to join any open lobby."
+            />
+            <button
+              id="lobbyFindBtn"
+              class="ui-btn lobby-btn"
+              title="Optional — enter a Game ID or 4-word phrase to join a specific game. Leave blank to join any open lobby."
+            >Find Game</button>
           </div>
+          <p class="lobby-find-hint">Optional — leave blank to join any open game.</p>
           <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
-          <div id="lobbyNicknameInfo" class="lobby-game-info" hidden>
+          <div
+            id="lobbyNicknameInfo"
+            class="lobby-game-info"
+            hidden
+            title="Automatically generated from your wallet address."
+          >
             <div class="lobby-game-row"><span>Nickname</span><strong id="lobbyNicknameValue"></strong></div>
+            <p class="lobby-nickname-hint">Auto-generated from your wallet address.</p>
           </div>
           <button id="lobbyJoinBtn" class="ui-btn lobby-btn lobby-btn--primary" hidden>Join Game</button>
         </section>
 
         <p id="lobbyStatus" class="lobby-status"></p>
-        <p id="lobbyStartHint" class="lobby-start-hint" hidden>Game starts when 16 players have joined, or every 30 minutes if at least 6 players have joined.</p>
+        <p id="lobbyStartHint" class="lobby-start-hint" hidden>Starts instantly with 16 players. With 6–15 players, the game auto-starts every 30 minutes.</p>
+        <div class="lobby-rules-row">
+          <button type="button" id="lobbyRulesBtn" class="ui-btn lobby-btn lobby-btn--secondary lobby-rules-btn">📖 How to Play</button>
+        </div>
       </div>
       <div id="lobbyAvatarSection" class="lobby-avatar-card" hidden>
         <div class="lobby-avatar-panel">
@@ -276,7 +296,7 @@ export class LobbyScreen {
         <div class="midnight-choice-actions">
           <div class="midnight-choice-actions-row">
             <button type="button" id="midnightChoiceLaceBtn" class="ui-btn lace-install-cta">Browser wallet (Lace)</button>
-            <button type="button" id="midnightChoiceLocalBtn" class="ui-btn lace-install-dismiss">Local wallet</button>
+            <button type="button" id="midnightChoiceLocalBtn" class="ui-btn lace-install-dismiss">Temporary Wallet</button>
           </div>
           <button type="button" id="midnightChoiceCancelBtn" class="ui-btn midnight-choice-cancel">Cancel</button>
         </div>
@@ -304,6 +324,77 @@ export class LobbyScreen {
             class="ui-btn lace-install-dismiss"
           >Install Lace</a>
         </div>
+      </div>
+    </div>
+
+    <div id="rulesModalBackdrop" class="rules-modal-backdrop" hidden>
+      <div class="rules-modal" role="dialog" aria-modal="true" aria-labelledby="rulesModalTitle">
+        <button type="button" id="rulesModalCloseBtn" class="rules-modal-close" aria-label="Close">✕</button>
+        <h2 id="rulesModalTitle" class="rules-modal-title">How to Play</h2>
+
+        <section class="rules-section">
+          <h3 class="rules-section-heading">🎭 The Setup</h3>
+          <p class="rules-body">6–16 players join a lobby. Each player is secretly assigned a role. The village must identify and eliminate the werewolves before they're outnumbered.</p>
+        </section>
+
+        <section class="rules-section">
+          <h3 class="rules-section-heading">👥 Roles</h3>
+          <div class="rules-role-grid">
+            <div class="rules-role-card">
+              <span class="rules-role-icon">🧑‍🌾</span>
+              <strong class="rules-role-name">Villager</strong>
+              <p class="rules-role-desc">No special ability. Vote wisely each day to eliminate werewolves.</p>
+            </div>
+            <div class="rules-role-card">
+              <span class="rules-role-icon">🐺</span>
+              <strong class="rules-role-name">Werewolf</strong>
+              <p class="rules-role-desc">Each night, secretly vote to eliminate a villager. Blend in by day.</p>
+            </div>
+            <div class="rules-role-card">
+              <span class="rules-role-icon">🔮</span>
+              <strong class="rules-role-name">Seer</strong>
+              <p class="rules-role-desc">Each night, learn the true role of one player. Guide the village with your knowledge.</p>
+            </div>
+            <div class="rules-role-card">
+              <span class="rules-role-icon">💊</span>
+              <strong class="rules-role-name">Doctor</strong>
+              <p class="rules-role-desc">Each night, protect one player from elimination. You can protect yourself.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="rules-section">
+          <h3 class="rules-section-heading">☀️ Day Phase</h3>
+          <p class="rules-body">All players discuss and vote to eliminate a suspect. The player with the most votes is eliminated and their role is revealed.</p>
+        </section>
+
+        <section class="rules-section">
+          <h3 class="rules-section-heading">🌙 Night Phase</h3>
+          <p class="rules-body">Werewolves secretly vote to eliminate a villager. The Seer investigates one player. The Doctor protects one player. Results are revealed at dawn.</p>
+        </section>
+
+        <section class="rules-section">
+          <h3 class="rules-section-heading">🏆 Win Conditions</h3>
+          <div class="rules-win-row">
+            <div class="rules-win-card rules-win-village">
+              <span class="rules-win-icon">🧑‍🌾</span>
+              <strong>Village wins</strong>
+              <p>when all werewolves are eliminated.</p>
+            </div>
+            <div class="rules-win-card rules-win-wolves">
+              <span class="rules-win-icon">🐺</span>
+              <strong>Werewolves win</strong>
+              <p>when they equal or outnumber the villagers.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="rules-section">
+          <h3 class="rules-section-heading">🗂️ Role Guesser</h3>
+          <p class="rules-body">Click any 3D player model in the scene to tag your private guess about their role. This is your personal notepad — only you can see it.</p>
+        </section>
+
+        <button type="button" id="rulesModalCloseBtnBottom" class="ui-btn lobby-btn lobby-btn--secondary" style="margin-top:8px;">Got it!</button>
       </div>
     </div>
     `;
@@ -421,6 +512,14 @@ export class LobbyScreen {
     this.joinBtn.addEventListener("click", () => this.handleJoinGame());
     this.container.querySelector<HTMLButtonElement>("#lobbyLeaderboardBtn")!
       .addEventListener("click", () => this.onLeaderboardClick());
+
+    const rulesBackdrop = this.container.querySelector<HTMLDivElement>("#rulesModalBackdrop")!;
+    const openRules = () => { rulesBackdrop.hidden = false; };
+    const closeRules = () => { rulesBackdrop.hidden = true; };
+    this.container.querySelector<HTMLButtonElement>("#lobbyRulesBtn")!.addEventListener("click", openRules);
+    this.container.querySelector<HTMLButtonElement>("#rulesModalCloseBtn")!.addEventListener("click", closeRules);
+    this.container.querySelector<HTMLButtonElement>("#rulesModalCloseBtnBottom")!.addEventListener("click", closeRules);
+    rulesBackdrop.addEventListener("click", (e) => { if (e.target === rulesBackdrop) closeRules(); });
 
     this.avatarPreview.mount(this.avatarPreviewEl);
     this.bindAvatarControls();
@@ -778,7 +877,7 @@ export class LobbyScreen {
               lobbyStatus.timeoutBlock - lobbyStatus.currentBlock,
             );
             timerRow =
-              `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${
+              `<div class="lobby-game-row"><span title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
                 formatRemainingTime(remaining)
               }</strong></div>`;
           }
@@ -850,7 +949,7 @@ export class LobbyScreen {
               status.timeoutBlock - status.currentBlock,
             );
             timerRow =
-              `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${
+              `<div class="lobby-game-row"><span title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
                 formatRemainingTime(remaining)
               }</strong></div>`;
           }
@@ -1250,7 +1349,7 @@ export class LobbyScreen {
                 status.timeoutBlock - status.currentBlock,
               );
               timerRow =
-                `<div class="lobby-game-row"><span>Starts in</span><strong class="lobby-countdown">${
+                `<div class="lobby-game-row"><span title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
                   formatRemainingTime(remaining)
                 }</strong></div>`;
             }
