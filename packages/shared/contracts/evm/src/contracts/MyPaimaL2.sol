@@ -74,6 +74,10 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @param _gameId ID of the game to join
     /// @param _publicKey Ed25519 public key for bundle retrieval authentication
     /// @param _appearanceCode Packed avatar appearance (0-255)
+    /// @notice NOTE: This direct entrypoint is currently unused — avatar
+    ///         appearance is transmitted via the generic Paima batcher input
+    ///         `join_game`, which carries an unbounded Number and is range-
+    ///         checked server-side in the node state machine (currently 16-bit).
     function joinGame(uint256 _gameId, bytes32 _publicKey, uint8 _appearanceCode) public {
         require(games[_gameId].id != 0, "Game not found");
         require(games[_gameId].state == GameState.Open, "Game is closed");

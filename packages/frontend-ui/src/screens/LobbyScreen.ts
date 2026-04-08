@@ -184,7 +184,11 @@ export class LobbyScreen {
         <section id="lobbyActiveGames" class="lobby-active-games" hidden></section>
 
         <section id="lobbyGameSection" class="lobby-game-section" hidden>
-          <div class="lobby-row">
+          <!-- Find Game bar + optional hint are kept in the DOM (referenced by
+               handleFindGame / setLoading) but hidden from the user.
+               Inline style is required because .lobby-row has an explicit
+               display rule that would otherwise override the [hidden] UA style. -->
+          <div class="lobby-row" style="display:none">
             <input
               id="lobbyGameIdInput"
               class="lobby-input"
@@ -198,7 +202,7 @@ export class LobbyScreen {
               title="Optional — enter a Game ID or 4-word phrase to join a specific game. Leave blank to join any open lobby."
             >Find Game</button>
           </div>
-          <p class="lobby-find-hint">Optional — leave blank to join any open game.</p>
+          <p class="lobby-find-hint" style="display:none">Optional — leave blank to join any open game.</p>
           <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
           <div
             id="lobbyNicknameInfo"
