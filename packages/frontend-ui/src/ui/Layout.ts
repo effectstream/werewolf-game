@@ -4,7 +4,10 @@ export function initLayout() {
     <div class="hud-top">
       <div class="phase-block">
         <div id="roundLabel">Round 1</div>
-        <div id="phaseLabel" class="has-tooltip">NIGHT</div>
+        <div class="phase-label-row">
+          <div id="phaseLabel">NIGHT</div>
+          <span id="phaseHelpIcon" class="phase-help-icon tooltip-icon has-tooltip" data-tooltip="">?</span>
+        </div>
       </div>
       <div class="role-block">
         <div id="playerNicknameBadge" class="player-nickname-badge"></div>

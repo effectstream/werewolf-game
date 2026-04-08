@@ -10,6 +10,7 @@ const ROLE_LABELS: Record<number, string> = {
 export class HUDManager {
   private roundLabel: HTMLDivElement;
   private phaseLabel: HTMLDivElement;
+  private phaseHelpIcon: HTMLSpanElement;
   private revealRoleBtn: HTMLButtonElement;
   private maskedRoleBtn: HTMLButtonElement;
   private endVoteBtn: HTMLButtonElement;
@@ -24,6 +25,7 @@ export class HUDManager {
   constructor() {
     this.roundLabel = document.querySelector<HTMLDivElement>("#roundLabel")!;
     this.phaseLabel = document.querySelector<HTMLDivElement>("#phaseLabel")!;
+    this.phaseHelpIcon = document.querySelector<HTMLSpanElement>("#phaseHelpIcon")!;
     this.revealRoleBtn = document.querySelector<HTMLButtonElement>(
       "#revealRoleBtn",
     )!;
@@ -79,11 +81,12 @@ export class HUDManager {
     if (gameState.finished) {
       this.phaseLabel.textContent = "GAME OVER";
       this.phaseLabel.classList.remove("day");
-      this.phaseLabel.title = "";
+      this.phaseHelpIcon.hidden = true;
     } else {
       this.phaseLabel.textContent = gameState.phase;
       this.phaseLabel.classList.toggle("day", gameState.phase === "DAY");
-      this.phaseLabel.title = gameState.phase === "DAY"
+      this.phaseHelpIcon.hidden = false;
+      this.phaseHelpIcon.dataset.tooltip = gameState.phase === "DAY"
         ? "DAY — All players vote to eliminate a suspect. The player with the most votes is eliminated."
         : "NIGHT — Werewolves secretly vote to eliminate a villager. Seer investigates. Doctor protects.";
     }

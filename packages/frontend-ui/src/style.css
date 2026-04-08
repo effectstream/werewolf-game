@@ -876,12 +876,82 @@ body {
   display: none;
 }
 
-/* Tooltip affordance — applied to passive labels that carry a native title */
+/* ============================================================
+   Custom tooltip system
+   Uses data-tooltip attribute + ::after pseudo-element.
+   Appears in ~80 ms (vs ~600 ms for native title).
+   ============================================================ */
+
 .has-tooltip {
+  position: relative;
   cursor: help;
+}
+
+/* Dotted underline only on plain text labels, not on icon badges */
+.has-tooltip:not(.tooltip-icon) {
   text-decoration: underline dotted rgba(160, 180, 255, 0.4);
   text-underline-offset: 3px;
   text-decoration-thickness: 1px;
+}
+
+.has-tooltip[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(8, 12, 28, 0.97);
+  border: 1px solid rgba(120, 150, 255, 0.35);
+  border-radius: 7px;
+  color: #d0dcff;
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.5;
+  padding: 7px 11px;
+  width: max-content;
+  max-width: 230px;
+  white-space: normal;
+  pointer-events: none;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+  opacity: 0;
+  transition: opacity 0.12s ease 0.08s;
+  z-index: 500;
+  text-decoration: none;
+}
+
+.has-tooltip[data-tooltip]:hover::after {
+  opacity: 1;
+}
+
+/* Phase help icon — tooltip opens downward since the HUD is at the top */
+.phase-help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgba(120, 150, 255, 0.18);
+  border: 1px solid rgba(120, 150, 255, 0.45);
+  color: rgba(180, 210, 255, 0.85);
+  font-size: 0.62rem;
+  font-weight: 800;
+  cursor: help;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.phase-help-icon[data-tooltip]::after {
+  bottom: auto;
+  top: calc(100% + 8px);
+  left: 0;
+  transform: none;
+}
+
+.phase-label-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .rules-role-icon {
