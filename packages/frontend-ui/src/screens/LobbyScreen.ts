@@ -203,7 +203,7 @@ export class LobbyScreen {
             >Find Game</button>
           </div>
           <p class="lobby-find-hint" style="display:none">Optional — leave blank to join any open game.</p>
-          <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
+          <div id="lobbyGameInfo" class="lobby-game-info" hidden style="display:none"></div>
           <div
             id="lobbyNicknameInfo"
             class="lobby-game-info"
@@ -529,13 +529,25 @@ export class LobbyScreen {
     this.container.querySelector<HTMLButtonElement>("#lobbyLeaderboardBtn")!
       .addEventListener("click", () => this.onLeaderboardClick());
 
-    const rulesBackdrop = this.container.querySelector<HTMLDivElement>("#rulesModalBackdrop")!;
-    const openRules = () => { rulesBackdrop.hidden = false; };
-    const closeRules = () => { rulesBackdrop.hidden = true; };
-    this.container.querySelector<HTMLButtonElement>("#lobbyRulesBtn")!.addEventListener("click", openRules);
-    this.container.querySelector<HTMLButtonElement>("#rulesModalCloseBtn")!.addEventListener("click", closeRules);
-    this.container.querySelector<HTMLButtonElement>("#rulesModalCloseBtnBottom")!.addEventListener("click", closeRules);
-    rulesBackdrop.addEventListener("click", (e) => { if (e.target === rulesBackdrop) closeRules(); });
+    const rulesBackdrop = this.container.querySelector<HTMLDivElement>(
+      "#rulesModalBackdrop",
+    )!;
+    const openRules = () => {
+      rulesBackdrop.hidden = false;
+    };
+    const closeRules = () => {
+      rulesBackdrop.hidden = true;
+    };
+    this.container.querySelector<HTMLButtonElement>("#lobbyRulesBtn")!
+      .addEventListener("click", openRules);
+    this.container.querySelector<HTMLButtonElement>("#rulesModalCloseBtn")!
+      .addEventListener("click", closeRules);
+    this.container.querySelector<HTMLButtonElement>(
+      "#rulesModalCloseBtnBottom",
+    )!.addEventListener("click", closeRules);
+    rulesBackdrop.addEventListener("click", (e) => {
+      if (e.target === rulesBackdrop) closeRules();
+    });
 
     this.avatarPreview.mount(this.avatarPreviewEl);
     this.bindAvatarControls();
