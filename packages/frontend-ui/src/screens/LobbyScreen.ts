@@ -10,6 +10,7 @@ import {
   fetchBundle,
   fetchLobbyStatus,
   fetchOpenLobby,
+  fetchPlayerGames,
   type LobbyStatusResponse,
 } from "../services/lobbyApi";
 import {
@@ -21,11 +22,14 @@ import {
   clearSession,
   getAllSessions,
   hexToBytes,
+  loadSession,
+  saveSession,
   type StoredSession,
 } from "../services/sessionStore";
 import { deriveNicknameFromMidnightAddress } from "../services/nicknameGenerator";
 import {
   type AvatarSelection,
+  decodeAppearance,
   encodeAppearance,
   HAIR_COLORS,
   HAIR_STYLE_LABELS,
@@ -132,6 +136,14 @@ export class LobbyScreen {
   private _usingProxy: boolean = false;
   private currentGame: GameInfo | null = null;
   private derivedNickname: string | null = null;
+  /**
+   * Game ID of the rejoin flow currently in progress, or null if none.
+   * Guards against concurrent rejoins: auto-detection in `handleFindGame`
+   * and the "Your Active Games" Rejoin tile can fire at the same time after
+   * a page reload. Without this flag the player would see two wallet prompts
+   * and two polling loops.
+   */
+  private _rejoinInProgress: number | null = null;
   private lobbyPollTimer: ReturnType<typeof setInterval> | null = null;
   private gameInfoPollTimer: ReturnType<typeof setInterval> | null = null;
   private readonly _initialAvatarSelection: AvatarSelection =
@@ -854,6 +866,51 @@ export class LobbyScreen {
       console.log("[LobbyScreen] parsed numeric game ID:", gameId);
     }
 
+    // ── Already-joined detection ──────────────────────────────────────────────
+    // Tier 1: localStorage session exists → go straight to rejoin.
+    const existingSession = loadSession(gameId);
+    if (existingSession) {
+      try {
+        const status = await fetchLobbyStatus(gameId);
+        if (!status.finished) {
+          this.setLoading(this.findBtn, false, "Find Game");
+          await this.handleRejoinGame(existingSession, status);
+          return;
+        }
+      } catch {
+        // non-critical — fall through to normal find flow
+      }
+    }
+
+    // Tier 2: no localStorage but wallet connected → check backend membership.
+    if (!existingSession) {
+      const evmAddress = evmWallet.getAddress();
+      if (evmAddress) {
+        try {
+          const { games } = await fetchPlayerGames(evmAddress);
+          const record = games.find((g) => g.gameId === gameId && !g.finished);
+          if (record) {
+            const session: StoredSession = {
+              gameId: record.gameId,
+              publicKeyHex: record.publicKeyHex,
+              nickname: record.nickname,
+              appearanceCode: record.appearanceCode,
+              evmAddress,
+              bundle: null,
+            };
+            saveSession(session);
+            const status = await fetchLobbyStatus(gameId);
+            this.setLoading(this.findBtn, false, "Find Game");
+            await this.handleRejoinGame(session, status);
+            return;
+          }
+        } catch {
+          // non-critical — fall through to normal find flow
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     this.setLoading(this.findBtn, true, "Find Game");
     this.resetLobbyState();
 
@@ -1070,6 +1127,19 @@ export class LobbyScreen {
       );
       console.log("[LobbyScreen] batcher joinGame result:", batcherResult);
 
+      // ── 2a. Persist session immediately so a page reload before the game  ──
+      // starts can still detect that the player already joined this lobby.
+      // (main.ts also calls saveSession after bundles are ready, but that's
+      //  too late if the player refreshes while still in the waiting room.)
+      saveSession({
+        gameId: this.currentGame.id,
+        publicKeyHex,
+        nickname,
+        appearanceCode,
+        evmAddress: address,
+        bundle: null,
+      });
+
       // ── 2b. Register proxy wallet on first join (fire-and-forget) ─────────
       if (
         this._usingProxy && !localStorage.getItem("werewolf:proxy-registered")
@@ -1225,55 +1295,60 @@ export class LobbyScreen {
     session: StoredSession,
     status: LobbyStatusResponse,
   ): Promise<void> {
-    const address = evmWallet.getAddress();
-    const appearanceCode = session.appearanceCode ?? 0;
-    if (!address) {
-      this.setStatus("EVM wallet not connected.", true);
+    // ── Race guard ────────────────────────────────────────────────────────────
+    // If a rejoin for this game (or any game) is already running, ignore the
+    // second call. This prevents the "Your Active Games" Rejoin tile from
+    // racing with the auto-rejoin triggered by `autoDiscoverLobby`.
+    if (this._rejoinInProgress !== null) {
+      console.log(
+        "[LobbyScreen] handleRejoinGame ignored — already in progress for game",
+        this._rejoinInProgress,
+      );
       return;
     }
+    this._rejoinInProgress = session.gameId;
+    // Disable any Rejoin tile buttons so the player can't click through.
+    this.activeGamesSection
+      .querySelectorAll<HTMLButtonElement>("[data-rejoin-id]")
+      .forEach((b) => {
+        b.disabled = true;
+      });
 
-    // Re-derive the Ed25519 keypair via the local EVM signer.
-    this.setStatus("Deriving game keypair… (local signature)");
-    const walletClient = evmWallet.getWalletClient();
-
-    let keypair: nacl.SignKeyPair;
     try {
-      keypair = await deriveGameKeypair(address, session.gameId, walletClient);
-    } catch (err) {
-      this.setStatus(
-        `Keypair derivation failed: ${(err as Error).message}`,
-        true,
-      );
-      return;
-    }
+      const address = evmWallet.getAddress();
+      const appearanceCode = session.appearanceCode ?? 0;
+      if (!address) {
+        this.setStatus("EVM wallet not connected.", true);
+        return;
+      }
 
-    gameState.playerSignKeypair = keypair;
-    gameState.publicKeyHex = session.publicKeyHex;
+      // Re-derive the Ed25519 keypair via the local EVM signer.
+      this.setStatus("Deriving game keypair… (local signature)");
+      const walletClient = evmWallet.getWalletClient();
 
-    if (session.bundle) {
-      // ── Case 1: bundle cached locally ─────────────────────────────────────
-      gameState.leafSecret = session.bundle.leafSecret;
-      gameState.setPlayerBundle(session.bundle as PlayerBundle);
-      this.setStatus("Session restored! Loading game…");
-      this.onJoined(
-        session.gameId,
-        true,
-        session.publicKeyHex,
-        session.nickname,
-        appearanceCode,
-      );
-    } else if (status.bundlesReady) {
-      // ── Case 2: bundle on server but not cached — re-fetch using derived key
-      this.setStatus("Fetching your bundle…");
+      let keypair: nacl.SignKeyPair;
       try {
-        const bundle = await fetchBundle(
+        keypair = await deriveGameKeypair(
+          address,
           session.gameId,
-          session.publicKeyHex,
-          keypair.secretKey,
+          walletClient,
         );
-        gameState.leafSecret = bundle.leafSecret;
-        gameState.setPlayerBundle(bundle);
-        this.setStatus("Bundle received! Loading game…");
+      } catch (err) {
+        this.setStatus(
+          `Keypair derivation failed: ${(err as Error).message}`,
+          true,
+        );
+        return;
+      }
+
+      gameState.playerSignKeypair = keypair;
+      gameState.publicKeyHex = session.publicKeyHex;
+
+      if (session.bundle) {
+        // ── Case 1: bundle cached locally ───────────────────────────────────
+        gameState.leafSecret = session.bundle.leafSecret;
+        gameState.setPlayerBundle(session.bundle as PlayerBundle);
+        this.setStatus("Session restored! Loading game…");
         this.onJoined(
           session.gameId,
           true,
@@ -1281,38 +1356,88 @@ export class LobbyScreen {
           session.nickname,
           appearanceCode,
         );
-      } catch (err) {
-        console.error(
-          "[LobbyScreen] Session restore bundle fetch error:",
-          err,
-          {
-            gameId: session.gameId,
-            publicKeyHex: session.publicKeyHex,
-          },
-        );
-        toastManager.error("Failed to fetch bundle — try again.");
-        this.setStatus(
-          `Failed to fetch bundle: ${(err as Error).message}`,
-          true,
-        );
+      } else if (status.bundlesReady) {
+        // ── Case 2: bundle on server but not cached — re-fetch via derived key
+        this.setStatus("Fetching your bundle…");
+        try {
+          const bundle = await fetchBundle(
+            session.gameId,
+            session.publicKeyHex,
+            keypair.secretKey,
+          );
+          gameState.leafSecret = bundle.leafSecret;
+          gameState.setPlayerBundle(bundle);
+          this.setStatus("Bundle received! Loading game…");
+          this.onJoined(
+            session.gameId,
+            true,
+            session.publicKeyHex,
+            session.nickname,
+            appearanceCode,
+          );
+        } catch (err) {
+          console.error(
+            "[LobbyScreen] Session restore bundle fetch error:",
+            err,
+            {
+              gameId: session.gameId,
+              publicKeyHex: session.publicKeyHex,
+            },
+          );
+          toastManager.error("Failed to fetch bundle — try again.");
+          this.setStatus(
+            `Failed to fetch bundle: ${(err as Error).message}`,
+            true,
+          );
+        }
+      } else {
+        // ── Case 3: bundles not ready yet — wait for them ───────────────────
+        // Restore the avatar to what the player chose when they first joined,
+        // show the locked avatar card, and surface the game-info panel so
+        // that pollForBundles can update it while we wait.
+        try {
+          const sel = decodeAppearance(appearanceCode);
+          this.avatarSelection = sel;
+          this.syncAvatarSelection();
+        } catch {
+          // invalid appearanceCode — just leave the current avatar in place
+        }
+        this.gameInfoEl.innerHTML = `
+          <div class="lobby-game-row"><span>Game Phrase</span><strong>${
+          encodeGameId(session.gameId)
+        }</strong></div>
+          <div class="lobby-game-row"><span>Status</span><strong>⏳ Waiting…</strong></div>
+        `;
+        this.gameInfoEl.hidden = false;
+        this.avatarSection.hidden = false;
+        this.avatarSection.classList.add("lobby-avatar-card--locked");
+        this.joinBtn.hidden = true;
+        this.nicknameInfoEl.hidden = true;
+
+        this.setStatus("Rejoined! Waiting for lobby to close…");
+        try {
+          await this.pollForBundles(
+            session.gameId,
+            session.publicKeyHex,
+            keypair.secretKey,
+            session.nickname,
+            appearanceCode,
+          );
+        } catch (err) {
+          this.setStatus(
+            `Error waiting for bundles: ${(err as Error).message}`,
+            true,
+          );
+        }
       }
-    } else {
-      // ── Case 3: bundles not ready yet — wait for them ─────────────────────
-      this.setStatus("Waiting for bundles…");
-      try {
-        await this.pollForBundles(
-          session.gameId,
-          session.publicKeyHex,
-          keypair.secretKey,
-          session.nickname,
-          appearanceCode,
-        );
-      } catch (err) {
-        this.setStatus(
-          `Error waiting for bundles: ${(err as Error).message}`,
-          true,
-        );
-      }
+    } finally {
+      this._rejoinInProgress = null;
+      // Re-enable any rejoin tile buttons that are still mounted.
+      this.activeGamesSection
+        .querySelectorAll<HTMLButtonElement>("[data-rejoin-id]")
+        .forEach((b) => {
+          b.disabled = false;
+        });
     }
   }
 
