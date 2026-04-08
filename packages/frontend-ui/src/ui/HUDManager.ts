@@ -79,9 +79,13 @@ export class HUDManager {
     if (gameState.finished) {
       this.phaseLabel.textContent = "GAME OVER";
       this.phaseLabel.classList.remove("day");
+      this.phaseLabel.title = "";
     } else {
       this.phaseLabel.textContent = gameState.phase;
       this.phaseLabel.classList.toggle("day", gameState.phase === "DAY");
+      this.phaseLabel.title = gameState.phase === "DAY"
+        ? "DAY — All players vote to eliminate a suspect. The player with the most votes is eliminated."
+        : "NIGHT — Werewolves secretly vote to eliminate a villager. Seer investigates. Doctor protects.";
     }
 
     const voteBar = document.querySelector<HTMLDivElement>("#voteStatusBar");
