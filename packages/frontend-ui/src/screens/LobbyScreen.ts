@@ -350,12 +350,12 @@ export class LobbyScreen {
               <strong class="rules-role-name">Werewolf</strong>
               <p class="rules-role-desc">Each night, secretly vote to eliminate a villager. Blend in by day.</p>
             </div>
-            <div class="rules-role-card">
+            <div class="rules-role-card" hidden>
               <span class="rules-role-icon">🔮</span>
               <strong class="rules-role-name">Seer</strong>
               <p class="rules-role-desc">Each night, learn the true role of one player. Guide the village with your knowledge.</p>
             </div>
-            <div class="rules-role-card">
+            <div class="rules-role-card" hidden>
               <span class="rules-role-icon">💊</span>
               <strong class="rules-role-name">Doctor</strong>
               <p class="rules-role-desc">Each night, protect one player from elimination. You can protect yourself.</p>
