@@ -21,7 +21,7 @@ export function initLayout() {
       <aside class="sidebar">
         <h2>Players</h2>
         <div id="playersList" class="players-list"></div>
-        <div id="roundTimerBar" class="round-timer-bar hidden" title="Players who do not vote before this timer expires will be automatically eliminated by the system.">
+        <div id="roundTimerBar" class="round-timer-bar hidden has-tooltip" data-tooltip="Players who do not vote before this timer expires will be automatically eliminated." title="Players who do not vote before this timer expires will be automatically eliminated.">
           <span id="roundTimerLabel" class="round-timer-label"></span>
         </div>
         <div id="voteStatusBar" class="vote-status-bar hidden">
