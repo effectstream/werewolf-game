@@ -4,7 +4,10 @@ export function initLayout() {
     <div class="hud-top">
       <div class="phase-block">
         <div id="roundLabel">Round 1</div>
-        <div id="phaseLabel">NIGHT</div>
+        <div class="phase-label-row">
+          <div id="phaseLabel">NIGHT</div>
+          <span id="phaseHelpIcon" class="phase-help-icon tooltip-icon has-tooltip" data-tooltip="">?</span>
+        </div>
       </div>
       <div class="role-block">
         <div id="playerNicknameBadge" class="player-nickname-badge"></div>
@@ -18,7 +21,7 @@ export function initLayout() {
       <aside class="sidebar">
         <h2>Players</h2>
         <div id="playersList" class="players-list"></div>
-        <div id="roundTimerBar" class="round-timer-bar hidden" title="Players who do not vote before this timer expires will be automatically eliminated by the system.">
+        <div id="roundTimerBar" class="round-timer-bar hidden has-tooltip" data-tooltip="Players who do not vote before this timer expires will be automatically eliminated." title="Players who do not vote before this timer expires will be automatically eliminated.">
           <span id="roundTimerLabel" class="round-timer-label"></span>
         </div>
         <div id="voteStatusBar" class="vote-status-bar hidden">
@@ -96,7 +99,6 @@ export function initLayout() {
           <button class="ui-btn full role-option-btn" data-role="werewolf">Werewolf</button>
           <button class="ui-btn full role-option-btn" data-role="doctor">Doctor</button>
           <button class="ui-btn full role-option-btn" data-role="seer">Seer</button>
-          <button class="ui-btn full role-option-btn" data-role="angelDead">Angel (dead)</button>
         </div>
       </div>
     </div>
