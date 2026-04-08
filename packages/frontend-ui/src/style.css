@@ -503,6 +503,13 @@ body {
   gap: 6px;
 }
 
+/* The class above sets `display: grid`, which outranks the UA `[hidden]`
+   rule. Re-assert `display: none` when the attribute is present so that
+   toggling `element.hidden` works at runtime. */
+.lobby-game-info[hidden] {
+  display: none;
+}
+
 .lobby-game-row {
   display: flex;
   justify-content: space-between;

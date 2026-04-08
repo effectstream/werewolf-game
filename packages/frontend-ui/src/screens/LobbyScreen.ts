@@ -203,7 +203,7 @@ export class LobbyScreen {
             >Find Game</button>
           </div>
           <p class="lobby-find-hint" style="display:none">Optional — leave blank to join any open game.</p>
-          <div id="lobbyGameInfo" class="lobby-game-info" hidden style="display:none"></div>
+          <div id="lobbyGameInfo" class="lobby-game-info" hidden></div>
           <div
             id="lobbyNicknameInfo"
             class="lobby-game-info"
