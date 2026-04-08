@@ -1,4 +1,12 @@
-export type HairStyle = 'square' | 'round' | 'pointy' | 'ponytail'
+export type HairStyle =
+  | 'square'
+  | 'round'
+  | 'pointy'
+  | 'ponytail'
+  | 'baseballCap'
+  | 'topHat'
+  | 'mohawk'
+  | 'jrpg'
 
 export interface PlayerConfig {
   name: string

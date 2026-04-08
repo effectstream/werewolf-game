@@ -8,24 +8,54 @@ export interface AvatarSelection {
 }
 
 export const SKIN_TONES = [
-  0xf5d6b3,
-  0xd39a72,
-  0x6f452f,
-  0xf0d74d,
+  0xf5d6b3, // light peach
+  0xe8b894, // warm beige
+  0xd39a72, // tan
+  0xb07a4f, // bronze
+  0x8a5a36, // brown
+  0x6f452f, // dark brown
+  0x4a2c1d, // deep brown
+  0xf0d74d, // golden (fantasy)
+  0xa8d8a8, // pale green (fantasy)
+  0xb4a4d8, // pale lavender (fantasy)
+  0x4f8a5a, // deep green (fantasy)
+  0x9aa0a8, // stone grey (fantasy)
+  0xb84a3a, // crimson red (fantasy)
+  0x8ec5e8, // light blue (fantasy)
 ] as const
 
 export const SHIRT_COLORS = [
-  0xc43f4f,
-  0x2f60d1,
-  0x38a169,
-  0x8e44ad,
+  0xc43f4f, // red
+  0xe67e22, // orange
+  0xf1c40f, // yellow
+  0x38a169, // green
+  0x16a085, // teal
+  0x2f60d1, // blue
+  0x6c5ce7, // indigo
+  0x8e44ad, // purple
+  0xd63384, // pink
+  0x2c2c2c, // black
+  0xf5f5f5, // white
+  0x795548, // brown
+  0x607d8b, // slate
+  0x00bcd4, // cyan
 ] as const
 
 export const HAIR_COLORS = [
-  0x171717,
-  0x6b4423,
-  0xd4af37,
-  0xc0392b,
+  0x171717, // black
+  0x4a2e1f, // dark brown
+  0x6b4423, // brown
+  0xa67b4a, // light brown
+  0xd4af37, // blonde
+  0xf2d98d, // platinum blonde
+  0xc0392b, // red
+  0xe8623d, // ginger
+  0x95a5a6, // grey
+  0xf5f5f5, // white
+  0x4a90e2, // blue (fantasy)
+  0x9b59b6, // purple (fantasy)
+  0xff69b4, // pink (fantasy)
+  0x27ae60, // green (fantasy)
 ] as const
 
 export const HAIR_STYLES = [
@@ -33,6 +63,10 @@ export const HAIR_STYLES = [
   'round',
   'pointy',
   'ponytail',
+  'baseballCap',
+  'topHat',
+  'mohawk',
+  'jrpg',
 ] as const satisfies readonly HairStyle[]
 
 export const HAIR_STYLE_LABELS: Record<HairStyle, string> = {
@@ -40,6 +74,10 @@ export const HAIR_STYLE_LABELS: Record<HairStyle, string> = {
   round: 'Round',
   pointy: 'Pointy',
   ponytail: 'Ponytail',
+  baseballCap: 'Baseball Cap',
+  topHat: 'Top Hat',
+  mohawk: 'Mohawk',
+  jrpg: 'JRPG Spikes',
 }
 
 export const DEFAULT_AVATAR_SELECTION: AvatarSelection = {
@@ -49,8 +87,23 @@ export const DEFAULT_AVATAR_SELECTION: AvatarSelection = {
   hairStyle: 0,
 }
 
+// 16-bit packed appearance code: 4 bits per trait.
+// bits  0..3  -> skinTone   (mask 0xF)
+// bits  4..7  -> shirtColor (mask 0xF)
+// bits  8..11 -> hairColor  (mask 0xF)
+// bits 12..15 -> hairStyle  (mask 0xF)
 export function isValidAppearanceCode(value: number): boolean {
-  return Number.isInteger(value) && value >= 0 && value < 256
+  if (!Number.isInteger(value) || value < 0 || value > 0xFFFF) return false
+  const skinTone = value & 0xF
+  const shirtColor = (value >> 4) & 0xF
+  const hairColor = (value >> 8) & 0xF
+  const hairStyle = (value >> 12) & 0xF
+  return (
+    skinTone < SKIN_TONES.length &&
+    shirtColor < SHIRT_COLORS.length &&
+    hairColor < HAIR_COLORS.length &&
+    hairStyle < HAIR_STYLES.length
+  )
 }
 
 export function encodeAppearance(selection: AvatarSelection): number {
@@ -65,9 +118,9 @@ export function encodeAppearance(selection: AvatarSelection): number {
 
   return (
     selection.skinTone |
-    (selection.shirtColor << 2) |
-    (selection.hairColor << 4) |
-    (selection.hairStyle << 6)
+    (selection.shirtColor << 4) |
+    (selection.hairColor << 8) |
+    (selection.hairStyle << 12)
   )
 }
 
@@ -77,10 +130,10 @@ export function decodeAppearance(appearanceCode: number): AvatarSelection {
   }
 
   return {
-    skinTone: appearanceCode & 0b11,
-    shirtColor: (appearanceCode >> 2) & 0b11,
-    hairColor: (appearanceCode >> 4) & 0b11,
-    hairStyle: (appearanceCode >> 6) & 0b11,
+    skinTone: appearanceCode & 0xF,
+    shirtColor: (appearanceCode >> 4) & 0xF,
+    hairColor: (appearanceCode >> 8) & 0xF,
+    hairStyle: (appearanceCode >> 12) & 0xF,
   }
 }
 
@@ -126,18 +179,24 @@ export function saveAvatarSelection(selection: AvatarSelection): void {
   }
 }
 
+function clampIndex(value: unknown, length: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isInteger(value)) return fallback
+  if (value < 0 || value >= length) return fallback
+  return value
+}
+
 export function loadAvatarSelection(): AvatarSelection {
   try {
     const stored = localStorage.getItem(AVATAR_STORAGE_KEY)
     if (!stored) return { ...DEFAULT_AVATAR_SELECTION }
 
     const parsed = JSON.parse(stored) as Partial<AvatarSelection>
-    
+
     return {
-      skinTone: typeof parsed.skinTone === 'number' ? parsed.skinTone : DEFAULT_AVATAR_SELECTION.skinTone,
-      shirtColor: typeof parsed.shirtColor === 'number' ? parsed.shirtColor : DEFAULT_AVATAR_SELECTION.shirtColor,
-      hairColor: typeof parsed.hairColor === 'number' ? parsed.hairColor : DEFAULT_AVATAR_SELECTION.hairColor,
-      hairStyle: typeof parsed.hairStyle === 'number' ? parsed.hairStyle : DEFAULT_AVATAR_SELECTION.hairStyle,
+      skinTone: clampIndex(parsed.skinTone, SKIN_TONES.length, DEFAULT_AVATAR_SELECTION.skinTone),
+      shirtColor: clampIndex(parsed.shirtColor, SHIRT_COLORS.length, DEFAULT_AVATAR_SELECTION.shirtColor),
+      hairColor: clampIndex(parsed.hairColor, HAIR_COLORS.length, DEFAULT_AVATAR_SELECTION.hairColor),
+      hairStyle: clampIndex(parsed.hairStyle, HAIR_STYLES.length, DEFAULT_AVATAR_SELECTION.hairStyle),
     }
   } catch (err) {
     console.warn('[avatarAppearance] Failed to load avatar selection, using default:', err)

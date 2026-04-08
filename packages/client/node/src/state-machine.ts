@@ -694,9 +694,13 @@ stm.addStateTransition(
     // recorded on the Paima chain, and replayed deterministically on resync.
     const evmAddress = data.signerAddress;
 
+    // 16-bit packed avatar appearance (4 bits per trait × 4 traits).
+    // The code travels as a plain Number through the generic Paima batcher
+    // payload, so the contract's unused uint8 `joinGame` entrypoint does NOT
+    // constrain the range — this state-machine check is the real gate.
     if (
       !Number.isInteger(appearanceCode) || appearanceCode < 0 ||
-      appearanceCode >= 256
+      appearanceCode >= 65536
     ) {
       throw new Error(
         `Invalid appearanceCode for join_game: ${appearanceCode}`,
