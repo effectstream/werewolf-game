@@ -4,6 +4,41 @@ import { Value } from "@sinclair/typebox/value";
 import { launchMidnight } from "@paimaexample/orchestrator/start-midnight";
 import { launchEvm } from "@paimaexample/orchestrator/start-evm";
 
+/**
+ * Local dev uses embedded PGlite by default (orchestrator spawns it on DB_PORT).
+ * Set USE_EXTERNAL_PG=true if you intentionally use a real Postgres server
+ * (configure PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD).
+ *
+ * Without this block, a shell profile or repo-root .env can set PGLITE=false,
+ * DB_HOST to a remote host, or libpq vars so the node talks to Postgres instead.
+ */
+const useExternalPg = Deno.env.get("USE_EXTERNAL_PG") === "true";
+
+if (!useExternalPg) {
+  Deno.env.set("PGLITE", "true");
+  Deno.env.set("DB_HOST", "localhost");
+  Deno.env.set("DB_USER", "postgres");
+  Deno.env.set("DB_PW", "postgres");
+  // Default engine port is 5432; on macOS/Homebrew a real Postgres often owns that port
+  // and has no "postgres" role — wait-on succeeds against the wrong server and the node
+  // fails with "role postgres does not exist". Use a dedicated port unless overridden.
+  if (Deno.env.get("DB_PORT") === undefined) {
+    Deno.env.set("DB_PORT", "15432");
+  }
+  for (
+    const key of [
+      "PGHOST",
+      "PGPORT",
+      "PGDATABASE",
+      "PGUSER",
+      "PGPASSWORD",
+      "DATABASE_URL",
+    ] as const
+  ) {
+    Deno.env.delete(key);
+  }
+}
+
 const customProcesses = [
   // {
   //   name: "frontend-build",
@@ -57,8 +92,8 @@ const config = Value.Parse(OrchestratorConfig, {
   processes: {
     [ComponentNames.TMUX]: true,
     [ComponentNames.TUI]: true,
-    // Launch Dev DB & Collector
-    [ComponentNames.EFFECTSTREAM_PGLITE]: true,
+    // Launch Dev DB & Collector (skip PGlite spawn when USE_EXTERNAL_PG=true)
+    [ComponentNames.EFFECTSTREAM_PGLITE]: !useExternalPg,
     [ComponentNames.COLLECTOR]: true,
   },
 

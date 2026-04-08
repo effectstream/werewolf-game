@@ -876,6 +876,14 @@ body {
   display: none;
 }
 
+/* Tooltip affordance — applied to passive labels that carry a native title */
+.has-tooltip {
+  cursor: help;
+  text-decoration: underline dotted rgba(160, 180, 255, 0.4);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
 .rules-role-icon {
   font-size: 1.4rem;
 }

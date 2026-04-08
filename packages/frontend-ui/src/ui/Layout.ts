@@ -4,7 +4,7 @@ export function initLayout() {
     <div class="hud-top">
       <div class="phase-block">
         <div id="roundLabel">Round 1</div>
-        <div id="phaseLabel">NIGHT</div>
+        <div id="phaseLabel" class="has-tooltip">NIGHT</div>
       </div>
       <div class="role-block">
         <div id="playerNicknameBadge" class="player-nickname-badge"></div>

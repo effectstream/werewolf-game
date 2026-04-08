@@ -194,7 +194,7 @@ export class LobbyScreen {
             hidden
             title="Automatically generated from your wallet address."
           >
-            <div class="lobby-game-row"><span>Nickname</span><strong id="lobbyNicknameValue"></strong></div>
+            <div class="lobby-game-row"><span class="has-tooltip" title="Automatically generated from your wallet address.">Nickname</span><strong id="lobbyNicknameValue"></strong></div>
             <p class="lobby-nickname-hint">Auto-generated from your wallet address.</p>
           </div>
           <button id="lobbyJoinBtn" class="ui-btn lobby-btn lobby-btn--primary" hidden>Join Game</button>
@@ -877,7 +877,7 @@ export class LobbyScreen {
               lobbyStatus.timeoutBlock - lobbyStatus.currentBlock,
             );
             timerRow =
-              `<div class="lobby-game-row"><span title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
+              `<div class="lobby-game-row"><span class="has-tooltip" title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
                 formatRemainingTime(remaining)
               }</strong></div>`;
           }
@@ -949,7 +949,7 @@ export class LobbyScreen {
               status.timeoutBlock - status.currentBlock,
             );
             timerRow =
-              `<div class="lobby-game-row"><span title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
+              `<div class="lobby-game-row"><span class="has-tooltip" title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
                 formatRemainingTime(remaining)
               }</strong></div>`;
           }
@@ -1349,7 +1349,7 @@ export class LobbyScreen {
                 status.timeoutBlock - status.currentBlock,
               );
               timerRow =
-                `<div class="lobby-game-row"><span title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
+                `<div class="lobby-game-row"><span class="has-tooltip" title="The game starts immediately when 16 players join. With 6–15 players, it auto-starts every 30 minutes.">Starts in</span><strong class="lobby-countdown">${
                   formatRemainingTime(remaining)
                 }</strong></div>`;
             }
