@@ -3,8 +3,6 @@ import { gameState } from "../state/gameState";
 const ROLE_LABELS: Record<number, string> = {
   0: "Villager",
   1: "Werewolf",
-  2: "Seer",
-  3: "Doctor",
 };
 
 export class HUDManager {
@@ -88,7 +86,7 @@ export class HUDManager {
       this.phaseHelpIcon.hidden = false;
       this.phaseHelpIcon.dataset.tooltip = gameState.phase === "DAY"
         ? "DAY — All players vote to eliminate a suspect. The player with the most votes is eliminated."
-        : "NIGHT — Werewolves secretly vote to eliminate a villager. Seer investigates. Doctor protects.";
+        : "NIGHT — Werewolves secretly vote to eliminate a villager.";
     }
 
     const voteBar = document.querySelector<HTMLDivElement>("#voteStatusBar");

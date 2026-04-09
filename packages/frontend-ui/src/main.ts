@@ -424,7 +424,7 @@ lobbyScreen.onJoined = (
         managers.playerEntities.setPlayerRole(player, roleName)
       }
       const roleLabels: Record<string, string> = {
-        villager: 'Villager', werewolf: 'Werewolf', doctor: 'Doctor', seer: 'Seer', angelDead: 'Angel (dead)',
+        villager: 'Villager', werewolf: 'Werewolf', angelDead: 'Angel (dead)',
       }
       managers.chatManager.addMessageLine('System', `Your role: ${roleLabels[roleName] ?? roleName}`)
 
