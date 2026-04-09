@@ -118,12 +118,19 @@ async function bootGame(): Promise<GameManagers> {
   const gameId = gameState.lobbyGameId!
   const playerConfigs = new Map<number, PlayerConfig>()
 
+  /** Highest round where the local player was still alive (used in game-end modal). */
+  let highestAliveRound = 0
+
   // Fetch initial game view (ledger state — may lag on force-start)
   let initialPlayerCount = 0
   try {
     const initialView = await fetchGameView(gameId)
     gameState.applyGameView(initialView)
     initialPlayerCount = initialView.playerCount
+    const localPlayerId = gameState.playerBundle?.playerId
+    if (localPlayerId !== undefined && gameState.playerAlive[localPlayerId] !== false) {
+      highestAliveRound = Math.max(highestAliveRound, gameState.round)
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     if (message.includes('not found')) {
@@ -173,9 +180,6 @@ async function bootGame(): Promise<GameManagers> {
   audioManager.init()
   const audioSettingsModal = new AudioSettingsModal(audioManager)
 
-  // Track the highest round in which the local player was alive (rounds survived).
-  let highestAliveRound = 0
-
   let gameEndShown = false
   // Show game-end modal (with embedded leaderboard) when the game finishes.
   gameState.subscribe(() => {
@@ -206,6 +210,10 @@ async function bootGame(): Promise<GameManagers> {
       }, 1500)
     }
   })
+
+  if (gameState.finished && !gameEndShown) {
+    gameState.notify()
+  }
 
   // Initialize Scene Layer
   const gameScene = new GameScene()
@@ -416,7 +424,7 @@ lobbyScreen.onJoined = (
         managers.playerEntities.setPlayerRole(player, roleName)
       }
       const roleLabels: Record<string, string> = {
-        villager: 'Villager', werewolf: 'Werewolf', doctor: 'Doctor', seer: 'Seer', angelDead: 'Angel (dead)',
+        villager: 'Villager', werewolf: 'Werewolf', angelDead: 'Angel (dead)',
       }
       managers.chatManager.addMessageLine('System', `Your role: ${roleLabels[roleName] ?? roleName}`)
 

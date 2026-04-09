@@ -11,9 +11,8 @@ export function initLayout() {
       </div>
       <div class="role-block">
         <div id="playerNicknameBadge" class="player-nickname-badge"></div>
-        <div class="role-buttons">
-          <button id="maskedRoleBtn" class="ui-btn">You are a ******</button>
-          <button id="revealRoleBtn" class="ui-btn">Reveal</button>
+        <div class="role-reveal-container">
+          <span id="roleLabelDisplay" class="role-label-display"></span>
         </div>
       </div>
     </div>
@@ -97,8 +96,6 @@ export function initLayout() {
         <div class="role-picker-actions">
           <button class="ui-btn full role-option-btn" data-role="villager">Villager</button>
           <button class="ui-btn full role-option-btn" data-role="werewolf">Werewolf</button>
-          <button class="ui-btn full role-option-btn" data-role="doctor">Doctor</button>
-          <button class="ui-btn full role-option-btn" data-role="seer">Seer</button>
         </div>
       </div>
     </div>

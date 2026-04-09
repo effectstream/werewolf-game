@@ -386,7 +386,7 @@ export class LobbyScreen {
 
         <section class="rules-section">
           <h3 class="rules-section-heading">🌙 Night Phase</h3>
-          <p class="rules-body">Werewolves secretly vote to eliminate a villager. The Seer investigates one player. The Doctor protects one player. Results are revealed at dawn.</p>
+          <p class="rules-body">Werewolves secretly vote to eliminate a villager. Results are revealed at dawn.</p>
         </section>
 
         <section class="rules-section">
