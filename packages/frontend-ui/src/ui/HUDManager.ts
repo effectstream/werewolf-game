@@ -9,13 +9,12 @@ export class HUDManager {
   private roundLabel: HTMLDivElement;
   private phaseLabel: HTMLDivElement;
   private phaseHelpIcon: HTMLSpanElement;
-  private revealRoleBtn: HTMLButtonElement;
-  private maskedRoleBtn: HTMLButtonElement;
+  private roleLabelDisplay: HTMLSpanElement;
   private endVoteBtn: HTMLButtonElement;
   private nicknameBadge: HTMLDivElement;
   private roundTimerBar: HTMLDivElement;
   private roundTimerLabel: HTMLSpanElement;
-  private roleRevealTimer: ReturnType<typeof setTimeout> | null = null;
+
   private unsubscribe: () => void;
   /** Tracks previous vote count to detect increments for the bump animation */
   private lastVoteCount: number = 0;
@@ -24,11 +23,8 @@ export class HUDManager {
     this.roundLabel = document.querySelector<HTMLDivElement>("#roundLabel")!;
     this.phaseLabel = document.querySelector<HTMLDivElement>("#phaseLabel")!;
     this.phaseHelpIcon = document.querySelector<HTMLSpanElement>("#phaseHelpIcon")!;
-    this.revealRoleBtn = document.querySelector<HTMLButtonElement>(
-      "#revealRoleBtn",
-    )!;
-    this.maskedRoleBtn = document.querySelector<HTMLButtonElement>(
-      "#maskedRoleBtn",
+    this.roleLabelDisplay = document.querySelector<HTMLSpanElement>(
+      "#roleLabelDisplay",
     )!;
     this.endVoteBtn = document.querySelector<HTMLButtonElement>("#endVoteBtn")!;
     this.nicknameBadge = document.querySelector<HTMLDivElement>(
@@ -46,20 +42,6 @@ export class HUDManager {
   }
 
   private initEventListeners() {
-    this.revealRoleBtn.addEventListener("click", () => {
-      if (this.roleRevealTimer) {
-        clearTimeout(this.roleRevealTimer);
-      }
-      const roleNum = gameState.playerBundle?.role;
-      const roleLabel = roleNum !== undefined
-        ? (ROLE_LABELS[roleNum] ?? "Villager")
-        : "Villager";
-      this.maskedRoleBtn.textContent = `You are a ${roleLabel}`;
-      this.roleRevealTimer = setTimeout(() => {
-        this.maskedRoleBtn.textContent = "You are a ******";
-      }, 3000);
-    });
-
     // End vote button is now display-only; phase is driven by polled backend state
     this.endVoteBtn.style.display = "none";
   }
@@ -74,6 +56,7 @@ export class HUDManager {
 
   private updatePhaseHud() {
     this.updateNicknameBadge();
+    this.updateRoleDisplay();
     this.roundLabel.textContent = `Round ${gameState.round}`;
 
     if (gameState.finished) {
@@ -163,11 +146,15 @@ export class HUDManager {
     }
   }
 
+  private updateRoleDisplay() {
+    const roleNum = gameState.playerBundle?.role;
+    const roleLabel = roleNum !== undefined
+      ? (ROLE_LABELS[roleNum] ?? "Villager")
+      : "Villager";
+    this.roleLabelDisplay.textContent = `You are a ${roleLabel}`;
+  }
+
   public destroy(): void {
     this.unsubscribe();
-    if (this.roleRevealTimer !== null) {
-      clearTimeout(this.roleRevealTimer);
-      this.roleRevealTimer = null;
-    }
   }
 }
