@@ -48,6 +48,7 @@ const MIDNIGHT_NETWORK_ID =
   (import.meta.env.VITE_MIDNIGHT_NETWORK_ID as string | undefined) ??
     "undeployed";
 const LOBBY_POLL_INTERVAL_MS = 4000;
+const LOBBY_MIN_PLAYERS = 5;
 
 type MidnightConnectChoice = "lace" | "local" | "cancel";
 const GAME_INFO_POLL_INTERVAL_MS = 10000;
@@ -1536,6 +1537,16 @@ export class LobbyScreen {
               this.setStatus("Failed to fetch bundle — try again.", true);
               // Keep polling even after error - don't resolve
             }
+          } else if (status.state === "closed" && !status.bundlesReady && status.playerCount < LOBBY_MIN_PLAYERS) {
+            // Not enough players joined — lobby was cancelled, bundles will never arrive
+            if (this.lobbyPollTimer) {
+              clearInterval(this.lobbyPollTimer);
+              this.lobbyPollTimer = null;
+            }
+            clearSession(gameId);
+            this.setStatus("Not enough players joined. Finding a new lobby…");
+            setTimeout(() => void this.autoDiscoverLobby(), 2000);
+            resolve();
           } else if (status.state === "closed" && !status.bundlesReady) {
             this.setStatus("Lobby closed. Generating bundles…");
           } else {
