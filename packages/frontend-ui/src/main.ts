@@ -9,6 +9,7 @@ import { PlayerListManager } from './ui/PlayerListManager'
 import { RolePicker } from './ui/RolePicker'
 import { LeaderboardManager } from './ui/LeaderboardManager'
 import { GameEndModal } from './ui/GameEndModal'
+import { EliminationModal } from './ui/EliminationModal'
 
 // Scene
 import { GameScene } from './scene/GameScene'
@@ -56,6 +57,7 @@ interface GameManagers {
   rolePicker: RolePicker
   leaderboardManager: LeaderboardManager
   gameEndModal: GameEndModal
+  eliminationModal: EliminationModal
   playerEntities: PlayerEntities
   poller: GameViewPoller
   votePoller: VoteStatusPoller
@@ -107,6 +109,7 @@ function destroyGame(managers: GameManagers): void {
   managers.rolePicker.destroy()
   managers.leaderboardManager.destroy()
   managers.gameEndModal.hide()
+  managers.eliminationModal.destroy()
   managers.playerEntities.destroy()
   managers.poller.stop()
   managers.votePoller.stop()
@@ -176,6 +179,7 @@ async function bootGame(): Promise<GameManagers> {
   const rolePicker = new RolePicker()
   const leaderboardManager = new LeaderboardManager()
   const gameEndModal = new GameEndModal()
+  const eliminationModal = new EliminationModal()
   const audioManager = new AudioManager()
   audioManager.init()
   const audioSettingsModal = new AudioSettingsModal(audioManager)
@@ -185,6 +189,7 @@ async function bootGame(): Promise<GameManagers> {
   gameState.subscribe(() => {
     if (gameState.finished && !gameEndShown) {
       gameEndShown = true
+      eliminationModal.hide()
       const bundle = gameState.playerBundle
       const completionMsg = gameState.winner === 'WEREWOLVES'
         ? 'Game over! The werewolves have won!'
@@ -262,6 +267,7 @@ async function bootGame(): Promise<GameManagers> {
 
     // Detect alive → dead transitions and show elimination announcement
     const newAlive = gameState.playerAlive
+    const localPlayerIdForDeath = gameState.playerBundle?.playerId
     for (let i = 0; i < newAlive.length; i++) {
       if (prevAlive[i] === true && newAlive[i] === false) {
         const nickname = gameState.playerNicknames.get(i) ?? `Player ${i}`
@@ -270,6 +276,11 @@ async function bootGame(): Promise<GameManagers> {
           ? `A player was killed in the night…`
           : `${nickname} was eliminated by vote!`
         showAnnouncement(message)
+
+        if (!gameState.finished && i === localPlayerIdForDeath) {
+          const killer = isNightTransition ? 'WEREWOLVES' : 'VILLAGERS'
+          eliminationModal.show(killer)
+        }
         break // one announcement per poll cycle is enough
       }
     }
@@ -328,6 +339,7 @@ async function bootGame(): Promise<GameManagers> {
     rolePicker,
     leaderboardManager,
     gameEndModal,
+    eliminationModal,
     playerEntities,
     poller,
     votePoller,
