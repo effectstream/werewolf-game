@@ -31,6 +31,7 @@ main(function* () {
       migrations: migrationTable,
       apiRouter,
       grammar,
+      snapshotConfig: {},
     });
   });
 

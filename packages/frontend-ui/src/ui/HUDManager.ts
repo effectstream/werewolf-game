@@ -147,11 +147,22 @@ export class HUDManager {
   }
 
   private updateRoleDisplay() {
+    const playerId = gameState.playerBundle?.playerId;
+    const isDead = playerId !== undefined &&
+      gameState.playerAlive[playerId] === false;
+
+    if (isDead) {
+      this.roleLabelDisplay.textContent = "You are dead";
+      this.roleLabelDisplay.classList.add("dead");
+      return;
+    }
+
     const roleNum = gameState.playerBundle?.role;
     const roleLabel = roleNum !== undefined
       ? (ROLE_LABELS[roleNum] ?? "Villager")
       : "Villager";
     this.roleLabelDisplay.textContent = `You are a ${roleLabel}`;
+    this.roleLabelDisplay.classList.remove("dead");
   }
 
   public destroy(): void {
