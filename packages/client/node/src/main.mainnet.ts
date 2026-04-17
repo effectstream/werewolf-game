@@ -49,7 +49,9 @@ main(function* () {
       migrations: migrationTable,
       apiRouter,
       grammar,
-      snapshotConfig: {},
+      snapshotConfig: {
+        path: Deno.env.get("EFFECTSTREAM_SNAPSHOT_PATH"),
+      },
     });
   });
 
