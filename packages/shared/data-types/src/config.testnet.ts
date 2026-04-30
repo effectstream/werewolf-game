@@ -212,7 +212,7 @@ export const config = new ConfigBuilder()
           chainUri: network.rpcUrls.default.http[0],
           startBlockHeight: arbSepoliaTip,
           pollingInterval: 1000,
-          stepSize: 20,
+          stepSize: 30,
           confirmationDepth: 1,
         }),
       );

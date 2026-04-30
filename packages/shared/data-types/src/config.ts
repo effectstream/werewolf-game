@@ -106,6 +106,7 @@ export const config = new ConfigBuilder()
           startBlockHeight: 1,
           pollingInterval: 500, // poll quickly to react fast
           confirmationDepth: 1, // TODO: test this
+          stepSize: 30,
         }),
       )
   )
