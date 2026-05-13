@@ -9,12 +9,14 @@ import {
   getGameView,
   getLobby,
   getWalletMappingByProxy,
+  getWerewolfPlayerIndices,
   getWerewolfRoundState,
   type IGetAliveSnapshotsResult,
   type IGetGameViewResult,
   type IGetLobbyResult,
   type IGetRoundStateResult,
   type IGetWalletMappingByProxyResult,
+  type IGetWerewolfPlayerIndicesResult,
   incrementLobbyPlayerCount,
   insertLobbyPlayer,
   insertPendingPunishment,
@@ -325,20 +327,22 @@ stm.addStateTransition(
           ` phase=${gameView.phase} alive=${gameView.aliveCount}`,
       );
 
-      // For night phase, only alive werewolves vote — compute from store bundles
-      // (which have roles assigned at game creation) combined with the current
-      // alive set. This is more accurate than gameView.werewolfCount, which is
-      // only decremented by the manual revealPlayerRole circuit, not automatically.
-      // If bundles are not yet in memory (e.g. recovery is still pending after a
-      // restart), fall back to the on-chain werewolfCount rather than writing 0.
-      const nightBundles = gameView.phase === "NIGHT"
-        ? getAllBundlesForGame(gameId).filter(
-          (b) => b.role === 1 && gameView.aliveSet.has(b.playerId),
-        )
-        : [];
-      const eligibleVoterCount = gameView.phase === "NIGHT"
-        ? nightBundles.length > 0 ? nightBundles.length : gameView.werewolfCount // fallback until bundles are restored
-        : gameView.aliveCount;
+      // For night phase, only alive werewolves vote. Source roles from the DB
+      // (werewolf_lobby_players.role, written by lobby-closer after bundle
+      // generation) so the count survives node restarts — the in-memory bundle
+      // store is volatile, and gameView.werewolfCount only decrements on the
+      // manual revealPlayerRole circuit.
+      let eligibleVoterCount: number;
+      if (gameView.phase === "NIGHT") {
+        const werewolfRows = (yield* World.resolve(getWerewolfPlayerIndices, {
+          game_id: gameId,
+        })) as IGetWerewolfPlayerIndicesResult[];
+        eligibleVoterCount = werewolfRows.filter((r) =>
+          gameView.aliveSet.has(r.player_idx)
+        ).length;
+      } else {
+        eligibleVoterCount = gameView.aliveCount;
+      }
 
       yield* World.resolve(upsertRoundState, {
         game_id: gameId,

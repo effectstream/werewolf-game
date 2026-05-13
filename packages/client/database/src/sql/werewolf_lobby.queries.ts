@@ -385,6 +385,35 @@ const updateLobbyPlayerTrackingFieldsIR: any = {"usedParamSet":{"player_idx":tru
 export const updateLobbyPlayerTrackingFields = new PreparedQuery<IUpdateLobbyPlayerTrackingFieldsParams,IUpdateLobbyPlayerTrackingFieldsResult>(updateLobbyPlayerTrackingFieldsIR);
 
 
+/** 'GetWerewolfPlayerIndices' parameters type */
+export interface IGetWerewolfPlayerIndicesParams {
+  game_id: NumberOrString;
+}
+
+/** 'GetWerewolfPlayerIndices' return type */
+export interface IGetWerewolfPlayerIndicesResult {
+  player_idx: number;
+}
+
+/** 'GetWerewolfPlayerIndices' query type */
+export interface IGetWerewolfPlayerIndicesQuery {
+  params: IGetWerewolfPlayerIndicesParams;
+  result: IGetWerewolfPlayerIndicesResult;
+}
+
+const getWerewolfPlayerIndicesIR: any = {"usedParamSet":{"game_id":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":62,"b":70}]}],"statement":"SELECT player_idx\nFROM werewolf_lobby_players\nWHERE game_id = :game_id! AND role = 1 AND player_idx IS NOT NULL"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * SELECT player_idx
+ * FROM werewolf_lobby_players
+ * WHERE game_id = :game_id! AND role = 1 AND player_idx IS NOT NULL
+ * ```
+ */
+export const getWerewolfPlayerIndices = new PreparedQuery<IGetWerewolfPlayerIndicesParams,IGetWerewolfPlayerIndicesResult>(getWerewolfPlayerIndicesIR);
+
+
 /** 'UpdateLobbyPlayerEvmAddress' parameters type */
 export interface IUpdateLobbyPlayerEvmAddressParams {
   evm_address: string;

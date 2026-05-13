@@ -60,6 +60,11 @@ UPDATE werewolf_lobby_players
 SET player_idx = :player_idx!, role = :role!
 WHERE game_id = :game_id! AND public_key_hex = :public_key_hex!;
 
+/* @name getWerewolfPlayerIndices */
+SELECT player_idx
+FROM werewolf_lobby_players
+WHERE game_id = :game_id! AND role = 1 AND player_idx IS NOT NULL;
+
 /* @name updateLobbyPlayerEvmAddress */
 UPDATE werewolf_lobby_players
 SET evm_address = :evm_address!
