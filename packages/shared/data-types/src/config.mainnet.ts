@@ -34,7 +34,8 @@ let arbOneTip: number = 0;
 let midnightTip: number = 1;
 let midnightStepSize: number | undefined = 1;
 
-const arbitrumOneRpc = Deno ? process.env["ARBITRUM_ONE_RPC"] : undefined;
+const isServerRuntime = typeof Bun !== "undefined" || typeof Deno !== "undefined";
+const arbitrumOneRpc = isServerRuntime ? process.env["ARBITRUM_ONE_RPC"] : undefined;
 
 type ContractAddressBook = Record<string, Record<string, `0x${string}`>>;
 const contractAddressBook = contractAddressesEvmMain() as ContractAddressBook;
@@ -52,7 +53,7 @@ const midnightNetworkInputsValid = Boolean(
 let midnightContractAddress: string | undefined;
 let midnightArtifactsReady = false;
 
-if (Deno) {
+if (isServerRuntime) {
   if (midnightNetworkInputsValid) {
     try {
       const counterContract = readMidnightContract(

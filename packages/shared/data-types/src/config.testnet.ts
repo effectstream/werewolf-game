@@ -33,7 +33,8 @@ let launchStartTime: number | undefined;
 let arbSepoliaTip: number = 0;
 let midnightTip: number = 1;
 
-const arbitrumSepoliaRpc = Deno
+const isServerRuntime = typeof Bun !== "undefined" || typeof Deno !== "undefined";
+const arbitrumSepoliaRpc = isServerRuntime
   ? process.env["ARBITRUM_SEPOLIA_RPC"]
   : undefined;
 
@@ -52,7 +53,7 @@ const midnightNetworkInputsValid = Boolean(
 let midnightContractAddress: string | undefined;
 let midnightArtifactsReady = false;
 
-if (Deno) {
+if (isServerRuntime) {
   if (midnightNetworkInputsValid) {
     try {
       const counterContract = readMidnightContract(
