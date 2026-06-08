@@ -10,9 +10,9 @@
   // TODO: how these actually will work will depend on the hardhat v3 viem plugin
   //       See https://github.com/NomicFoundation/hardhat/issues/5978
   "imports": {
-    "@paimaexample/evm-hardhat": "jsr:@paimaexample/evm-hardhat@0.11.3",
-    "@paimaexample/log": "jsr:@paimaexample/log@0.11.3",
-    "@paimaexample/evm-contracts": "jsr:@paimaexample/evm-contracts@0.11.3",
+    "@effectstream/evm-hardhat": "npm:@effectstream/evm-hardhat@0.100.19",
+    "@effectstream/log": "npm:@effectstream/log@0.100.19",
+    "@effectstream/evm-contracts": "npm:@effectstream/evm-contracts@0.100.19",
     "@wagmi/cli": "npm:@wagmi/cli@2.3.1",
     "hardhat": "npm:hardhat@3.0.4",
     "@nomicfoundation/hardhat-ignition-viem": "npm:@nomicfoundation/hardhat-ignition-viem@3.0.2",
@@ -25,12 +25,12 @@
     "@nomicfoundation/hardhat-utils": "npm:@nomicfoundation/hardhat-utils@3.0.0" // required for https://github.com/NomicFoundation/hardhat/issues/6472
   },
   "tasks": {
-    "swap:remappings:forge": "deno -A @paimaexample/evm-hardhat/remappings-forge --depth 4 --package @paimaexample",
-    "swap:remappings:hardhat": "deno -A @paimaexample/evm-hardhat/remappings-hardhat",
+    "swap:remappings:forge": "bun run @effectstream/evm-hardhat/remappings-forge --depth 4 --package @effectstream",
+    "swap:remappings:hardhat": "bun run @effectstream/evm-hardhat/remappings-hardhat",
     "check": "echo 'check'",
     "build:mod": {
       // deploy:standalone does not return 'success', as the hardhat process is terminated by chain:stop - so it cannot be invoked as dependency
-      "command": "(deno task deploy:standalone || true) && deno run -A @paimaexample/evm-hardhat/builder"
+      "command": "(deno task deploy:standalone || true) && bun run @effectstream/evm-hardhat/builder"
     },
     "build:clean": "rm -rf build || true",
     "build:forge": {
@@ -40,7 +40,7 @@
       ]
     },
     "build:hardhat": {
-      "command": "deno run -A npm:hardhat@3.0.4 compile",
+      "command": "bunx hardhat compile",
       "dependencies": [
         "swap:remappings:hardhat"
       ]
@@ -60,27 +60,27 @@
       ]
     },
     "deploy": {
-      "command": "deno run -A deploy.ts",
+      "command": "bun run deploy.ts",
       "dependencies": [
         "deploy:clean"
       ]
     },
     "deploy:preprod:clean": "rm -rf ignition/deployments/chain-421614 || true",
     "deploy:preprod": {
-      "command": "EFFECTSTREAM_ENV=testnet deno run -A --env-file=../../../../.env.preprod deploy.ts",
+      "command": "EFFECTSTREAM_ENV=testnet bun run --env-file=../../../../.env.preprod deploy.ts",
       "dependencies": [
         "deploy:preprod:clean"
       ]
     },
     "deploy:mainnet:clean": "rm -rf ignition/deployments/chain-42161 || true",
     "deploy:mainnet": {
-      "command": "EFFECTSTREAM_ENV=mainnet deno run -A --env-file=../../../../.env.mainnet deploy.ts",
+      "command": "EFFECTSTREAM_ENV=mainnet bun run --env-file=../../../../.env.mainnet deploy.ts",
       "dependencies": [
         "deploy:mainnet:clean"
       ]
     },
-    "chain:start": "deno run -A npm:hardhat@3.0.4 node",
+    "chain:start": "bunx hardhat node",
     "chain:stop": "kill -9 $(lsof -ti tcp:8545) || true",
-    "chain:wait": "deno run -A npm:hardhat@3.0.4 node wait"
+    "chain:wait": "bunx hardhat node wait"
   }
 }

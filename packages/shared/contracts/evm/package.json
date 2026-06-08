@@ -1,14 +1,47 @@
 {
+  "name": "@werewolf-game/evm-contracts",
+  "version": "0.3.23",
   "type": "module",
+  "exports": {
+    ".": "./mod.ts",
+    "./build": "./build/mod.ts",
+    "./contractAddressesEvmMain": "./build/contractAddressesEvmMain.ts"
+  },
+  "scripts": {
+    "swap:remappings:forge": "bun ./node_modules/@effectstream/evm-hardhat/src/remappings/remappings-forge.ts --depth 4 --package @effectstream",
+    "swap:remappings:hardhat": "bun ./node_modules/@effectstream/evm-hardhat/src/remappings/remappings-hardhat.ts",
+    "build:clean": "rm -rf build || true",
+    "build:forge": "bun run swap:remappings:forge && forge build",
+    "build:hardhat": "bun run swap:remappings:hardhat && bun ./node_modules/.bin/hardhat compile",
+    "build": "bun run build:clean && bun run build:forge && bun run build:hardhat",
+    "chain:start": "bun ./node_modules/.bin/hardhat node",
+    "chain:stop": "kill -9 $(lsof -ti tcp:8545) || true",
+    "chain:wait": "bun ./node_modules/.bin/hardhat node wait",
+    "deploy:clean": "rm -rf ignition/deployments/chain-31337 || true",
+    "deploy": "bun run deploy:clean && bun run deploy.ts",
+    "deploy:standalone": "bun run build && (((bun run chain:start) &) && (bun run chain:wait) && (bun run deploy) && bun run chain:stop) || true",
+    "build:mod": "(bun run deploy:standalone || true) && bun ./node_modules/@effectstream/evm-hardhat/src/builder/build.mod.ts",
+    "contract:compile": "bun run build:mod",
+    "deploy:preprod:clean": "rm -rf ignition/deployments/chain-421614 || true",
+    "deploy:preprod": "bun run deploy:preprod:clean && EFFECTSTREAM_ENV=testnet bun run --env-file=../../../../.env.preprod deploy.ts",
+    "deploy:mainnet:clean": "rm -rf ignition/deployments/chain-42161 || true",
+    "deploy:mainnet": "bun run deploy:mainnet:clean && EFFECTSTREAM_ENV=mainnet bun run --env-file=../../../../.env.mainnet deploy.ts"
+  },
   "dependencies": {
     "@openzeppelin/contracts": "5.1.0",
     "@openzeppelin/contracts-upgradeable": "^5.1.0",
-    "@paimaexample/evm-contracts": "0.11.3"
+    "@effectstream/evm-contracts": "0.100.19",
+    "@effectstream/evm-hardhat": "0.100.19",
+    "@effectstream/log": "0.100.19",
+    "@nomicfoundation/hardhat-ignition": "3.0.2",
+    "@nomicfoundation/hardhat-ignition-viem": "3.0.2",
+    "@nomicfoundation/hardhat-viem": "3.0.0",
+    "@nomicfoundation/ignition-core": "^3.0.2"
   },
   "devDependencies": {
     "jsonc-parser": "3.3.1",
     "@opentelemetry/sdk-node": "0.56.0",
-    "hardhat": "3.0.4",
+    "hardhat": "3.8.0",
     "wait-on": "8.0.3"
   }
 }

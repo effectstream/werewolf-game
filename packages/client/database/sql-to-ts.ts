@@ -1,6 +1,6 @@
-import { getConnection } from "@paimaexample/db";
-// TODO Update this to use the @paimaexample/db-emulator package
-// import { standAloneApplyMigrations } from "@paimaexample/db-emulator";
+import { getConnection } from "@effectstream/db";
+// TODO Update this to use the @effectstream/db-emulator package
+// import { standAloneApplyMigrations } from "@effectstream/db-emulator";
 import { standAloneApplyMigrations } from "./src/patch-emulator.ts";
 import { migrationTable } from "./src/migration-order.ts";
 import { config as localhostConfig } from "@werewolf-game/data-types/config";
@@ -10,4 +10,4 @@ const db = await getConnection();
 await standAloneApplyMigrations(db, migrationTable, localhostConfig as any);
 console.log("✅ System & User migrations applied");
 
-Deno.exit(0);
+process.exit(0);

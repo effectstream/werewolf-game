@@ -2,7 +2,7 @@ import {
   type DefaultBatcherInput,
   MidnightBalancingAdapter,
   type MidnightBalancingAdapterConfig,
-} from "@paimaexample/batcher";
+} from "@effectstream/batcher-sdk";
 export type ValidationResult = {
   valid: boolean;
   error?: string;

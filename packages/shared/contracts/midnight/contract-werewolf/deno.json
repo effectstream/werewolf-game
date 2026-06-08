@@ -1,5 +1,5 @@
 {
-  "name": "@example-midnight/my-midnight-contract",
+  "name": "@werewolf-game/midnight-contract",
   "exports": {
     ".": "./src/_index.ts",
     "./witnesses": "./src/witnesses.ts",
@@ -17,6 +17,6 @@
     "eciesjs": "npm:eciesjs@^0.4.16",
     "tweetnacl": "npm:tweetnacl@^1.0.3",
     "vitest": "npm:vitest@^3.2.4",
-    "@example-midnight/my-midnight-contract": "@example-midnight/my-midnight-contract"
+    "@werewolf-game/midnight-contract": "@werewolf-game/midnight-contract"
   }
 }

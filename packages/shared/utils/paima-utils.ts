@@ -1,7 +1,7 @@
 import {
   ChargedState as CompactChargedState,
   StateValue as CompactStateValue,
-} from "npm:@midnight-ntwrk/compact-runtime@0.15.0";
+} from "@midnight-ntwrk/compact-runtime";
 
 /**
  * MidnightLedgerParser

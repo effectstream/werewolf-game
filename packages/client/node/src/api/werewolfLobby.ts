@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import { runPreparedQuery } from "@paimaexample/db";
+import { runPreparedQuery } from "@effectstream/db";
 import {
   closeLobby,
   getAdminSignKey,
@@ -24,7 +24,7 @@ import * as store from "../store.ts";
 import { decryptVotes, resolvePhaseFromVotes } from "../vote-resolver.ts";
 import type { IGetGamesByEvmAddressResult } from "../../../database/src/sql/werewolf_lobby.queries.ts";
 
-const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ??
+const CHAT_SERVER_URL = process.env["CHAT_SERVER_URL"] ??
   "http://localhost:3001";
 const MAX_TIMESTAMP_AGE_SECONDS = 300; // 5 minutes
 

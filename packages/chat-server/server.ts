@@ -1,3 +1,4 @@
+import type { ServerWebSocket } from "bun";
 import type {
   BroadcastBody,
   ClientMessage,
@@ -5,6 +6,14 @@ import type {
   InviteBody,
   ServerMessage,
 } from "./types.ts";
+
+interface WsData {
+  gameId: number;
+  channel: string;
+  identified: boolean;
+  playerHash: string | null;
+  identifyTimer: ReturnType<typeof setTimeout> | null;
+}
 import {
   addConnection,
   broadcast,
@@ -17,8 +26,8 @@ import {
   removeConnection,
 } from "./rooms.ts";
 
-const IS_DEV = Deno.env.get("ENV") === "dev" ||
-  Deno.env.get("ENV") === "development";
+const IS_DEV = process.env["ENV"] === "dev" ||
+  process.env["ENV"] === "development";
 
 const MAX_TEXT_LENGTH = 500;
 const IDENTIFY_TIMEOUT_MS = 10_000;
@@ -36,8 +45,8 @@ function corsJson(body: unknown, init?: ResponseInit): Response {
   });
 }
 
-function send(socket: WebSocket, msg: ServerMessage): void {
-  if (socket.readyState === WebSocket.OPEN) {
+function send(socket: ServerWebSocket<WsData>, msg: ServerMessage): void {
+  if (socket.readyState === 1) {
     socket.send(JSON.stringify(msg));
   }
 }
@@ -52,18 +61,9 @@ function parseChatPath(
   return { gameId: id, channel: match[2] ?? "general" };
 }
 
-function handleWebSocket(
-  req: Request,
-  gameId: number,
-  channel: string,
-): Response {
-  const { socket, response } = Deno.upgradeWebSocket(req);
-
-  let identified = false;
-  let playerHash: string | null = null;
-
-  const identifyTimer = setTimeout(() => {
-    if (!identified) {
+function handleWsOpen(socket: ServerWebSocket<WsData>): void {
+  socket.data.identifyTimer = setTimeout(() => {
+    if (!socket.data.identified) {
       send(socket, {
         type: "error",
         code: "IDENTIFY_TIMEOUT",
@@ -72,121 +72,119 @@ function handleWebSocket(
       socket.close(4001, "Identify timeout");
     }
   }, IDENTIFY_TIMEOUT_MS);
+}
 
-  socket.onmessage = (event) => {
-    let msg: ClientMessage;
-    try {
-      msg = JSON.parse(event.data) as ClientMessage;
-    } catch {
+function handleWsMessage(
+  socket: ServerWebSocket<WsData>,
+  raw: string | Buffer,
+): void {
+  const { gameId, channel } = socket.data;
+
+  let msg: ClientMessage;
+  try {
+    msg = JSON.parse(
+      typeof raw === "string" ? raw : raw.toString(),
+    ) as ClientMessage;
+  } catch {
+    send(socket, {
+      type: "error",
+      code: "PARSE_ERROR",
+      message: "Invalid JSON.",
+    });
+    return;
+  }
+
+  if (!socket.data.identified) {
+    if (msg.type !== "identify") {
       send(socket, {
         type: "error",
-        code: "PARSE_ERROR",
-        message: "Invalid JSON.",
+        code: "NOT_IDENTIFIED",
+        message: "Send an identify message first.",
       });
       return;
     }
 
-    if (!identified) {
-      if (msg.type !== "identify") {
-        send(socket, {
-          type: "error",
-          code: "NOT_IDENTIFIED",
-          message: "Send an identify message first.",
-        });
-        return;
-      }
+    const hash = msg.publicKeyHex;
 
-      const hash = msg.publicKeyHex;
-
-      if (!isAllowed(gameId, hash, channel)) {
-        console.warn(
-          `[chat] NOT_ALLOWED game=${gameId} channel=${channel} hash=${hash} — ` +
-            `snapshot: ${
-              JSON.stringify(
-                getRoomsSnapshot().filter((r) => r.gameId === gameId),
-              )
-            }`,
-        );
-        send(socket, {
-          type: "error",
-          code: "NOT_ALLOWED",
-          message: "You are not invited to this game room.",
-        });
-        socket.close(4003, "Not allowed");
-        return;
-      }
-
-      if (isAlreadyConnected(gameId, hash, channel)) {
-        console.warn(
-          `[chat] ALREADY_CONNECTED game=${gameId} channel=${channel} hash=${hash}`,
-        );
-        send(socket, {
-          type: "error",
-          code: "ALREADY_CONNECTED",
-          message: "Another connection from this player already exists.",
-        });
-        socket.close(4004, "Duplicate connection");
-        return;
-      }
-
-      clearTimeout(identifyTimer);
-      identified = true;
-      playerHash = hash;
-      addConnection(gameId, hash, socket, channel);
-      console.log(
-        `[chat] Identified game=${gameId} channel=${channel} hash=${hash}`,
+    if (!isAllowed(gameId, hash, channel)) {
+      console.warn(
+        `[chat] NOT_ALLOWED game=${gameId} channel=${channel} hash=${hash} — ` +
+          `snapshot: ${
+            JSON.stringify(
+              getRoomsSnapshot().filter((r) => r.gameId === gameId),
+            )
+          }`,
       );
-      send(socket, { type: "identified", publicKeyHex: hash });
-      return;
-    }
-
-    if (msg.type !== "message") {
       send(socket, {
         type: "error",
-        code: "UNKNOWN_TYPE",
-        message: "Unknown message type.",
+        code: "NOT_ALLOWED",
+        message: "You are not invited to this game room.",
       });
+      socket.close(4003, "Not allowed");
       return;
     }
 
-    const text = msg.text?.trim() ?? "";
-    if (!text || text.length > MAX_TEXT_LENGTH) {
+    if (isAlreadyConnected(gameId, hash, channel)) {
+      console.warn(
+        `[chat] ALREADY_CONNECTED game=${gameId} channel=${channel} hash=${hash}`,
+      );
       send(socket, {
         type: "error",
-        code: "INVALID_MESSAGE",
-        message: `Message must be 1-${MAX_TEXT_LENGTH} characters.`,
+        code: "ALREADY_CONNECTED",
+        message: "Another connection from this player already exists.",
       });
+      socket.close(4004, "Duplicate connection");
       return;
     }
 
-    const outbound: ServerMessage = {
-      type: "message",
-      from: getNickname(gameId, playerHash!, channel),
-      text,
-      timestamp: Date.now(),
-    };
-    const serialized = JSON.stringify(outbound);
-
-    // Echo back to sender and broadcast to all others
-    send(socket, outbound);
-    broadcast(gameId, serialized, playerHash!, channel);
-  };
-
-  socket.onclose = () => {
-    clearTimeout(identifyTimer);
-    if (playerHash) removeConnection(gameId, playerHash, channel);
-  };
-
-  socket.onerror = (err) => {
-    console.error(
-      `[chat] WebSocket error game=${gameId} channel=${channel} player=${playerHash}:`,
-      err,
+    if (socket.data.identifyTimer) clearTimeout(socket.data.identifyTimer);
+    socket.data.identified = true;
+    socket.data.playerHash = hash;
+    addConnection(gameId, hash, socket, channel);
+    console.log(
+      `[chat] Identified game=${gameId} channel=${channel} hash=${hash}`,
     );
-    clearTimeout(identifyTimer);
-    if (playerHash) removeConnection(gameId, playerHash, channel);
-  };
+    send(socket, { type: "identified", publicKeyHex: hash });
+    return;
+  }
 
-  return response;
+  if (msg.type !== "message") {
+    send(socket, {
+      type: "error",
+      code: "UNKNOWN_TYPE",
+      message: "Unknown message type.",
+    });
+    return;
+  }
+
+  const text = msg.text?.trim() ?? "";
+  if (!text || text.length > MAX_TEXT_LENGTH) {
+    send(socket, {
+      type: "error",
+      code: "INVALID_MESSAGE",
+      message: `Message must be 1-${MAX_TEXT_LENGTH} characters.`,
+    });
+    return;
+  }
+
+  const outbound: ServerMessage = {
+    type: "message",
+    from: getNickname(gameId, socket.data.playerHash!, channel),
+    text,
+    timestamp: Date.now(),
+  };
+  const serialized = JSON.stringify(outbound);
+
+  // Echo back to sender and broadcast to all others
+  send(socket, outbound);
+  broadcast(gameId, serialized, socket.data.playerHash!, channel);
+}
+
+function handleWsClose(socket: ServerWebSocket<WsData>): void {
+  if (socket.data.identifyTimer) clearTimeout(socket.data.identifyTimer);
+  if (socket.data.playerHash) {
+    removeConnection(socket.data.gameId, socket.data.playerHash, socket.data.channel);
+  }
 }
 
 async function handleInvite(req: Request): Promise<Response> {
@@ -296,48 +294,68 @@ async function handleBroadcast(req: Request): Promise<Response> {
 }
 
 export function startChatServer(port: number): void {
-  Deno.serve({ port }, async (req) => {
-    const url = new URL(req.url);
+  const server = Bun.serve<WsData, undefined>({
+    port,
+    async fetch(req, server) {
+      const url = new URL(req.url);
 
-    // Handle CORS preflight for all routes
-    if (req.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: CORS_HEADERS });
-    }
-
-    if (req.method === "POST" && url.pathname === "/create-room") {
-      return await handleCreateRoom(req);
-    }
-
-    if (req.method === "POST" && url.pathname === "/invite") {
-      return await handleInvite(req);
-    }
-
-    if (req.method === "POST" && url.pathname === "/broadcast") {
-      return await handleBroadcast(req);
-    }
-
-    if (req.method === "GET" && url.pathname.startsWith("/chat/")) {
-      const parsed = parseChatPath(url.pathname);
-      if (parsed === null) {
-        return corsJson({ error: "Invalid game ID in path" }, { status: 400 });
+      // Handle CORS preflight for all routes
+      if (req.method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: CORS_HEADERS });
       }
-      const upgrade = req.headers.get("upgrade");
-      if (!upgrade || upgrade.toLowerCase() !== "websocket") {
-        return new Response("Expected WebSocket upgrade", { status: 426 });
+
+      if (req.method === "POST" && url.pathname === "/create-room") {
+        return await handleCreateRoom(req);
       }
-      return handleWebSocket(req, parsed.gameId, parsed.channel);
-    }
 
-    if (req.method === "GET" && url.pathname === "/health") {
-      return corsJson({ status: "ok" });
-    }
+      if (req.method === "POST" && url.pathname === "/invite") {
+        return await handleInvite(req);
+      }
 
-    if (IS_DEV && req.method === "GET" && url.pathname === "/debug/rooms") {
-      return corsJson(getRoomsSnapshot());
-    }
+      if (req.method === "POST" && url.pathname === "/broadcast") {
+        return await handleBroadcast(req);
+      }
 
-    return new Response("Not found", { status: 404 });
+      if (req.method === "GET" && url.pathname.startsWith("/chat/")) {
+        const parsed = parseChatPath(url.pathname);
+        if (parsed === null) {
+          return corsJson({ error: "Invalid game ID in path" }, {
+            status: 400,
+          });
+        }
+        const upgrade = req.headers.get("upgrade");
+        if (!upgrade || upgrade.toLowerCase() !== "websocket") {
+          return new Response("Expected WebSocket upgrade", { status: 426 });
+        }
+        const ok = server.upgrade(req, {
+          data: {
+            gameId: parsed.gameId,
+            channel: parsed.channel,
+            identified: false,
+            playerHash: null,
+            identifyTimer: null,
+          },
+        });
+        if (ok) return undefined;
+        return new Response("WebSocket upgrade failed", { status: 500 });
+      }
+
+      if (req.method === "GET" && url.pathname === "/health") {
+        return corsJson({ status: "ok" });
+      }
+
+      if (IS_DEV && req.method === "GET" && url.pathname === "/debug/rooms") {
+        return corsJson(getRoomsSnapshot());
+      }
+
+      return new Response("Not found", { status: 404 });
+    },
+    websocket: {
+      open: handleWsOpen,
+      message: handleWsMessage,
+      close: handleWsClose,
+    },
   });
 
-  console.log(`[chat] Chat server listening on port ${port}`);
+  console.log(`[chat] Chat server listening on port ${server.port}`);
 }

@@ -1,7 +1,7 @@
-import { PaimaL2DefaultAdapter } from "@paimaexample/batcher";
-import type { DefaultBatcherInput } from "@paimaexample/batcher";
+import { EffectstreamL2DefaultAdapter } from "@effectstream/batcher-sdk";
+import type { DefaultBatcherInput } from "@effectstream/batcher-sdk";
 import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
-import { ENV } from "@paimaexample/utils/node-env";
+import { ENV } from "@effectstream/utils/node-env";
 import * as chains from "viem/chains";
 import process from "node:process";
 import type { Chain } from "viem";
@@ -63,7 +63,7 @@ if (isMainnet) {
 // The default batcher verification includes `target` in the signed message, but
 // the L2 primitive re-verifies on-chain without `target` (it's not stored in the
 // batch). Both sides must agree, so we omit `target` from the message here too.
-class WerewolfPaimaL2Adapter extends PaimaL2DefaultAdapter {
+class WerewolfPaimaL2Adapter extends EffectstreamL2DefaultAdapter {
   async verifySignature(input: DefaultBatcherInput): Promise<boolean> {
     if (!input.signature) return false;
     const address = input.address.toLowerCase() as `0x${string}`;

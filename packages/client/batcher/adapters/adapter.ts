@@ -1,6 +1,6 @@
 // Implements a adapter interface for the batcher responsible for handling blockchain interactions
 
-import type { DefaultBatcherInput } from "@paimaexample/batcher"
+import type { DefaultBatcherInput } from "@effectstream/batcher-sdk"
 
 /**
  * Generic blockchain transaction hash type

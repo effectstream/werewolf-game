@@ -876,7 +876,7 @@ async function runSecurityTests() {
   );
   if (failedTests > 0) {
     console.log("\u274C Some security tests FAILED!");
-    Deno.exit(1);
+    process.exit(1);
   } else {
     console.log("\u2705 All security tests PASSED!");
   }
@@ -915,5 +915,5 @@ function arraysEqual(
 
 runSecurityTests().catch((e) => {
   console.error("Security test suite crashed:", e);
-  Deno.exit(1);
+  process.exit(1);
 });

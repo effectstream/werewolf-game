@@ -20,7 +20,7 @@ const PrandoClass = (Prando as any).default || Prando;
 import * as store from "./store.ts";
 import { callMidnightCircuit } from "./midnight-circuit-caller.ts";
 import type { PrivateState } from "../../../shared/contracts/midnight/contract-werewolf/src/witnesses.ts";
-import { runPreparedQuery } from "@paimaexample/db";
+import { runPreparedQuery } from "@effectstream/db";
 import { getGameView, resolveRound } from "@werewolf-game/database";
 import { getDbPool } from "./db-pool.ts";
 import {
@@ -30,7 +30,7 @@ import {
 import type { WerewolfVoteEntry } from "../../../shared/utils/werewolf-ledger.ts";
 import { restoreGameSecrets } from "./lobby-closer.ts";
 
-const BATCHER_URL = Deno.env.get("BATCHER_URL") ?? "http://localhost:3334";
+const BATCHER_URL = process.env["BATCHER_URL"] ?? "http://localhost:3334";
 
 // ---------------------------------------------------------------------------
 // Crypto helpers (ported from witnesses.ts / App.tsx)

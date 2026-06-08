@@ -7,7 +7,7 @@
 import * as store from "./store.ts";
 import { callMidnightCircuit } from "./midnight-circuit-caller.ts";
 import type { PrivateState } from "../../../shared/contracts/midnight/contract-werewolf/src/witnesses.ts";
-import { runPreparedQuery } from "@paimaexample/db";
+import { runPreparedQuery } from "@effectstream/db";
 import {
   getGameView,
   getPendingPunishments,
@@ -15,7 +15,7 @@ import {
 } from "@werewolf-game/database";
 import { getDbPool } from "./db-pool.ts";
 
-const BATCHER_URL = Deno.env.get("BATCHER_URL") ?? "http://localhost:3334";
+const BATCHER_URL = process.env["BATCHER_URL"] ?? "http://localhost:3334";
 
 export interface PunishmentResult {
   count: number;

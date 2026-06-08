@@ -12,14 +12,14 @@
 // The next line ensures the wasm is loaded and not optimized away.
 import "@midnight-ntwrk/onchain-runtime";
 
-import { init, start } from "@paimaexample/runtime";
+import { init, start } from "@effectstream/runtime";
 import { main, suspend } from "effection";
-import { log } from "@paimaexample/log";
+import { log } from "@effectstream/log";
 import { config as nodeConfig } from "@werewolf-game/data-types/config.mainnet";
 import {
   toSyncProtocolWithNetwork,
   withEffectstreamStaticConfig,
-} from "@paimaexample/config";
+} from "@effectstream/config";
 import { migrationTable } from "@werewolf-game/database";
 import { grammar } from "@werewolf-game/data-types/grammar";
 import { gameStateTransitions } from "./state-machine.ts";
@@ -50,7 +50,7 @@ main(function* () {
       apiRouter,
       grammar,
       snapshotConfig: {
-        path: Deno.env.get("EFFECTSTREAM_SNAPSHOT_PATH"),
+        path: process.env["EFFECTSTREAM_SNAPSHOT_PATH"],
       },
     });
   });

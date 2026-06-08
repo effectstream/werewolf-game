@@ -2,17 +2,17 @@ import {
   type BatcherConfig,
   FileStorage,
   MidnightBalancingAdapterConfig,
-} from "@paimaexample/batcher";
-import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+} from "@effectstream/batcher-sdk";
+import { midnightNetworkConfig } from "@effectstream/midnight-contracts/midnight-env";
 import { WerewolfBalancingAdapter } from "./adapters/werewolf-balancing-adapter.ts";
 import { paimaL2Adapter } from "./adapters/adapter-paimaL2.ts";
 
 const isEnvTrue = (key: string) =>
-  ["true", "1", "yes", "y"].includes((Deno.env.get(key) || "").toLowerCase());
+  ["true", "1", "yes", "y"].includes((process.env[key] || "").toLowerCase());
 const midnight_enabled = !isEnvTrue("DISABLE_MIDNIGHT");
 
 const batchIntervalMs = 1000;
-const port = Number(Deno.env.get("BATCHER_PORT") ?? "3334");
+const port = Number(process.env["BATCHER_PORT"] ?? "3334");
 
 // Support multiple batcher wallets via comma-separated MIDNIGHT_WALLET_SEED.
 // Each wallet maintains its own dust UTXOs; total batch capacity = maxBatchSize × walletCount.

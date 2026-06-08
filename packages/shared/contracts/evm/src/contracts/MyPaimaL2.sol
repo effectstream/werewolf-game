@@ -2,9 +2,9 @@
 
 pragma solidity ^0.8.20;
 
-import {PaimaL2Contract} from "@paimaexample/evm-contracts/src/contracts/PaimaL2Contract.sol";
+import {EffectstreamL2Contract} from "@effectstream/evm-contracts/src/contracts/EffectstreamL2Contract.sol";
 
-contract MyPaimaL2Contract is PaimaL2Contract {
+contract MyPaimaL2Contract is EffectstreamL2Contract {
     /// @dev Game states for lobby management
     enum GameState { Open, Closed }
 
@@ -47,7 +47,7 @@ contract MyPaimaL2Contract is PaimaL2Contract {
     /// @dev Minimum players required to force-start a game
     uint256 public constant MIN_PLAYERS_TO_START = 5;
 
-    constructor(address _owner, uint256 _fee) PaimaL2Contract(_owner, _fee) {}
+    constructor(address _owner, uint256 _fee) EffectstreamL2Contract(_owner, _fee) {}
 
     /// @dev Creates a new game lobby
     /// @param _gameId ID of the game to create

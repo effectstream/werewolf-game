@@ -1,0 +1,33 @@
+{
+  "name": "@example-midnight/batcher",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./main.ts"
+  },
+  "scripts": {
+    "start": "bun run main.ts"
+  },
+  "dependencies": {
+    "@werewolf-game/evm-contracts": "workspace:*",
+    "@effectstream/batcher-sdk": "0.100.19",
+    "@effectstream/midnight-contracts": "0.100.19",
+    "@effectstream/utils": "0.100.19",
+    "effection": "^3.5.0",
+    "viem": "^2.21.3",
+    "@midnight-ntwrk/ledger-v7": "7.0.3",
+    "@midnight-ntwrk/ledger-v8": "8.0.3",
+    "@midnight-ntwrk/midnight-js-utils": "4.0.2",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-types": "4.0.2",
+    "@midnight-ntwrk/midnight-js-network-id": "4.0.2",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.0.2",
+    "@midnight-ntwrk/wallet-sdk-abstractions": "2.0.0",
+    "@midnight-ntwrk/wallet-sdk-hd": "3.0.1",
+    "@midnight-ntwrk/wallet-sdk-facade": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-shielded": "2.1.0",
+    "@midnight-ntwrk/wallet-sdk-dust-wallet": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-unshielded-wallet": "2.1.0"
+  }
+}

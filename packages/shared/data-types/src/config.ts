@@ -1,17 +1,17 @@
-import { readMidnightContract } from "@paimaexample/midnight-contracts/read-contract";
+import { readMidnightContract } from "@effectstream/midnight-contracts/read-contract";
 
 import {
   ConfigBuilder,
   ConfigNetworkType,
   ConfigSyncProtocolType,
-} from "@paimaexample/config";
-import { getConnection } from "@paimaexample/db";
+} from "@effectstream/config";
+import { getConnection } from "@effectstream/db";
 import {
-  PrimitiveTypeEVMPaimaL2,
+  PrimitiveTypeEVMEffectstreamL2,
   PrimitiveTypeMidnightGeneric,
-} from "@paimaexample/sm/builtin";
-import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
-import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+} from "@effectstream/sm/builtin";
+import * as ContractContract from "@werewolf-game/midnight-contract/contract";
+import { midnightNetworkConfig } from "@effectstream/midnight-contracts/midnight-env";
 import { hardhat } from "viem/chains";
 import {
   convertMidnightLedger,
@@ -144,7 +144,7 @@ export const config = new ConfigBuilder()
         (syncProtocols) => (syncProtocols as any).parallelEvmRPC_fast,
         (network, deployments, syncProtocol) => ({
           name: "PaimaGameInteraction",
-          type: PrimitiveTypeEVMPaimaL2,
+          type: PrimitiveTypeEVMEffectstreamL2,
           startBlockHeight: 0,
           contractAddress: contractAddressesEvmMain()["chain31337"][
             "PaimaL2ContractModule#MyPaimaL2Contract"

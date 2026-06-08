@@ -1,6 +1,5 @@
 import { createLogger, defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import deno from "@deno/vite-plugin";
 
 // Suppress noisy proxy AbortErrors when running under Deno
 // https://github.com/denoland/deno/issues/28850
@@ -29,7 +28,7 @@ export default defineConfig({
       "/api": "http://localhost:9999",
     },
   },
-  plugins: [react(), deno()],
+  plugins: [react()],
   build: {
     target: "esnext",
     outDir: "../dist",

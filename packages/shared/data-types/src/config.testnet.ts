@@ -1,21 +1,21 @@
 import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
-import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
+import * as ContractContract from "@werewolf-game/midnight-contract/contract";
 import {
   convertMidnightLedger,
   normalizeMidnightLedgerStateInput,
 } from "../../utils/paima-utils.ts";
-import { getConnection } from "@paimaexample/db";
+import { getConnection } from "@effectstream/db";
 import {
   ConfigBuilder,
   ConfigNetworkType,
   ConfigSyncProtocolType,
-} from "@paimaexample/config";
-import { readMidnightContract } from "@paimaexample/midnight-contracts/read-contract";
-import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+} from "@effectstream/config";
+import { readMidnightContract } from "@effectstream/midnight-contracts/read-contract";
+import { midnightNetworkConfig } from "@effectstream/midnight-contracts/midnight-env";
 import {
-  PrimitiveTypeEVMPaimaL2,
+  PrimitiveTypeEVMEffectstreamL2,
   PrimitiveTypeMidnightGeneric,
-} from "@paimaexample/sm/builtin";
+} from "@effectstream/sm/builtin";
 import { arbitrumSepolia } from "viem/chains";
 import { paimaL2Grammar } from "@werewolf-game/data-types/grammar";
 
@@ -34,7 +34,7 @@ let arbSepoliaTip: number = 0;
 let midnightTip: number = 1;
 
 const arbitrumSepoliaRpc = Deno
-  ? Deno.env.get("ARBITRUM_SEPOLIA_RPC")
+  ? process.env["ARBITRUM_SEPOLIA_RPC"]
   : undefined;
 
 type ContractAddressBook = Record<string, Record<string, `0x${string}`>>;
@@ -76,7 +76,7 @@ if (Deno) {
 
   // Read EVM_SYNC_FROM environment variable for custom EVM sync start block.
   // If set, sync from this block number. Otherwise, fetch current tip.
-  const evmSyncFromEnv = Deno.env.get("EVM_SYNC_FROM");
+  const evmSyncFromEnv = process.env["EVM_SYNC_FROM"];
   if (evmSyncFromEnv !== undefined && evmSyncFromEnv !== "") {
     const parsedBlock = parseInt(evmSyncFromEnv, 10);
     if (!isNaN(parsedBlock) && parsedBlock >= 0) {
@@ -90,7 +90,7 @@ if (Deno) {
   // Fetch current Arbitrum Sepolia tip if EVM_SYNC_FROM is not set.
   if (arbSepoliaTip === 0) {
     try {
-      const rpcUrl = Deno.env.get("ARBITRUM_SEPOLIA_RPC") ?? "";
+      const rpcUrl = process.env["ARBITRUM_SEPOLIA_RPC"] ?? "";
       if (rpcUrl) {
         const res = await fetch(rpcUrl, {
           method: "POST",
@@ -110,7 +110,7 @@ if (Deno) {
 
   // Read MIDNIGHT_SYNC_FROM environment variable for custom Midnight sync start block.
   // If set, sync from this block number. Otherwise, fetch current tip.
-  const midnightSyncFromEnv = Deno.env.get("MIDNIGHT_SYNC_FROM");
+  const midnightSyncFromEnv = process.env["MIDNIGHT_SYNC_FROM"];
   if (midnightSyncFromEnv !== undefined && midnightSyncFromEnv !== "") {
     const parsedBlock = parseInt(midnightSyncFromEnv, 10);
     if (!isNaN(parsedBlock) && parsedBlock >= 0) {
@@ -240,7 +240,7 @@ export const config = new ConfigBuilder()
         (syncProtocols: any) => syncProtocols.parallelEvmRPC_fast,
         () => ({
           name: "PaimaGameInteraction",
-          type: PrimitiveTypeEVMPaimaL2,
+          type: PrimitiveTypeEVMEffectstreamL2,
           startBlockHeight: 0,
           contractAddress: paimaL2TestnetContractAddress,
           paimaL2Grammar: paimaL2Grammar,

@@ -1,7 +1,7 @@
-import { PaimaSTM } from "@paimaexample/sm";
+import { Stm } from "@effectstream/sm";
 import { grammar } from "@werewolf-game/data-types/grammar";
-import type { BaseStfInput } from "@paimaexample/sm";
-import { createScheduledData, runPreparedQuery } from "@paimaexample/db";
+import type { BaseStfInput } from "@effectstream/sm";
+import { createScheduledData, runPreparedQuery } from "@effectstream/db";
 import {
   claimRealWallet,
   closeLobby,
@@ -33,8 +33,8 @@ import {
   upsertWalletMapping,
 } from "@werewolf-game/database";
 import type { IInsertLobbyPlayerResult } from "@werewolf-game/database";
-import type { StartConfigGameStateTransitions } from "@paimaexample/runtime";
-import { type SyncStateUpdateStream, World } from "@paimaexample/coroutine";
+import type { StartConfigGameStateTransitions } from "@effectstream/runtime";
+import { type SyncStateUpdateStream, World } from "@effectstream/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
 import {
   clearGameMemory,
@@ -58,21 +58,21 @@ import {
   executePendingPunishments,
 } from "./punishment-executor.ts";
 
-const stm = new PaimaSTM<typeof grammar, any>(grammar);
+const stm = new Stm<typeof grammar, any>(grammar);
 
 const VOTE_TIMEOUT_BLOCKS = Number(
-  Deno.env.get("WEREWOLF_VOTE_TIMEOUT_BLOCKS") ?? "600",
+  process.env["WEREWOLF_VOTE_TIMEOUT_BLOCKS"] ?? "600",
 );
 
 const LOBBY_TIMEOUT_BLOCKS = Number(
-  Deno.env.get("WEREWOLF_LOBBY_TIMEOUT_BLOCKS") ?? "1800",
+  process.env["WEREWOLF_LOBBY_TIMEOUT_BLOCKS"] ?? "1800",
 );
 
 const LOBBY_MIN_PLAYERS = Number(
-  Deno.env.get("WEREWOLF_LOBBY_MIN_PLAYERS") ?? "5",
+  process.env["WEREWOLF_LOBBY_MIN_PLAYERS"] ?? "5",
 );
 
-const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ??
+const CHAT_SERVER_URL = process.env["CHAT_SERVER_URL"] ??
   "http://localhost:3001";
 
 // Fire-and-forget POST to the chat server. All calls are best-effort;

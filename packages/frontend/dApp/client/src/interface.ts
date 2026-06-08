@@ -1,4 +1,4 @@
-import { walletLogin, WalletMode } from "@paimaexample/wallets";
+import { walletLogin, WalletMode } from "@effectstream/wallets";
 import type { ConnectedAPI } from "@midnight-ntwrk/dapp-connector-api";
 
 import * as midnightContract from "./contracts/contract.ts";

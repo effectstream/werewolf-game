@@ -1,19 +1,25 @@
-import type { Next } from "@oak/oak/middleware";
-import type { Context } from "@oak/oak/context";
+import { join } from "node:path";
 
-// Configure static site routes so that we can serve
-// the Vite build output and the public folder
+// Serve static files (Vite build output + public folder) with SPA fallback.
+// Returns a Bun.serve-compatible fetch handler.
 export default function routeStaticFilesFrom(staticPaths: string[]) {
-  return async (context: Context<Record<string, object>>, next: Next) => {
-    for (const path of staticPaths) {
-      try {
-        await context.send({ root: path, index: "index.html" });
-        return;
-      } catch {
-        continue;
-      }
+  return async (req: Request): Promise<Response> => {
+    const url = new URL(req.url);
+    let pathname = decodeURIComponent(url.pathname);
+    if (pathname === "/") pathname = "/index.html";
+
+    // 1) Try to serve the exact requested file from any static path.
+    for (const root of staticPaths) {
+      const file = Bun.file(join(root, pathname));
+      if (await file.exists()) return new Response(file);
     }
 
-    await next();
+    // 2) SPA fallback: serve index.html from the first path that has it.
+    for (const root of staticPaths) {
+      const index = Bun.file(join(root, "index.html"));
+      if (await index.exists()) return new Response(index);
+    }
+
+    return new Response("Not found", { status: 404 });
   };
 }

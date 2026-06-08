@@ -29,7 +29,7 @@
  */
 
 import { type DeployConfig, deployMidnightContract } from "./deploy-ledger7.ts";
-import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+import { midnightNetworkConfig } from "@effectstream/midnight-contracts/midnight-env";
 import {
   Contract,
   type PrivateState,
@@ -52,9 +52,9 @@ const config: DeployConfig = {
 deployMidnightContract(config, midnightNetworkConfig)
   .then(() => {
     console.log("Werewolf contract deployment successful");
-    Deno.exit(0);
+    process.exit(0);
   })
   .catch((e: unknown) => {
     console.error("Deployment failed:", e);
-    Deno.exit(1);
+    process.exit(1);
   });

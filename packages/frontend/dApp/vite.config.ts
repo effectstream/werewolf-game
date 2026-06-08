@@ -1,6 +1,5 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
-import deno from "@deno/vite-plugin";
 import nodePolyfills from "vite-plugin-node-stdlib-browser";
 import wasm from "vite-plugin-wasm";
 import "react";
@@ -121,7 +120,6 @@ export default defineConfig({
       },
     },
     react(),
-    deno(),
     nodePolyfills({
       overrides: {
         // Since `fs` is not supported in browsers, we can use the `memfs` package to polyfill it.
@@ -227,6 +225,10 @@ export default defineConfig({
       "@midnight-ntwrk/compact-runtime",
       "@midnight-ntwrk/midnight-js-contracts",
       "@scure/bip39",
+      // `level` is CJS (exports.Level = ...). The level-private-state-provider that
+      // imports `{ Level } from "level"` is excluded from optimization, so pre-bundle
+      // `level` here to synthesize a proper ESM named `Level` export for the browser.
+      "level",
     ],
     esbuildOptions: {
       target: "esnext",

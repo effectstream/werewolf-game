@@ -4,7 +4,7 @@ import {
   type Wallet,
   walletLogin,
   WalletMode,
-} from "@paimaexample/wallets";
+} from "@effectstream/wallets";
 
 // Define the shape of your wallet context
 interface EvmWalletContextType {

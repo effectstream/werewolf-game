@@ -5,7 +5,7 @@
   "nodeModulesDir": "auto",
   "tasks": {
     "build:evm": "deno task -f @werewolf-game/evm-contracts build:mod",
-    "build:midnight": "deno task -f @example-midnight/my-midnight-contract compact",
+    "build:midnight": "deno task -f @werewolf-game/midnight-contract compact",
     "dev": "deno task -f @werewolf-game/node dev",
     "testnet": "deno task -f @werewolf-game/node dev:testnet",
     "start:frontend": "deno task -f @example-midnight/frontend dev",
@@ -16,10 +16,9 @@
     "serve:frontend:mainnet": "cd packages/frontend-ui && npm run serve:mainnet"
   },
   "imports": {
-    // TODO: This is a workaround for a missing dependency.
-    "@paimaexample/tui": "jsr:@paimaexample/tui@0.11.3",
-    "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.11.3",
-    "@paimaexample/evm-contracts": "jsr:@paimaexample/evm-contracts@0.11.3",
+    "@effectstream/node-sdk": "npm:@effectstream/node-sdk@0.100.19",
+    "@effectstream/midnight-contracts": "npm:@effectstream/midnight-contracts@0.100.19",
+    "@effectstream/evm-contracts": "npm:@effectstream/evm-contracts@0.100.19",
     // Workarounds for broken imports in JSR packages
     "npm:/@sinclair/typebox@0.34.41/value": "npm:@sinclair/typebox@0.34.41/value",
     "npm:@cardano-foundation/cardano-verify-datasignature@1.0.11": "npm:@cardano-foundation/cardano-verify-datasignature@^1.0.11",

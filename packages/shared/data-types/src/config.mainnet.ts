@@ -1,21 +1,21 @@
 import { contractAddressesEvmMain } from "@werewolf-game/evm-contracts";
-import * as ContractContract from "@example-midnight/my-midnight-contract/contract";
+import * as ContractContract from "@werewolf-game/midnight-contract/contract";
 import {
   convertMidnightLedger,
   normalizeMidnightLedgerStateInput,
 } from "../../utils/paima-utils.ts";
-import { getConnection } from "@paimaexample/db";
+import { getConnection } from "@effectstream/db";
 import {
   ConfigBuilder,
   ConfigNetworkType,
   ConfigSyncProtocolType,
-} from "@paimaexample/config";
-import { readMidnightContract } from "@paimaexample/midnight-contracts/read-contract";
-import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+} from "@effectstream/config";
+import { readMidnightContract } from "@effectstream/midnight-contracts/read-contract";
+import { midnightNetworkConfig } from "@effectstream/midnight-contracts/midnight-env";
 import {
-  PrimitiveTypeEVMPaimaL2,
+  PrimitiveTypeEVMEffectstreamL2,
   PrimitiveTypeMidnightGeneric,
-} from "@paimaexample/sm/builtin";
+} from "@effectstream/sm/builtin";
 import { arbitrum } from "viem/chains";
 import { paimaL2Grammar } from "@werewolf-game/data-types/grammar";
 
@@ -34,7 +34,7 @@ let arbOneTip: number = 0;
 let midnightTip: number = 1;
 let midnightStepSize: number | undefined = 1;
 
-const arbitrumOneRpc = Deno ? Deno.env.get("ARBITRUM_ONE_RPC") : undefined;
+const arbitrumOneRpc = Deno ? process.env["ARBITRUM_ONE_RPC"] : undefined;
 
 type ContractAddressBook = Record<string, Record<string, `0x${string}`>>;
 const contractAddressBook = contractAddressesEvmMain() as ContractAddressBook;
@@ -77,7 +77,7 @@ if (Deno) {
   // Helper: fetch the current Arbitrum One tip via JSON-RPC.
   // Returns `undefined` if the RPC call fails or the response is malformed.
   const fetchArbOneTip = async (): Promise<number | undefined> => {
-    const rpcUrl = Deno.env.get("ARBITRUM_ONE_RPC") ?? "";
+    const rpcUrl = process.env["ARBITRUM_ONE_RPC"] ?? "";
     if (!rpcUrl) return undefined;
     try {
       const res = await fetch(rpcUrl, {
@@ -109,7 +109,7 @@ if (Deno) {
 
   // Read EVM_SYNC_FROM environment variable for custom EVM sync start block.
   // If set, sync from this block number. Otherwise, use the live chain tip.
-  const evmSyncFromEnv = Deno.env.get("EVM_SYNC_FROM");
+  const evmSyncFromEnv = process.env["EVM_SYNC_FROM"];
   if (evmSyncFromEnv !== undefined && evmSyncFromEnv !== "") {
     const parsedBlock = parseInt(evmSyncFromEnv, 10);
     if (!isNaN(parsedBlock) && parsedBlock >= 0) {
@@ -154,7 +154,7 @@ if (Deno) {
 
   // Read MIDNIGHT_SYNC_FROM environment variable for custom Midnight sync start block.
   // If set, sync from this block number. Otherwise, fetch current tip.
-  const midnightSyncFromEnv = Deno.env.get("MIDNIGHT_SYNC_FROM");
+  const midnightSyncFromEnv = process.env["MIDNIGHT_SYNC_FROM"];
   if (midnightSyncFromEnv !== undefined && midnightSyncFromEnv !== "") {
     const parsedBlock = parseInt(midnightSyncFromEnv, 10);
     if (!isNaN(parsedBlock) && parsedBlock >= 0) {
@@ -170,7 +170,7 @@ if (Deno) {
   }
 
   // Read MIDNIGHT_PARALLEL_STEP_SIZE for the parallelMidnight sync protocol.
-  const midnightStepSizeEnv = Deno.env.get("MIDNIGHT_PARALLEL_STEP_SIZE");
+  const midnightStepSizeEnv = process.env["MIDNIGHT_PARALLEL_STEP_SIZE"];
   if (midnightStepSizeEnv !== undefined && midnightStepSizeEnv !== "") {
     const parsed = parseInt(midnightStepSizeEnv, 10);
     if (!isNaN(parsed) && parsed > 0) {
@@ -315,7 +315,7 @@ export const config = new ConfigBuilder()
         (syncProtocols: any) => syncProtocols.parallelEvmRPC_fast,
         () => ({
           name: "PaimaGameInteraction",
-          type: PrimitiveTypeEVMPaimaL2,
+          type: PrimitiveTypeEVMEffectstreamL2,
           startBlockHeight: 0,
           contractAddress: paimaL2MainnetContractAddress,
           paimaL2Grammar: paimaL2Grammar,

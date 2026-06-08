@@ -23,7 +23,7 @@ import {
   setAdminSignKeyUpdate,
   updateLobbyPlayerTrackingFields,
 } from "@werewolf-game/database";
-import { runPreparedQuery } from "@paimaexample/db";
+import { runPreparedQuery } from "@effectstream/db";
 import * as store from "./store.ts";
 import { createMidnightGame } from "./midnight-game-creator.ts";
 import { getDbPool } from "./db-pool.ts";
@@ -36,14 +36,14 @@ import {
   hexToEncryptedSeed,
 } from "../../../shared/utils/game-key-crypto.ts";
 
-const CHAT_SERVER_URL = Deno.env.get("CHAT_SERVER_URL") ??
+const CHAT_SERVER_URL = process.env["CHAT_SERVER_URL"] ??
   "http://localhost:3001";
-const BATCHER_URL = Deno.env.get("BATCHER_URL") ?? "http://localhost:3334";
+const BATCHER_URL = process.env["BATCHER_URL"] ?? "http://localhost:3334";
 
 // Secret used to encrypt/decrypt the per-game seed stored on-chain and in DB.
 // Any node sharing this value can recover the game seed after a restart.
 // Falls back to an insecure default so local dev works without config.
-const WEREWOLF_KEY_SECRET = Deno.env.get("WEREWOLF_KEY_SECRET") ??
+const WEREWOLF_KEY_SECRET = process.env["WEREWOLF_KEY_SECRET"] ??
   (() => {
     console.warn(
       "[lobby-closer] WEREWOLF_KEY_SECRET not set — using insecure default. " +
@@ -56,7 +56,7 @@ const WEREWOLF_KEY_SECRET = Deno.env.get("WEREWOLF_KEY_SECRET") ??
 // Set SYSTEM_PRIVATE_KEY env var to a dedicated key in production.
 // Falls back to a random ephemeral key — the STF doesn't validate who sent autoCreateLobby.
 const _systemAccount = privateKeyToAccount(
-  (Deno.env.get("SYSTEM_PRIVATE_KEY") as `0x${string}` | undefined) ??
+  (process.env["SYSTEM_PRIVATE_KEY"] as `0x${string}` | undefined) ??
     generatePrivateKey(),
 );
 

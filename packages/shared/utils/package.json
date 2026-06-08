@@ -1,0 +1,22 @@
+{
+  "name": "@werewolf-game/utils",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./mod.ts",
+    "./paima-utils": "./paima-utils.ts",
+    "./werewolf-ledger": "./werewolf-ledger.ts",
+    "./batcher-client": "./batcher-client.ts",
+    "./bundle-generator": "./bundle-generator.ts",
+    "./game-key-crypto": "./game-key-crypto.ts",
+    "./round-actions-digest": "./round-actions-digest.ts",
+    "./werewolf-game-view": "./werewolf-game-view.ts",
+    "./werewolf-id-codec": "./werewolf-id-codec.ts"
+  },
+  "dependencies": {
+    "@midnight-ntwrk/compact-runtime": "0.15.0",
+    "@midnight-ntwrk/midnight-js-types": "4.0.2",
+    "prando": "^6.0.1",
+    "tweetnacl": "^1.0.3"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@werewolf-game/chat-server",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./main.ts"
+  },
+  "scripts": {
+    "start": "bun run main.ts"
+  }
+}

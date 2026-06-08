@@ -1,4 +1,4 @@
-import type { DBMigrations } from "@paimaexample/runtime";
+import type { DBMigrations } from "@effectstream/runtime";
 import databaseSql from "./migrations/database.sql" with { type: "text" };
 import werewolfGameSql from "./migrations/werewolf_game.sql" with { type: "text" };
 import werewolfLobbySql from "./migrations/werewolf_lobby.sql" with { type: "text" };

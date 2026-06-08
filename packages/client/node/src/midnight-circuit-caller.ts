@@ -37,9 +37,9 @@ import {
   buildWalletFacade,
   type NetworkUrls,
   type WalletResult,
-} from "@paimaexample/midnight-contracts";
-import { readMidnightContract } from "@paimaexample/midnight-contracts/read-contract";
-import { midnightNetworkConfig } from "@paimaexample/midnight-contracts/midnight-env";
+} from "@effectstream/midnight-contracts";
+import { readMidnightContract } from "@effectstream/midnight-contracts/read-contract";
+import { midnightNetworkConfig } from "@effectstream/midnight-contracts/midnight-env";
 import { CompiledContract } from "@midnight-ntwrk/compact-js";
 import { resolve } from "node:path";
 import {
@@ -138,10 +138,9 @@ export function getManagedPath(): string {
 }
 
 function getPrivateStoragePassword(): string {
-  const password = Deno.env.get("MIDNIGHT_STORAGE_PASSWORD");
+  const password = process.env["MIDNIGHT_STORAGE_PASSWORD"];
   if (!password) {
-    // Local-development fallback must satisfy provider complexity checks.
-    return "DevPassword1x2x3x4!";
+    return "WwDev_7c4mRHDsRvczTaSEHj8l";
   }
   if (password.length < 16) {
     throw new Error(

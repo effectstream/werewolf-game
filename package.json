@@ -1,24 +1,68 @@
 {
-    "dependencies": {
-        "@electric-sql/pglite": "^0.3.14"
-    },
-    "devDependencies": {
-        "wait-on": "8.0.3"
-    },
-    "overrides": {
-        "@midnight-ntwrk/ledger-v8": "8.0.3",
-        "@midnight-ntwrk/compact-js": "2.5.0",
-        "@midnight-ntwrk/midnight-js-contracts": "4.0.2",
-        "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.0.2",
-        "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.0.2",
-        "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.0.2",
-        "@midnight-ntwrk/midnight-js-network-id": "4.0.2",
-        "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.0.2",
-        "@midnight-ntwrk/midnight-js-types": "4.0.2",
-        "@midnight-ntwrk/midnight-js-utils": "4.0.2",
-        "@midnight-ntwrk/wallet-sdk-dust-wallet": "3.0.0",
-        "@midnight-ntwrk/wallet-sdk-facade": "3.0.0",
-        "@midnight-ntwrk/wallet-sdk-shielded": "2.1.0",
-        "@midnight-ntwrk/wallet-sdk-unshielded-wallet": "2.1.0"
-    }
+  "workspaces": [
+    "packages/**"
+  ],
+  "scripts": {
+    "build:evm": "bun run --filter @werewolf-game/evm-contracts build:mod",
+    "build:midnight": "bun run --filter '@werewolf-game/midnight-contract' compact",
+    "dev": "bun run --filter @werewolf-game/node dev",
+    "testnet": "bun run --filter @werewolf-game/node testnet",
+    "start:frontend": "bun run --filter '@night-bitcoin/frontend' dev",
+    "check": "bun run --filter @werewolf-game/node check",
+    "build:frontend:preprod": "bun run --filter werewolf-ui build:preprod",
+    "serve:frontend:preprod": "bun run --filter werewolf-ui serve:preprod",
+    "build:frontend:mainnet": "bun run --filter werewolf-ui build:mainnet",
+    "serve:frontend:mainnet": "bun run --filter werewolf-ui serve:mainnet"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.14",
+    "@effectstream/node-sdk": "0.100.19",
+    "@effectstream/midnight-contracts": "0.100.19",
+    "@effectstream/evm-contracts": "0.100.19",
+    "@openzeppelin/contracts": "5.1.0",
+    "@openzeppelin/contracts-upgradeable": "^5.1.0",
+    "tweetnacl": "1.0.3",
+    "prando": "^6.0.1",
+    "@midnight-ntwrk/ledger-v7": "7.0.3",
+    "@midnight-ntwrk/ledger-v8": "8.0.3",
+    "@midnight-ntwrk/onchain-runtime-v3": "3.0.0"
+  },
+  "devDependencies": {
+    "wait-on": "8.0.3"
+  },
+  "overrides": {
+    "@midnight-ntwrk/ledger-v8": "8.0.3",
+    "@midnight-ntwrk/compact-js": "2.5.0",
+    "@midnight-ntwrk/midnight-js-contracts": "4.0.2",
+    "@midnight-ntwrk/midnight-js-http-client-proof-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-indexer-public-data-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-level-private-state-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-network-id": "4.0.2",
+    "@midnight-ntwrk/midnight-js-node-zk-config-provider": "4.0.2",
+    "@midnight-ntwrk/midnight-js-types": "4.0.2",
+    "@midnight-ntwrk/midnight-js-utils": "4.0.2",
+    "@midnight-ntwrk/wallet-sdk-dust-wallet": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-facade": "3.0.0",
+    "@midnight-ntwrk/wallet-sdk-shielded": "2.1.0",
+    "@midnight-ntwrk/wallet-sdk-unshielded-wallet": "2.1.0",
+    "hardhat": "3.8.0"
+  },
+  "trustedDependencies": [
+    "@reown/appkit",
+    "@scarf/scarf",
+    "@swc/core",
+    "bufferutil",
+    "classic-level",
+    "cpu-features",
+    "es5-ext",
+    "esbuild",
+    "fsevents",
+    "keccak",
+    "msgpackr-extract",
+    "protobufjs",
+    "puppeteer",
+    "secp256k1",
+    "ssh2",
+    "utf-8-validate"
+  ]
 }

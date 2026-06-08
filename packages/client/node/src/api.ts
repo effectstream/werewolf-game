@@ -1,6 +1,6 @@
 import { type Static, Type } from "@sinclair/typebox";
 import type { Pool } from "pg";
-import type { StartConfigApiRouter } from "@paimaexample/runtime";
+import type { StartConfigApiRouter } from "@effectstream/runtime";
 import type fastify from "fastify";
 import { setDbPool } from "./db-pool.ts";
 import { handleLobbyClosed, scheduleNextLobby } from "./lobby-closer.ts";
@@ -90,18 +90,22 @@ export const apiRouter: StartConfigApiRouter = async function (
     let message = "";
     try {
       isFaucetDustRunning = true;
-      const command = new Deno.Command(Deno.execPath(), {
-        env: {
-          MIDNIGHT_ADDRESS: address,
-        },
-        args: [
-          "task",
-          "-f",
+      const proc = Bun.spawn(
+        [
+          "bun",
+          "run",
+          "--filter",
           "@example-midnight/midnight-contracts",
           "midnight-faucet:start",
         ],
-      });
-      const { code, stdout, stderr } = await command.output();
+        {
+          env: {
+            ...process.env,
+            MIDNIGHT_ADDRESS: address,
+          },
+        },
+      );
+      await proc.exited;
       status = "done";
       message = "Faucet successfully completed";
     } catch (error: any) {
@@ -355,10 +359,10 @@ export const apiRouter: StartConfigApiRouter = async function (
   // correct indexer, proof server, and contract address.
   server.get("/api/midnight_config", async () => {
     const { readMidnightContract } = await import(
-      "@paimaexample/midnight-contracts/read-contract"
+      "@effectstream/midnight-contracts/read-contract"
     );
     const { midnightNetworkConfig } = await import(
-      "@paimaexample/midnight-contracts/midnight-env"
+      "@effectstream/midnight-contracts/midnight-env"
     );
     const { contractAddress } = readMidnightContract("contract-werewolf", {
       networkId: midnightNetworkConfig.id,

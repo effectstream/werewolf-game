@@ -1,4 +1,24 @@
 {
+  "name": "@werewolf-game/database",
+  "version": "0.3.22",
+  "type": "module",
+  "exports": {
+    ".": "./src/mod.ts"
+  },
+  "scripts": {
+    "_pgtyped:my-sql": "bun ./node_modules/@effectstream/db/scripts/wait-for-db.ts && bun ./node_modules/@effectstream/db/scripts/apply-migrations.ts && bun run sql-to-ts.ts && pgtyped -c ./pgtypedconfig.json",
+    "pgtyped:update": "concurrently --raw --kill-others \"bun ./node_modules/@effectstream/db/scripts/start-pglite.ts\" \"bun run _pgtyped:my-sql\""
+  },
+  "dependencies": {
+    "@werewolf-game/data-types": "workspace:*",
+    "@effectstream/config": "0.100.19",
+    "@effectstream/runtime": "0.100.19",
+    "@effectstream/sm": "0.100.19",
+    "@effectstream/db": "0.100.19",
+    "@pgtyped/runtime": "2.4.2",
+    "pg": "^8.14.0",
+    "effection": "3.5.0"
+  },
   "devDependencies": {
     "@paima/pgtyped-cli": "^2.4.5",
     "concurrently": "9.1.2"

@@ -2,9 +2,9 @@
   "name": "@example-midnight/batcher",
   "exports": "./main.ts",
   "imports": {
-    "@paimaexample/batcher": "jsr:@paimaexample/batcher@0.11.3",
-    "@paimaexample/midnight-contracts": "jsr:@paimaexample/midnight-contracts@0.11.3",
-    "@paimaexample/utils": "jsr:@paimaexample/utils@0.11.3",
+    "@effectstream/batcher-sdk": "npm:@effectstream/batcher-sdk@0.100.19",
+    "@effectstream/midnight-contracts": "npm:@effectstream/midnight-contracts@0.100.19",
+    "@effectstream/utils": "npm:@effectstream/utils@0.100.19",
     "effection": "npm:effection@^3.5.0",
     "viem": "npm:viem@^2.21.3",
     "@midnight-ntwrk/ledger-v7": "npm:@midnight-ntwrk/ledger-v7@7.0.3",

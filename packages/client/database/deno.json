@@ -4,16 +4,16 @@
     "license": "MIT",
     "exports": "./src/mod.ts",
     "imports": {
-        "@paimaexample/config": "jsr:@paimaexample/config@0.11.3",
-        "@paimaexample/runtime": "jsr:@paimaexample/runtime@0.11.3",
-        "@paimaexample/sm": "jsr:@paimaexample/sm@0.11.3",
+        "@effectstream/config": "npm:@effectstream/config@0.100.19",
+        "@effectstream/runtime": "npm:@effectstream/runtime@0.100.19",
+        "@effectstream/sm": "npm:@effectstream/sm@0.100.19",
         "@pgtyped/runtime": "npm:@pgtyped/runtime@2.4.2",
-        "@paimaexample/db": "jsr:@paimaexample/db@0.11.3",
+        "@effectstream/db": "npm:@effectstream/db@0.100.19",
         "pg": "npm:pg@^8.14.0",
         "effection": "npm:effection@3.5.0"
     },
     "tasks": {
-        "_pgtyped:my-sql": "deno run -A @paimaexample/db/db-wait && deno run -A @paimaexample/db/apply-migrations && deno run -A --unstable-raw-imports sql-to-ts.ts && pgtyped -c ./pgtypedconfig.json",
-        "pgtyped:update": "concurrently --raw --kill-others \"deno run -A @paimaexample/db/db-up\" \"deno task _pgtyped:my-sql\""
+        "_pgtyped:my-sql": "deno run -A @effectstream/db/db-wait && deno run -A @effectstream/db/apply-migrations && deno run -A --unstable-raw-imports sql-to-ts.ts && pgtyped -c ./pgtypedconfig.json",
+        "pgtyped:update": "concurrently --raw --kill-others \"deno run -A @effectstream/db/db-up\" \"deno task _pgtyped:my-sql\""
     }
 }

@@ -17,8 +17,10 @@
  *   deploy-ledger7.ts before proceeding with the deployment.
  */
 
-import { loadSync } from "@std/dotenv";
-import { dirname, fromFileUrl, join } from "@std/path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import net from "node:net";
+import dotenv from "dotenv";
 import {
   buildDeployWalletFacade,
   type DeployConfig,
@@ -49,18 +51,15 @@ import {
 import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import type { NetworkId } from "@midnight-ntwrk/wallet-sdk-abstractions";
 
-// Declare Deno global for type-checking when not executed under Deno tooling.
-declare const Deno: typeof globalThis.Deno;
-
 // ============================================================================
 // Load .env.preprod
 // ============================================================================
 
-const SCRIPT_DIR = dirname(fromFileUrl(import.meta.url));
+const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ENV_PATH = join(SCRIPT_DIR, "../../../../.env.preprod");
 
 // loadSync sets env vars in process before any async code runs
-const loadedEnv = loadSync({ envPath: ENV_PATH, export: true });
+const loadedEnv = dotenv.config({ path: ENV_PATH }).parsed ?? {};
 
 // ============================================================================
 // Preprod network config
@@ -71,19 +70,19 @@ const NETWORK_ID = "preprod" as NetworkId.NetworkId;
 // URLs: prefer explicit overrides from .env.preprod, then auto-derive from network ID
 const PREPROD_URLS: NetworkUrls = {
   id: NETWORK_ID,
-  indexer: Deno.env.get("MIDNIGHT_INDEXER_HTTP") ??
-    Deno.env.get("MIDNIGHT_INDEXER_URL") ??
+  indexer: process.env["MIDNIGHT_INDEXER_HTTP"] ??
+    process.env["MIDNIGHT_INDEXER_URL"] ??
     `https://indexer.${NETWORK_ID}.midnight.network/api/v3/graphql`,
-  indexerWS: Deno.env.get("MIDNIGHT_INDEXER_WS") ??
-    Deno.env.get("MIDNIGHT_INDEXER_WS_URL") ??
+  indexerWS: process.env["MIDNIGHT_INDEXER_WS"] ??
+    process.env["MIDNIGHT_INDEXER_WS_URL"] ??
     `wss://indexer.${NETWORK_ID}.midnight.network/api/v3/graphql/ws`,
-  node: Deno.env.get("MIDNIGHT_NODE_HTTP") ??
-    Deno.env.get("MIDNIGHT_NODE_URL") ??
+  node: process.env["MIDNIGHT_NODE_HTTP"] ??
+    process.env["MIDNIGHT_NODE_URL"] ??
     `https://rpc.${NETWORK_ID}.midnight.network`,
-  proofServer: Deno.env.get("MIDNIGHT_PROOF_SERVER_URL") ??
+  proofServer: process.env["MIDNIGHT_PROOF_SERVER_URL"] ??
     "http://127.0.0.1:6300",
   // Pass seed explicitly so deploy-ledger7 doesn't need it from midnightNetworkConfig
-  walletSeed: Deno.env.get("MIDNIGHT_WALLET_SEED") ??
+  walletSeed: process.env["MIDNIGHT_WALLET_SEED"] ??
     loadedEnv["MIDNIGHT_WALLET_SEED"],
 };
 
@@ -91,23 +90,17 @@ const PREPROD_URLS: NetworkUrls = {
 // Proof server
 // ============================================================================
 
-function startProofServer(): Deno.ChildProcess {
+function startProofServer(): Bun.Subprocess {
   console.log(
     "[proof-server] Starting Midnight proof server for preprod (TestNet ledger)...",
   );
 
-  const nodeWsUrl = Deno.env.get("SUBSTRATE_NODE_WS_URL") ??
+  const nodeWsUrl = process.env["SUBSTRATE_NODE_WS_URL"] ??
     "wss://rpc.preprod.midnight.network";
 
-  const command = new Deno.Command("deno", {
-    args: [
-      "run",
-      "-A",
-      "--unstable-detect-cjs",
-      "npm:@paimaexample/npm-midnight-proof-server",
-    ],
+  return Bun.spawn(["bunx", "@effectstream/npm-midnight-proof-server"], {
     env: {
-      ...Deno.env.toObject(),
+      ...process.env,
       LEDGER_NETWORK_ID: "TestNet",
       RUST_BACKTRACE: "full",
       SUBSTRATE_NODE_WS_URL: nodeWsUrl,
@@ -115,8 +108,6 @@ function startProofServer(): Deno.ChildProcess {
     stdout: "inherit",
     stderr: "inherit",
   });
-
-  return command.spawn();
 }
 
 async function waitForProofServer(timeoutMs = 180_000): Promise<void> {
@@ -124,8 +115,14 @@ async function waitForProofServer(timeoutMs = 180_000): Promise<void> {
   console.log("[proof-server] Waiting for proof server on :6300...");
   while (Date.now() < deadline) {
     try {
-      const conn = await Deno.connect({ hostname: "127.0.0.1", port: 6300 });
-      conn.close();
+      await new Promise<void>((resolve, reject) => {
+        const socket = net.connect({ host: "127.0.0.1", port: 6300 });
+        socket.once("connect", () => {
+          socket.end();
+          resolve();
+        });
+        socket.once("error", reject);
+      });
       console.log("[proof-server] Proof server is ready.");
       return;
     } catch {
@@ -255,7 +252,7 @@ async function printWalletAddresses(seed: string): Promise<void> {
 // ============================================================================
 
 const seed = PREPROD_URLS.walletSeed ??
-  Deno.env.get("MIDNIGHT_WALLET_SEED") ??
+  process.env["MIDNIGHT_WALLET_SEED"] ??
   loadedEnv["MIDNIGHT_WALLET_SEED"] ??
   "";
 
@@ -263,15 +260,15 @@ if (!seed) {
   console.error(
     "ERROR: MIDNIGHT_WALLET_SEED is not set. Add it to .env.preprod.",
   );
-  Deno.exit(1);
+  process.exit(1);
 }
 
-const args = Deno.args;
+const args = process.argv.slice(2);
 const showWallet = args.includes("--wallet");
 
 if (showWallet) {
   await printWalletAddresses(seed);
-  Deno.exit(0);
+  process.exit(0);
 }
 
 // ── Deploy ────────────────────────────────────────────────────────────────────
@@ -286,7 +283,7 @@ try {
 } catch (err) {
   console.error("[proof-server] Failed to start:", (err as Error).message);
   proofServerProcess.kill("SIGTERM");
-  Deno.exit(1);
+  process.exit(1);
 }
 
 const deployConfig: DeployConfig = {
@@ -311,9 +308,9 @@ try {
 } catch (err) {
   console.error("Deployment failed:", err);
   proofServerProcess.kill("SIGTERM");
-  Deno.exit(1);
+  process.exit(1);
 } finally {
   proofServerProcess.kill("SIGTERM");
 }
 
-Deno.exit(0);
+process.exit(0);

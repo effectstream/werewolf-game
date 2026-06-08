@@ -10,7 +10,7 @@ import type {
   BlockchainTransactionReceipt,
   ValidationResult,
 } from "./adapter.ts";
-import type { DefaultBatcherInput } from "@paimaexample/batcher";
+import type { DefaultBatcherInput } from "@effectstream/batcher-sdk";
 import {
   CostModel,
   type FinalizedTransaction,
@@ -38,7 +38,7 @@ import {
   syncAndWaitForFunds,
   waitForDustFunds,
   type WalletResult,
-} from "@paimaexample/midnight-contracts";
+} from "@effectstream/midnight-contracts";
 import { setNetworkId } from "@midnight-ntwrk/midnight-js-network-id";
 import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-public-data-provider";
 import type { NetworkId as WalletNetworkId } from "@midnight-ntwrk/wallet-sdk-abstractions";

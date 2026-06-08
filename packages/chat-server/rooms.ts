@@ -1,6 +1,8 @@
+import type { ServerWebSocket } from "bun";
+
 interface Room {
   allowedPlayers: Set<string>; // playerKey values
-  connections: Map<string, WebSocket>; // hash -> socket
+  connections: Map<string, ServerWebSocket<unknown>>; // hash -> socket
   nicknames: Map<string, string>; // hash -> nickname
 }
 
@@ -41,7 +43,7 @@ export function isAlreadyConnected(gameId: number, playerKey: string, channel = 
 export function addConnection(
   gameId: number,
   playerKey: string,
-  socket: WebSocket,
+  socket: ServerWebSocket<unknown>,
   channel = "general",
 ): void {
   ensureRoom(gameId, channel).connections.set(playerKey, socket);
@@ -56,7 +58,7 @@ export function broadcast(gameId: number, payload: string, excludeHash?: string,
   if (!room) return;
   for (const [hash, socket] of room.connections) {
     if (hash === excludeHash) continue;
-    if (socket.readyState === WebSocket.OPEN) {
+    if (socket.readyState === 1) {
       socket.send(payload);
     }
   }

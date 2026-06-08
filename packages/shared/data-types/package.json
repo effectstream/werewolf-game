@@ -1,0 +1,23 @@
+{
+  "name": "@werewolf-game/data-types",
+  "version": "0.3.22",
+  "type": "module",
+  "exports": {
+    "./config": "./src/config.ts",
+    "./config.testnet": "./src/config.testnet.ts",
+    "./config.mainnet": "./src/config.mainnet.ts",
+    "./grammar": "./src/grammar.ts"
+  },
+  "dependencies": {
+    "@werewolf-game/midnight-contract": "workspace:*",
+    "@werewolf-game/evm-contracts": "workspace:*",
+    "@effectstream/concise": "0.100.19",
+    "@effectstream/config": "0.100.19",
+    "@effectstream/utils": "0.100.19",
+    "@effectstream/db": "0.100.19",
+    "@effectstream/sm": "0.100.19",
+    "@midnight-ntwrk/compact-runtime": "0.15.0",
+    "viem": "2.37.3",
+    "@sinclair/typebox": "0.34.41"
+  }
+}

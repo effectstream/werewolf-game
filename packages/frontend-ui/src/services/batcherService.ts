@@ -22,7 +22,7 @@ export interface BatcherRequestBody {
 
 /**
  * Constructs the message that the wallet signs when submitting to the batcher.
- * Mirrors createMessageForBatcher from @paimaexample/concise (jsr-only package).
+ * Mirrors createMessageForBatcher from @effectstream/concise (jsr-only package).
  */
 function createMessageForBatcher(
   namespace: string | null,

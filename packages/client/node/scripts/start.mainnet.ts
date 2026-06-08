@@ -1,131 +1,109 @@
 /**
- * Mainnet network orchestrator.
+ * Mainnet network orchestrator config (for the bun `@effectstream/orchestrator` CLI).
+ *
+ * Run with:  bunx orchestrator start scripts/start.mainnet.ts   (wired via the `mainnet` script)
  *
  * Key differences from the local-dev start.ts:
  *   - No EVM (Hardhat) node — we connect to Arbitrum One directly.
  *   - No Midnight node / indexer — we connect to the mainnet external services.
  *   - No contract deployment — contract address is read from local JSON artifacts.
  *   - No debug explorer — not appropriate for public-facing deployments.
- *   - Logs to stdout by default (no TMUX / TUI) — suitable for server environments.
- *   - Local proof server can be optionally spawned (controlled by LAUNCH_PROOF_SERVER env var).
+ *   - Local proof server can be optionally spawned (LAUNCH_PROOF_SERVER env var).
  *     When enabled, it connects to the mainnet Midnight node over WS.
  *     Override the node WS URL via SUBSTRATE_NODE_WS_URL if needed.
+ *
+ * NOTE: For file-based logs, run the orchestrator with `--background --log-dir <dir>`.
+ * On the production host the node runs as a standalone systemd service
+ * (`node:start:mainnet`), not via this orchestrator.
  */
 
-import { OrchestratorConfig, start } from "@paimaexample/orchestrator";
-import { attachTransport, ComponentNames } from "@paimaexample/log";
-import { Value } from "@sinclair/typebox/value";
-import { createStream } from "rotating-file-stream";
-import type { ILogObj } from "tslog";
-import { lstatSync, mkdirSync } from "node:fs";
+import { resolve } from "node:path";
+import type { OrchestratorConfig, ProcessConfig } from "@effectstream/orchestrator/config";
+import { launchPglite } from "@effectstream/orchestrator/launch-pglite";
 
-// Read the LAUNCH_PROOF_SERVER environment variable (default: true)
-const launchProofServer = Deno.env.get("LAUNCH_PROOF_SERVER") !== "false";
-
-// Read the USE_EXTERNAL_PG environment variable (default: false - use embedded PGLite)
-// Set to "true" in .env.mainnet to use external PostgreSQL instead
-const useExternalPg = Deno.env.get("USE_EXTERNAL_PG") === "true";
+const launchProofServer = process.env["LAUNCH_PROOF_SERVER"] !== "false";
+const useExternalPg = process.env["USE_EXTERNAL_PG"] === "true";
 
 if (!useExternalPg) {
-  Deno.env.set("DB_USER", "postgres");
-  Deno.env.set("DB_PW", "postgres");
+  process.env["PGLITE"] = "true";
+  process.env["DB_HOST"] = "localhost";
+  process.env["DB_USER"] = "postgres";
+  process.env["DB_PW"] = "postgres";
+  if (process.env["DB_PORT"] === undefined) process.env["DB_PORT"] = "5432";
 }
 
-const customProcesses = [
-  ...(launchProofServer
-    ? [
-      {
-        // Local proof server — connects to the mainnet Midnight node over WS.
-        // Both the batcher and the node use this for circuit proving.
-        // Override SUBSTRATE_NODE_WS_URL in .env if your mainnet endpoint differs.
-        name: "midnight-proof-server",
-        args: [
-          "task",
-          "-f",
-          "@example-midnight/midnight-contracts",
-          "midnight-proof-server:start:mainnet",
-        ],
-        waitToExit: false,
-        type: "system-dependency",
-        link: "http://localhost:6300",
-        stopProcessAtPort: [6300],
-      },
-    ]
-    : []),
-  {
-    name: "batcher",
-    args: ["task", "-f", "@example-midnight/batcher", "start"],
-    waitToExit: false,
-    type: "system-dependency",
-    link: "http://localhost:3334",
-    stopProcessAtPort: [3334],
-    // Batcher proves circuits — wait for the proof server to be ready first.
-    ...(launchProofServer ? { dependsOn: ["midnight-proof-server"] } : {}),
-  },
-  {
-    name: "chat-server",
-    args: ["task", "-f", "@werewolf-game/chat-server", "start"],
-    waitToExit: false,
-    type: "system-dependency",
-    link: "http://localhost:3001/health",
-    stopProcessAtPort: [3001],
-    env: {
-      ENV: "production",
+const SCRIPT_DIR = import.meta.dirname;
+const NODE_DIR = resolve(SCRIPT_DIR, "..");
+const MIDNIGHT_DIR = resolve(SCRIPT_DIR, "../../../shared/contracts/midnight");
+const BATCHER_DIR = resolve(SCRIPT_DIR, "../../batcher");
+const CHAT_SERVER_DIR = resolve(SCRIPT_DIR, "../../../chat-server");
+const dbPort = Number(process.env["DB_PORT"] ?? "5432");
+
+const proofServer: ProcessConfig[] = launchProofServer
+  ? [
+    {
+      name: "midnight-proof-server",
+      description: "Local Midnight proof server (connects to mainnet node over WS)",
+      cwd: MIDNIGHT_DIR,
+      args: ["run", "midnight-proof-server:start:mainnet"],
+      waitToExit: false,
+      type: "system-dependency",
+      link: "http://localhost:6300",
+      stopProcessAtPort: [6300],
     },
-  },
-];
+  ]
+  : [];
 
-const config = Value.Parse(OrchestratorConfig, {
-  packageName: "jsr:@paimaexample",
-  processes: {
-    // No TMUX / TUI — run as a plain server process.
-    [ComponentNames.TMUX]: false,
-    [ComponentNames.TUI]: false,
-    // DB: Use embedded PGLite (default) or external PostgreSQL (if USE_EXTERNAL_PG=true)
-    // External PostgreSQL requires PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD env vars
-    [ComponentNames.EFFECTSTREAM_PGLITE]: !useExternalPg,
-    [ComponentNames.COLLECTOR]: true,
-  },
-
-  processesToLaunch: [
-    // NOTE: launchEvm() and launchMidnight() are intentionally omitted.
-    // We rely on external Arbitrum One RPC and Midnight mainnet services.
-    ...customProcesses,
-  ],
-
-  // Always log to stdout in mainnet.
-  logs: "stdout",
-});
-
-// ── File-based logging (mirrors the TUI logs-standalone pattern) ──
-const logDirectory = Deno.env.get("LOGS_PATH") ?? `${Deno.cwd()}/logs`;
-try {
-  lstatSync(logDirectory);
-} catch {
-  mkdirSync(logDirectory, { recursive: true });
+/**
+ * The orchestrator spawns every process with FORCE_COLOR=true hardcoded, which
+ * pollutes per-process log files (--log-dir) with ANSI escape codes. Wrap each
+ * process so its actual command runs with color disabled.
+ */
+function stripColor(p: ProcessConfig): ProcessConfig {
+  return {
+    ...p,
+    command: "sh",
+    args: ["-c", 'FORCE_COLOR=0 NO_COLOR=1 exec "$@"', "sh", p.command ?? "bun", ...p.args],
+  };
 }
 
-const streams: Record<string, ReturnType<typeof createStream>> = {};
-const getStream = (namespace: string) => {
-  if (!streams[namespace]) {
-    streams[namespace] = createStream(`${logDirectory}/${namespace}.log`, {
-      size: "10M",
-      interval: "1d",
-      compress: "gzip",
-    });
-  }
-  return streams[namespace];
+const config: OrchestratorConfig = {
+  processes: [
+    ...(useExternalPg ? [] : launchPglite({ port: dbPort })),
+    ...proofServer,
+    {
+      name: "batcher",
+      args: ["run", "start"],
+      cwd: BATCHER_DIR,
+      waitToExit: false,
+      type: "system-dependency",
+      link: "http://localhost:3334",
+      stopProcessAtPort: [3334],
+      ...(launchProofServer ? { dependsOn: ["midnight-proof-server"] } : {}),
+    },
+    {
+      name: "chat-server",
+      args: ["run", "start"],
+      cwd: CHAT_SERVER_DIR,
+      waitToExit: false,
+      type: "system-dependency",
+      link: "http://localhost:3001/health",
+      stopProcessAtPort: [3001],
+      env: { ENV: "production" },
+    },
+    {
+      name: "sync",
+      description: "Werewolf node sync engine (node:start:mainnet)",
+      args: ["run", "node:start:mainnet"],
+      cwd: NODE_DIR,
+      waitToExit: false,
+      critical: true,
+      dependsOn: [
+        ...(useExternalPg ? [] : ["pglite-wait"]),
+        ...(launchProofServer ? ["midnight-proof-server"] : []),
+      ],
+    },
+  ].map(stripColor),
 };
 
-const ansiRegex =
-  /[\u001B\u009B][[\]()#;?]*(?:(?:(?:;[-a-zA-Z\d/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d/#&.:=?%@~_]*)*)?(?:\u0007|\u001B\u005C|\u009C)|(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~])/g;
-
-attachTransport((logObj: ILogObj) => {
-  const message = logObj[0] as string;
-  const cleanMessage = message.replace(ansiRegex, "");
-  const date = (logObj._meta as { date: Date }).date;
-  const namespace = cleanMessage.match(/^([\w-]+):\s/)?.[1] ?? "no-namespace";
-  getStream(namespace).write(`${date.toISOString()} ${cleanMessage}\n`);
-});
-
-await start(config);
+export default config;

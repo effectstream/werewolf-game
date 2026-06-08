@@ -1,5 +1,5 @@
-import { createMessageForBatcher } from "@paimaexample/concise";
-import { AddressType } from "@paimaexample/utils";
+import { createMessageForBatcher } from "@effectstream/concise";
+import { AddressType } from "@effectstream/utils";
 
 const BATCHER_PORT = "3334";
 const BATCHER_URL = `http://localhost:${BATCHER_PORT}/send-input`;

@@ -9,11 +9,11 @@
     "./grammar": "./src/grammar.ts"
   },
   "imports": {
-    "@paimaexample/concise": "jsr:@paimaexample/concise@0.11.3",
-    "@paimaexample/config": "jsr:@paimaexample/config@0.11.3",
-    "@paimaexample/utils": "jsr:@paimaexample/utils@0.11.3",
-    "@paimaexample/db": "jsr:@paimaexample/db@0.11.3",
-    "@paimaexample/sm": "jsr:@paimaexample/sm@0.11.3",
+    "@effectstream/concise": "npm:@effectstream/concise@0.100.19",
+    "@effectstream/config": "npm:@effectstream/config@0.100.19",
+    "@effectstream/utils": "npm:@effectstream/utils@0.100.19",
+    "@effectstream/db": "npm:@effectstream/db@0.100.19",
+    "@effectstream/sm": "npm:@effectstream/sm@0.100.19",
     "@midnight-ntwrk/compact-runtime": "npm:@midnight-ntwrk/compact-runtime@0.15.0",
     "viem": "npm:viem@2.37.3",
     "@sinclair/typebox": "npm:@sinclair/typebox@0.34.41"

@@ -5,22 +5,22 @@ import {
   createHardhatConfig,
   createNodeTasks,
   initTelemetry,
-} from "@paimaexample/evm-hardhat/hardhat-config-builder";
+} from "@effectstream/evm-hardhat/hardhat-config-builder";
 import {
   JsonRpcServerImplementation,
-} from "@paimaexample/evm-hardhat/json-rpc-server";
+} from "@effectstream/evm-hardhat/json-rpc-server";
 import fs from "node:fs";
 import waitOn from "wait-on";
 import {
   ComponentNames,
   log,
   SeverityNumber,
-} from "@paimaexample/log";
+} from "@effectstream/log";
 
 const __dirname: any = import.meta.dirname;
 
 // Initialize telemetry
-initTelemetry("@paimaexample/log", "./deno.json");
+initTelemetry("@effectstream/log", "./deno.json");
 
 // Create node tasks
 const nodeTasks = createNodeTasks({
