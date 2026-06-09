@@ -4,11 +4,11 @@
     "license": "MIT",
     "exports": "./src/mod.ts",
     "imports": {
-        "@effectstream/config": "npm:@effectstream/config@0.100.19",
-        "@effectstream/runtime": "npm:@effectstream/runtime@0.100.19",
-        "@effectstream/sm": "npm:@effectstream/sm@0.100.19",
+        "@effectstream/config": "npm:@effectstream/config@0.100.20",
+        "@effectstream/runtime": "npm:@effectstream/runtime@0.100.20",
+        "@effectstream/sm": "npm:@effectstream/sm@0.100.20",
         "@pgtyped/runtime": "npm:@pgtyped/runtime@2.4.2",
-        "@effectstream/db": "npm:@effectstream/db@0.100.19",
+        "@effectstream/db": "npm:@effectstream/db@0.100.20",
         "pg": "npm:pg@^8.14.0",
         "effection": "npm:effection@3.5.0"
     },

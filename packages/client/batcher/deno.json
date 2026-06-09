@@ -2,9 +2,9 @@
   "name": "@example-midnight/batcher",
   "exports": "./main.ts",
   "imports": {
-    "@effectstream/batcher-sdk": "npm:@effectstream/batcher-sdk@0.100.19",
-    "@effectstream/midnight-contracts": "npm:@effectstream/midnight-contracts@0.100.19",
-    "@effectstream/utils": "npm:@effectstream/utils@0.100.19",
+    "@effectstream/batcher-sdk": "npm:@effectstream/batcher-sdk@0.100.20",
+    "@effectstream/midnight-contracts": "npm:@effectstream/midnight-contracts@0.100.20",
+    "@effectstream/utils": "npm:@effectstream/utils@0.100.20",
     "effection": "npm:effection@^3.5.0",
     "viem": "npm:viem@^2.21.3",
     "@midnight-ntwrk/ledger-v7": "npm:@midnight-ntwrk/ledger-v7@7.0.3",

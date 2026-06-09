@@ -16,9 +16,9 @@
     "serve:frontend:mainnet": "cd packages/frontend-ui && npm run serve:mainnet"
   },
   "imports": {
-    "@effectstream/node-sdk": "npm:@effectstream/node-sdk@0.100.19",
-    "@effectstream/midnight-contracts": "npm:@effectstream/midnight-contracts@0.100.19",
-    "@effectstream/evm-contracts": "npm:@effectstream/evm-contracts@0.100.19",
+    "@effectstream/node-sdk": "npm:@effectstream/node-sdk@0.100.20",
+    "@effectstream/midnight-contracts": "npm:@effectstream/midnight-contracts@0.100.20",
+    "@effectstream/evm-contracts": "npm:@effectstream/evm-contracts@0.100.20",
     // Workarounds for broken imports in JSR packages
     "npm:/@sinclair/typebox@0.34.41/value": "npm:@sinclair/typebox@0.34.41/value",
     "npm:@cardano-foundation/cardano-verify-datasignature@1.0.11": "npm:@cardano-foundation/cardano-verify-datasignature@^1.0.11",

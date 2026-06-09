@@ -10,9 +10,9 @@
   // TODO: how these actually will work will depend on the hardhat v3 viem plugin
   //       See https://github.com/NomicFoundation/hardhat/issues/5978
   "imports": {
-    "@effectstream/evm-hardhat": "npm:@effectstream/evm-hardhat@0.100.19",
-    "@effectstream/log": "npm:@effectstream/log@0.100.19",
-    "@effectstream/evm-contracts": "npm:@effectstream/evm-contracts@0.100.19",
+    "@effectstream/evm-hardhat": "npm:@effectstream/evm-hardhat@0.100.20",
+    "@effectstream/log": "npm:@effectstream/log@0.100.20",
+    "@effectstream/evm-contracts": "npm:@effectstream/evm-contracts@0.100.20",
     "@wagmi/cli": "npm:@wagmi/cli@2.3.1",
     "hardhat": "npm:hardhat@3.0.4",
     "@nomicfoundation/hardhat-ignition-viem": "npm:@nomicfoundation/hardhat-ignition-viem@3.0.2",

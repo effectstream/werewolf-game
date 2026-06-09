@@ -11,10 +11,10 @@
   },
   "dependencies": {
     "@werewolf-game/data-types": "workspace:*",
-    "@effectstream/config": "0.100.19",
-    "@effectstream/runtime": "0.100.19",
-    "@effectstream/sm": "0.100.19",
-    "@effectstream/db": "0.100.19",
+    "@effectstream/config": "0.100.20",
+    "@effectstream/runtime": "0.100.20",
+    "@effectstream/sm": "0.100.20",
+    "@effectstream/db": "0.100.20",
     "@pgtyped/runtime": "2.4.2",
     "pg": "^8.14.0",
     "effection": "3.5.0"

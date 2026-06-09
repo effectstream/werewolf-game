@@ -54,17 +54,6 @@ const dbPort = Number(process.env["DB_PORT"] ?? "15432");
 
 const customProcesses: ProcessConfig[] = [
   {
-    name: "explorer",
-    command: "bunx",
-    args: ["@effectstream/explorer"],
-    cwd: NODE_DIR,
-    waitToExit: false,
-    type: "secondary",
-    critical: false,
-    link: "http://localhost:10590",
-    stopProcessAtPort: [10590],
-  },
-  {
     name: "batcher",
     args: ["run", "start"],
     cwd: BATCHER_DIR,
