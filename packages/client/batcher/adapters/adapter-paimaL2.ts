@@ -21,6 +21,11 @@ const chainNameId: "chain31337" | "chain421614" | "chain42161" =
     | "chain42161";
 const paimaSyncProtocolName = "parallelEvmRPC_fast";
 
+// Security-namespace prefix the node's L2 primitive verifies batched signatures
+// against. MUST match setSecurityNamespace(...) in
+// packages/shared/data-types/src/config*.ts and the frontend's SECURITY_NAMESPACE.
+const SECURITY_NAMESPACE = "evm-midnight-node";
+
 const paimaL2Address = evm_enabled
   ? contractAddressesEvmMain()[chainNameId as "chain31337"][
     "PaimaL2ContractModule#MyPaimaL2Contract"
@@ -59,16 +64,18 @@ if (isMainnet) {
   chain = chains.hardhat;
 }
 
-// PaimaL2 EVM adapter with custom signature verification.
-// The default batcher verification includes `target` in the signed message, but
-// the L2 primitive re-verifies on-chain without `target` (it's not stored in the
-// batch). Both sides must agree, so we omit `target` from the message here too.
+// PaimaL2 EVM adapter with custom signature verification — must reproduce exactly
+// what the node's effectstream-l2 primitive verifies: namespace + target + ts +
+// addr + input. `target` is NOT serialized into the on-chain batch, so the node
+// re-verifies with target=undefined → omit it here. The namespace IS required and
+// must equal the node's setSecurityNamespace (SECURITY_NAMESPACE) — omitting it
+// (the old ""), made the node reject every input with "Invalid signature".
 class WerewolfPaimaL2Adapter extends EffectstreamL2DefaultAdapter {
   async verifySignature(input: DefaultBatcherInput): Promise<boolean> {
     if (!input.signature) return false;
     const address = input.address.toLowerCase() as `0x${string}`;
     const message = (
-      "" + // namespace (matches batcher config namespace: "")
+      SECURITY_NAMESPACE + // must match the node L2 primitive's verify namespace
       input.timestamp +
       address +
       input.input

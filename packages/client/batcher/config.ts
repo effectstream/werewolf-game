@@ -56,7 +56,7 @@ export const config: BatcherConfig = {
       }
       : {}),
   },
-  confirmationLevel: "wait-effectstream-processed", // Connector expectation
+  confirmationLevel: "wait-receipt", // default fallback; MQTT (wait-effectstream-processed) is unavailable while MQTT_BROKER=false
   enableHttpServer: true,
   enableEventSystem: true,
   port,
