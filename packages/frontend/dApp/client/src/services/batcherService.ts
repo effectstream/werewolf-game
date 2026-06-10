@@ -34,10 +34,12 @@ export class BatcherService {
     const timestamp = Date.now().toString();
     const inputString = JSON.stringify(inputArray);
 
-    // NOTE: target is not serialized into the on-chain batch by the batcher library,
-    // so the L2 primitive always re-verifies with target=undefined. Sign without it.
+    // The node's L2 primitive verifies (namespace + target + ts + addr + input).
+    // `target` is NOT serialized into the on-chain batch → re-verified as undefined,
+    // so omit it. The namespace IS required: must match setSecurityNamespace(...) in
+    // packages/shared/data-types/src/config*.ts ("evm-midnight-node").
     const message = createMessageForBatcher(
-      null, // namespace
+      "evm-midnight-node", // namespace
       timestamp,
       address,
       AddressType.EVM,
@@ -58,7 +60,8 @@ export class BatcherService {
 
     const requestBody: BatcherRequestBody = {
       data: batcherInput,
-      confirmationLevel: "wait-effectstream-processed",
+      // MQTT_BROKER=false → wait-effectstream-processed times out; use wait-receipt.
+      confirmationLevel: "wait-receipt",
     };
 
     console.log("Sending to batcher:", { url: BATCHER_URL, target, inputString });

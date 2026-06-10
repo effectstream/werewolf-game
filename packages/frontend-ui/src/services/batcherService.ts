@@ -6,6 +6,11 @@ const BATCHER_URL = `${BATCHER_BASE}/send-input`
 
 const EVM_ADDRESS_TYPE = 0 // AddressType.EVM
 
+// Security-namespace prefix the node's L2 primitive verifies batched signatures
+// against (getReadNamespaces). MUST match setSecurityNamespace(...) in
+// packages/shared/data-types/src/config*.ts — all envs use "evm-midnight-node".
+const SECURITY_NAMESPACE = 'evm-midnight-node'
+
 export interface BatcherInput {
   address: string
   addressType: number
@@ -52,9 +57,10 @@ export class BatcherService {
     const timestamp = Date.now().toString()
     const inputString = JSON.stringify(inputArray)
 
-    // NOTE: target is not serialized into the on-chain batch by the batcher library,
-    // so the L2 primitive always re-verifies with target=undefined. Sign without it.
-    const message = createMessageForBatcher(null, timestamp, address, inputString)
+    // The node's L2 primitive verifies (namespace + target + ts + addr + input).
+    // `target` is NOT serialized into the on-chain batch, so it re-verifies with
+    // target=undefined → omit it here. But the namespace IS required: sign with it.
+    const message = createMessageForBatcher(SECURITY_NAMESPACE, timestamp, address, inputString)
     console.log('[BatcherService] message to sign:', message)
 
     const signature = await signMessage({ message })
@@ -71,7 +77,10 @@ export class BatcherService {
 
     const requestBody: BatcherRequestBody = {
       data: batcherInput,
-      confirmationLevel: 'wait-effectstream-processed',
+      // werewolf runs MQTT_BROKER=false, so wait-effectstream-processed can never
+      // get its SyncChains notification (60s timeout). wait-receipt resolves on
+      // tx-mined; the frontend then polls node state (pollForBundles) for the result.
+      confirmationLevel: 'wait-receipt',
     }
 
     console.log('[BatcherService] sending to batcher:', { url: BATCHER_URL, target, inputString })
