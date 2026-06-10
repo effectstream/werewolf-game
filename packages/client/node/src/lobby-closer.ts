@@ -60,9 +60,17 @@ const _systemAccount = privateKeyToAccount(
     generatePrivateKey(),
 );
 
+// Security-namespace prefix the node's L2 primitive (and the batcher adapter)
+// verify batched signatures against. MUST match setSecurityNamespace(...) in
+// packages/shared/data-types/src/config*.ts and adapter-paimaL2.ts's
+// SECURITY_NAMESPACE. Omitting it (the old "") made autoCreateLobby posts fail
+// verification, breaking the lobby auto-create chain.
+const SECURITY_NAMESPACE = "evm-midnight-node";
+
 /**
- * Reconstruct the message the paimaL2 batcher adapter verifies.
- * Mirrors adapter-paimaL2.ts: "" + timestamp + address + input (no target, no namespace).
+ * Reconstruct the message the paimaL2 batcher adapter + node L2 primitive verify.
+ * Mirrors adapter-paimaL2.ts: namespace + timestamp + address + input (target is
+ * NOT serialized on-chain, so it is re-verified as undefined → omitted).
  * timestamp must be milliseconds as a string (Date.now().toString()).
  */
 function _batcherMessage(
@@ -70,7 +78,7 @@ function _batcherMessage(
   address: string,
   input: string,
 ): string {
-  return ("" + timestamp + address + input)
+  return (SECURITY_NAMESPACE + timestamp + address + input)
     .replace(/[^a-zA-Z0-9]/g, "-")
     .toLocaleLowerCase();
 }
