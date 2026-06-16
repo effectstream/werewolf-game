@@ -1,9 +1,9 @@
 # Build & Run
 
 ```sh
-deno install
+bun install
 ./patch
-deno task -f @werewolf-game/evm-contracts build:mod
-deno task -f "@example-midnight/my-midnight-contract" compact
-deno task dev
+bun run build:evm
+bun run build:midnight
+bun run dev
 ```
