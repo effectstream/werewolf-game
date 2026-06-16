@@ -16,9 +16,9 @@
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",
-    "@effectstream/node-sdk": "0.100.20",
-    "@effectstream/midnight-contracts": "0.100.20",
-    "@effectstream/evm-contracts": "0.100.20",
+    "@effectstream/node-sdk": "0.100.23",
+    "@effectstream/midnight-contracts": "0.100.23",
+    "@effectstream/evm-contracts": "0.100.23",
     "@openzeppelin/contracts": "5.1.0",
     "@openzeppelin/contracts-upgradeable": "^5.1.0",
     "tweetnacl": "1.0.3",

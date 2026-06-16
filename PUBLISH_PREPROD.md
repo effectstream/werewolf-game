@@ -9,8 +9,7 @@
 
 | Tool | Purpose |
 |------|---------|
-| Deno ≥ 1.40 | Runtime for all backend services |
-| Node.js / npm | Frontend build (Vite) |
+| Bun ≥ 1.0 | Runtime for all backend services |
 | `openssl` | Generating secrets |
 | Funded Midnight wallet | Paying for on-chain transactions |
 | Arbitrum Sepolia RPC | EVM parallel sync |
@@ -62,7 +61,7 @@ The wallet derived from `MIDNIGHT_WALLET_SEED` needs tDUST and tNIGHT tokens.
 1. Derive your wallet address by running the faucet script without a target address — it prints the address on startup:
    ```bash
    cd packages/shared/contracts/midnight
-   MIDNIGHT_NETWORK_ID=preprod MIDNIGHT_WALLET_SEED=<seed> deno run -A faucet.ts
+   MIDNIGHT_NETWORK_ID=preprod MIDNIGHT_WALLET_SEED=<seed> bun run midnight-faucet:start
    ```
    Copy the `Unshielded address: mn_addr_preprod1...` from the output.
 
@@ -84,7 +83,7 @@ cd packages/shared/contracts/midnight
 export $(grep -v '^#' ../../../../.env | xargs)
 
 # Deploy (cleans previous state, then incrementally uploads all 14 VKs)
-deno task midnight-contract:deploy
+bun run midnight-contract:deploy:preprod
 ```
 
 This will:
@@ -93,13 +92,13 @@ This will:
 3. Save progress to `deployment-state.json` (safe to resume if interrupted)
 4. Write the contract address to `contract-werewolf.preprod.json`
 
-**Resume after failure:** just re-run `deno task midnight-contract:deploy` — it
+**Resume after failure:** just re-run `bun run midnight-contract:deploy:preprod` — it
 reads `deployment-state.json` and continues from where it stopped.
 
 ### Verify the deployment
 
 ```bash
-deno task midnight-contract:verify
+bun run midnight-contract:verify
 ```
 
 All 14 circuits must show as ✅. The output lists any missing circuits.
@@ -120,7 +119,7 @@ All 14 circuits must show as ✅. The output lists any missing circuits.
 The proof server runs **locally** on port 6300 and is CPU-intensive. It is used
 by both the batcher and the game node for circuit proving.
 
-**When using `deno task preprod` (Step 5), the orchestrator starts the proof
+**When using `bun run preprod` (Step 5), the orchestrator starts the proof
 server automatically** — you do not need to run this step manually.
 
 If you need to run it standalone (e.g. in Docker or systemd), use:
@@ -128,7 +127,7 @@ If you need to run it standalone (e.g. in Docker or systemd), use:
 ```bash
 cd packages/shared/contracts/midnight
 export $(grep -v '^#' ../../../../.env | xargs)
-deno task midnight-proof-server:start:preprod
+bun run midnight-proof-server:start:preprod
 ```
 
 This uses `LEDGER_NETWORK_ID=TestNet` and connects to the preprod Midnight node
@@ -137,7 +136,7 @@ via WebSocket (`SUBSTRATE_NODE_WS_URL`, defaulting to
 
 Wait for it to be ready:
 ```bash
-deno task midnight-proof-server:wait
+bun run midnight-proof-server:wait
 ```
 
 ---
@@ -145,15 +144,15 @@ deno task midnight-proof-server:wait
 ## Step 5 — Start Backend Services
 
 Run the preprod orchestrator. Both tasks automatically load `.env.preprod` via
-Deno's `--env-file` flag before any module code executes — no manual `export`
+Bun's `--env-file` flag before any module code executes — no manual `export`
 needed:
 
 ```bash
 cd packages/client/node
-deno task preprod
+bun run preprod
 ```
 
-Deno resolves the `--env-file=../../../.env.preprod` path relative to this
+Bun resolves the `--env-file=../../../.env.preprod` path relative to this
 package's directory (`packages/client/node/`), so `.env.preprod` is always
 read from the repo root regardless of where you invoke the task from.
 
@@ -179,11 +178,11 @@ game node process:
 
 ```bash
 cd packages/client/node
-deno task node:start:preprod
+bun run node:start:preprod
 ```
 
 This runs `src/main.preprod.ts` directly with `--env-file=../../../.env.preprod`
-already baked into the task — no manual export needed. No batcher or
+already baked into the script — no manual export needed. No batcher or
 chat-server are spawned, so you must start them separately.
 
 ### What the preprod node exposes
@@ -233,7 +232,7 @@ If players need tNIGHT tokens for gas, use the built-in faucet script:
 cd packages/shared/contracts/midnight
 export $(grep -v '^#' ../../../../.env | xargs)
 
-MIDNIGHT_ADDRESS=mn_addr_preprod1<player_address> deno run -A faucet.ts
+MIDNIGHT_ADDRESS=mn_addr_preprod1<player_address> bun run midnight-faucet:start
 ```
 
 The faucet transfers 1,000,000,000 tNIGHT (1 NIGHT) per call from the server
@@ -304,7 +303,7 @@ Increase `MIDNIGHT_WALLET_SYNC_TIMEOUT_MS` (e.g. `600000` for 10 min). The
 preprod indexer may be slow on first sync.
 
 **"Could not load verifier key" during deployment**
-Run `deno task contract:compile` first, then re-deploy.
+Run `bun run contract:compile` first, then re-deploy.
 
 **Contract deploy stuck at circuit N/14**
 Press Ctrl+C and re-run — it resumes automatically from the last checkpoint.
