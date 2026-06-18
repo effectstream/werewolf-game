@@ -160,6 +160,35 @@ const resolveRoundIR: any = {"usedParamSet":{"game_id":true,"round":true,"phase"
 export const resolveRound = new PreparedQuery<IResolveRoundParams,IResolveRoundResult>(resolveRoundIR);
 
 
+/** 'MarkRoundTimedOut' parameters type */
+export interface IMarkRoundTimedOutParams {
+  game_id: NumberOrString;
+  phase: string;
+  round: number;
+}
+
+/** 'MarkRoundTimedOut' return type */
+export type IMarkRoundTimedOutResult = void;
+
+/** 'MarkRoundTimedOut' query type */
+export interface IMarkRoundTimedOutQuery {
+  params: IMarkRoundTimedOutParams;
+  result: IMarkRoundTimedOutResult;
+}
+
+const markRoundTimedOutIR: any = {"usedParamSet":{"game_id":true,"round":true,"phase":true},"params":[{"name":"game_id","required":true,"transform":{"type":"scalar"},"locs":[{"a":65,"b":73}]},{"name":"round","required":true,"transform":{"type":"scalar"},"locs":[{"a":87,"b":93}]},{"name":"phase","required":true,"transform":{"type":"scalar"},"locs":[{"a":107,"b":113}]}],"statement":"UPDATE werewolf_round_state\nSET timed_out = TRUE\nWHERE game_id = :game_id! AND round = :round! AND phase = :phase!"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * UPDATE werewolf_round_state
+ * SET timed_out = TRUE
+ * WHERE game_id = :game_id! AND round = :round! AND phase = :phase!
+ * ```
+ */
+export const markRoundTimedOut = new PreparedQuery<IMarkRoundTimedOutParams,IMarkRoundTimedOutResult>(markRoundTimedOutIR);
+
+
 /** 'GetStuckRounds' parameters type */
 export type IGetStuckRoundsParams = void;
 
@@ -168,6 +197,8 @@ export interface IGetStuckRoundsResult {
   game_id: string;
   round: number;
   phase: string;
+  timed_out: boolean;
+  round_started_block: string;
 }
 
 /** 'GetStuckRounds' query type */
@@ -176,18 +207,18 @@ export interface IGetStuckRoundsQuery {
   result: IGetStuckRoundsResult;
 }
 
-const getStuckRoundsIR: any = {"usedParamSet":{},"params":[],"statement":"SELECT rs.game_id, rs.round, rs.phase\nFROM werewolf_round_state rs\nINNER JOIN werewolf_game_view gv ON rs.game_id = gv.game_id\nWHERE rs.resolved = FALSE\n  AND rs.votes_submitted >= rs.alive_count\n  AND rs.alive_count > 0\n  AND gv.finished = FALSE"};
+const getStuckRoundsIR: any = {"usedParamSet":{},"params":[],"statement":"SELECT rs.game_id, rs.round, rs.phase, rs.timed_out, rs.round_started_block\nFROM werewolf_round_state rs\nINNER JOIN werewolf_game_view gv ON rs.game_id = gv.game_id\nWHERE rs.resolved = FALSE\n  AND rs.alive_count > 0\n  AND gv.finished = FALSE\n  AND (rs.votes_submitted >= rs.alive_count OR rs.timed_out = TRUE)"};
 
 /**
  * Query generated from SQL:
  * ```
- * SELECT rs.game_id, rs.round, rs.phase
+ * SELECT rs.game_id, rs.round, rs.phase, rs.timed_out, rs.round_started_block
  * FROM werewolf_round_state rs
  * INNER JOIN werewolf_game_view gv ON rs.game_id = gv.game_id
  * WHERE rs.resolved = FALSE
- *   AND rs.votes_submitted >= rs.alive_count
  *   AND rs.alive_count > 0
  *   AND gv.finished = FALSE
+ *   AND (rs.votes_submitted >= rs.alive_count OR rs.timed_out = TRUE)
  * ```
  */
 export const getStuckRounds = new PreparedQuery<IGetStuckRoundsParams,IGetStuckRoundsResult>(getStuckRoundsIR);

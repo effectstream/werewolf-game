@@ -67,6 +67,22 @@ const FIND_CONTRACT_TIMEOUT_MS = 15_000;
 const BATCHER_POST_TIMEOUT_MS = 60_000;
 const GET_STATES_TIMEOUT_MS = 15_000;
 
+/**
+ * Reject if `promise` doesn't settle within `ms`. Always clears the timer in a
+ * `finally`, so when the real promise wins we don't leave a dangling timer that
+ * keeps the event loop alive and rejects an already-settled promise.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -274,24 +290,15 @@ export async function callMidnightCircuit(
     proofServer: midnightNetworkConfig.proofServer,
   };
 
-  const walletResult = await Promise.race([
+  const walletResult = await withTimeout(
     buildWalletFacade(
       networkUrls as Required<NetworkUrls>,
       seed,
       midnightNetworkConfig.id,
     ),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            new Error(
-              `[midnight-circuit] buildWalletFacade timed out after ${WALLET_FACADE_TIMEOUT_MS}ms`,
-            ),
-          ),
-        WALLET_FACADE_TIMEOUT_MS,
-      )
-    ),
-  ]);
+    WALLET_FACADE_TIMEOUT_MS,
+    "[midnight-circuit] buildWalletFacade",
+  );
 
   // 4. Resolve private state — if a factory was provided, call it with the coin public key
   // so the factory can embed the coin key (e.g. for encryption setup in createGame).
@@ -331,25 +338,16 @@ export async function callMidnightCircuit(
 
   // 7. Connect to deployed contract with resolved private state
   assertIsContractAddress(contractAddress as ContractAddress);
-  const werewolfContract = await Promise.race([
+  const werewolfContract = await withTimeout(
     findDeployedContract(providers, {
       contractAddress,
       compiledContract: compiledContract as any,
       privateStateId: PRIVATE_STATE_ID,
       initialPrivateState: resolvedPrivateState,
     }),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            new Error(
-              `[midnight-circuit] findDeployedContract timed out after ${FIND_CONTRACT_TIMEOUT_MS}ms`,
-            ),
-          ),
-        FIND_CONTRACT_TIMEOUT_MS,
-      )
-    ),
-  ]);
+    FIND_CONTRACT_TIMEOUT_MS,
+    "[midnight-circuit] findDeployedContract",
+  );
 
   // 8. Call the circuit — interceptor captures the tx
   try {
@@ -463,23 +461,14 @@ export async function fetchCurrentLedgerVotes(
     midnightNetworkConfig.indexerWS!,
   );
   assertIsContractAddress(contractAddress as ContractAddress);
-  const { contractState } = await Promise.race([
+  const { contractState } = await withTimeout(
     getPublicStates(
       dataProvider,
       contractAddress as ContractAddress,
     ),
-    new Promise<never>((_, reject) =>
-      setTimeout(
-        () =>
-          reject(
-            new Error(
-              `[fetchCurrentLedgerVotes] getPublicStates timed out after ${GET_STATES_TIMEOUT_MS}ms`,
-            ),
-          ),
-        GET_STATES_TIMEOUT_MS,
-      )
-    ),
-  ]);
+    GET_STATES_TIMEOUT_MS,
+    "[fetchCurrentLedgerVotes] getPublicStates",
+  );
   // Apply the same ledger() + convertMidnightLedger() pipeline used in config.ts
   // so that Midnight Map-like objects are converted to plain objects that
   // WerewolfLedger.parseMap() can iterate correctly.

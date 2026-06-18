@@ -22,14 +22,19 @@ UPDATE werewolf_round_state
 SET resolved = TRUE
 WHERE game_id = :game_id! AND round = :round! AND phase = :phase!;
 
+/* @name markRoundTimedOut */
+UPDATE werewolf_round_state
+SET timed_out = TRUE
+WHERE game_id = :game_id! AND round = :round! AND phase = :phase!;
+
 /* @name getStuckRounds */
-SELECT rs.game_id, rs.round, rs.phase
+SELECT rs.game_id, rs.round, rs.phase, rs.timed_out, rs.round_started_block
 FROM werewolf_round_state rs
 INNER JOIN werewolf_game_view gv ON rs.game_id = gv.game_id
 WHERE rs.resolved = FALSE
-  AND rs.votes_submitted >= rs.alive_count
   AND rs.alive_count > 0
-  AND gv.finished = FALSE;
+  AND gv.finished = FALSE
+  AND (rs.votes_submitted >= rs.alive_count OR rs.timed_out = TRUE);
 
 /* @name snapshotAlivePlayer */
 INSERT INTO werewolf_alive_snapshot (game_id, round, phase, player_idx)
