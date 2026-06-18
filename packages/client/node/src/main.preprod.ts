@@ -23,10 +23,13 @@ import { migrationTable } from "@werewolf-game/database";
 import { grammar } from "@werewolf-game/data-types/grammar";
 import { gameStateTransitions } from "./state-machine.ts";
 import { apiRouter } from "./api.preprod.ts";
+import { startResolutionRetryLoop } from "./resolution-retry.ts";
 
 main(function* () {
   yield* init();
   console.log("\n🚀 Starting EffectStream Node (Preprod / Preview)\n");
+
+  startResolutionRetryLoop();
 
   yield* withEffectstreamStaticConfig(nodeConfig, function* () {
     yield* start({

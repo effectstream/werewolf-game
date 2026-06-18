@@ -20,7 +20,6 @@ import {
   incrementLobbyPlayerCount,
   insertLobbyPlayer,
   insertPendingPunishment,
-  resolveRound,
   setLobbyTimeout,
   setRoundTimeout,
   snapshotAlivePlayer,
@@ -38,6 +37,7 @@ import { type SyncStateUpdateStream, World } from "@effectstream/coroutine";
 import { WerewolfLedger } from "../../../shared/utils/werewolf-ledger.ts";
 import {
   clearGameMemory,
+  clearResolutionTriggered,
   getAllBundlesForGame,
   getGameSecrets,
   isResolutionTriggered,
@@ -279,44 +279,66 @@ stm.addStateTransition(
             `[midnight] game=${gameId} round=${gameView.round}` +
               ` phase=${gameView.phase} votes=${currentVotes}/${gameView.aliveCount}`,
           );
+        }
 
-          // Trigger phase resolution when vote count first reaches the threshold.
-          // Uses the on-chain encrypted votes from the ledger so no backend API
-          // submission is needed — players submit directly via Lace wallet.
-          const roundAliveCount = Number(existingRows[0].alive_count);
-          const wasAlreadyComplete = dbVotes >= roundAliveCount;
-          if (
-            !wasAlreadyComplete && currentVotes >= roundAliveCount &&
-            !isResolutionTriggered(gameId, gameView.round, gameView.phase)
-          ) {
-            setResolutionTriggered(gameId, gameView.round, gameView.phase);
-            chatPost("/broadcast", {
-              gameId,
-              text: gameView.phase === "NIGHT"
-                ? "All werewolves have voted. Calculating result..."
-                : "All players have voted. Calculating result...",
-            });
-            const voteEntries = ledger.getVoteEntriesForRoundAndPhase(
-              gameId,
-              gameView.round,
-              gameView.phase,
-            );
-            console.log(
-              `[midnight] All votes in game=${gameId} round=${gameView.round}` +
-                ` phase=${gameView.phase} — triggering ledger resolution with ${voteEntries.length} votes`,
-            );
-            void resolvePhaseFromLedger(
-              gameId,
-              gameView.round,
-              gameView.phase,
-              voteEntries,
-            ).catch((err) =>
+        // Resolution check — runs on EVERY block for this round/phase.
+        // Triggers either when threshold is freshly crossed OR when a previous
+        // attempt failed (guard was cleared) and the round is still unresolved.
+        // Uses the DB `resolved` flag (durable, survives restarts) instead of
+        // the old `wasAlreadyComplete` heuristic which prevented retry.
+        const roundAliveCount = Number(existingRows[0].alive_count);
+        const thresholdMet = currentVotes >= roundAliveCount;
+        const alreadyResolved = Boolean(existingRows[0].resolved);
+        const inProgress = isResolutionTriggered(
+          gameId,
+          gameView.round,
+          gameView.phase,
+        );
+
+        if (thresholdMet && !alreadyResolved && !inProgress) {
+          setResolutionTriggered(gameId, gameView.round, gameView.phase);
+          chatPost("/broadcast", {
+            gameId,
+            text: gameView.phase === "NIGHT"
+              ? "All werewolves have voted. Calculating result..."
+              : "All players have voted. Calculating result...",
+          });
+          const voteEntries = ledger.getVoteEntriesForRoundAndPhase(
+            gameId,
+            gameView.round,
+            gameView.phase,
+          );
+          console.log(
+            `[midnight] Triggering resolution game=${gameId} round=${gameView.round}` +
+              ` phase=${gameView.phase} votes=${voteEntries.length}`,
+          );
+          void resolvePhaseFromLedger(
+            gameId,
+            gameView.round,
+            gameView.phase,
+            voteEntries,
+          )
+            .then(() => {
+              console.log(
+                `[midnight] Resolution SUCCEEDED game=${gameId} round=${gameView.round}` +
+                  ` phase=${gameView.phase}`,
+              );
+            })
+            .catch((err) => {
+              // RELEASE the guard so the next block (or the background retry
+              // timer) can re-attempt resolution. Without this, a single
+              // failure permanently wedges the round until process restart.
+              clearResolutionTriggered(
+                gameId,
+                gameView.round,
+                gameView.phase,
+              );
               console.error(
-                `[midnight] Ledger phase resolution failed game=${gameId}:`,
+                `[midnight] Resolution FAILED game=${gameId} round=${gameView.round}` +
+                  ` phase=${gameView.phase} — guard released, will retry:`,
                 err,
-              )
-            );
-          }
+              );
+            });
         }
         continue;
       }
@@ -507,8 +529,11 @@ stm.addStateTransition(
     const missing = aliveCount - votesSubmitted;
 
     if (missing <= 0) {
+      // All players voted — resolution was already dispatched by the
+      // midnightContractState threshold path. Don't mark resolved here;
+      // resolvePhaseFromLedger sets resolved=TRUE on success. If that async
+      // failed, the background retry timer will pick it up.
       console.log("[timeout] All players voted — no punishments needed");
-      yield* World.resolve(resolveRound, { game_id: gameId, round, phase });
       chatPost("/broadcast", {
         gameId,
         text: `Round ${round} (${phase}) ended. All players voted.`,
@@ -516,117 +541,128 @@ stm.addStateTransition(
       return;
     }
 
+    // If the threshold path already dispatched resolution (all votes in before
+    // timeout), don't interfere — let that async complete. Marking resolved
+    // here would prevent retry if the threshold-path async failed.
+    if (isResolutionTriggered(gameId, round, phase)) {
+      console.log(
+        `[timeout] game=${gameId} round=${round} phase=${phase}: resolution already in-progress — skipping`,
+      );
+      return;
+    }
+
     console.log(
       `[timeout] ${missing} player(s) missed vote — identifying non-voters via ledger decryption`,
     );
 
-    // Identify non-voters and execute punishments asynchronously so the STF
-    // can finish without blocking. Punishments must complete before phase
-    // resolution so the on-chain aliveCount reflects ejected players.
-    if (!isResolutionTriggered(gameId, round, phase)) {
-      setResolutionTriggered(gameId, round, phase);
-      void (async () => {
-        try {
-          // 1. Fetch ledger votes to determine exactly who voted.
-          const voteEntries = await fetchCurrentLedgerVotes(
-            gameId,
-            round,
-            phase,
-          );
+    // This timeout IS the resolution trigger (threshold path never fired).
+    // Punishments must complete before phase resolution so the on-chain
+    // aliveCount reflects ejected players.
+    setResolutionTriggered(gameId, round, phase);
+    void (async () => {
+      try {
+        // 1. Fetch ledger votes to determine exactly who voted.
+        const voteEntries = await fetchCurrentLedgerVotes(
+          gameId,
+          round,
+          phase,
+        );
 
-          // 2. Decrypt ciphertexts to recover the voter index of each vote.
-          //    Restore secrets/bundles on demand if the node recently restarted.
-          let secrets = getGameSecrets(gameId);
-          let bundles = getAllBundlesForGame(gameId);
-          if (!secrets || bundles.length === 0) {
-            const restored = await restoreGameSecrets(gameId);
-            if (restored) {
-              secrets = getGameSecrets(gameId);
-              bundles = getAllBundlesForGame(gameId);
-            }
+        // 2. Decrypt ciphertexts to recover the voter index of each vote.
+        //    Restore secrets/bundles on demand if the node recently restarted.
+        let secrets = getGameSecrets(gameId);
+        let bundles = getAllBundlesForGame(gameId);
+        if (!secrets || bundles.length === 0) {
+          const restored = await restoreGameSecrets(gameId);
+          if (restored) {
+            secrets = getGameSecrets(gameId);
+            bundles = getAllBundlesForGame(gameId);
           }
-          const voterIndices = (secrets && bundles.length > 0)
-            ? identifyVoters(round, voteEntries, secrets, bundles)
-            : new Set<number>();
+        }
+        const voterIndices = (secrets && bundles.length > 0)
+          ? identifyVoters(round, voteEntries, secrets, bundles)
+          : new Set<number>();
+        console.log(
+          `[timeout] Identified ${voterIndices.size} voter(s) from ledger game=${gameId}`,
+        );
+
+        // 3. Query the alive snapshot and filter to eligible non-voters.
+        //    Night phase: only alive werewolves must vote.
+        //    Day phase: all alive players must vote.
+        const dbConn = getDbPool();
+        const aliveRows = await runPreparedQuery(
+          getAliveSnapshots.run({ game_id: gameId, round, phase }, dbConn),
+          "getAliveSnapshots",
+        );
+        const werewolfSet =
+          (phase.toUpperCase() === "NIGHT" && bundles.length > 0)
+            ? new Set(
+              bundles.filter((b) => b.role === 1).map((b) => b.playerId),
+            )
+            : null;
+
+        const toPublish = aliveRows.filter((r) => {
+          const idx = Number(r.player_idx);
+          if (werewolfSet !== null && !werewolfSet.has(idx)) return false;
+          return !voterIndices.has(idx);
+        });
+
+        // 4. Queue pending punishments for each confirmed non-voter.
+        for (const row of toPublish) {
+          await runPreparedQuery(
+            insertPendingPunishment.run({
+              game_id: gameId,
+              player_idx: row.player_idx,
+              reason: `vote_timeout_${phase}_r${round}`,
+              created_at_block: blockHeight,
+            }, dbConn),
+            "insertPendingPunishment",
+          );
           console.log(
-            `[timeout] Identified ${voterIndices.size} voter(s) from ledger game=${gameId}`,
-          );
-
-          // 3. Query the alive snapshot and filter to eligible non-voters.
-          //    Night phase: only alive werewolves must vote.
-          //    Day phase: all alive players must vote.
-          const dbConn = getDbPool();
-          const aliveRows = await runPreparedQuery(
-            getAliveSnapshots.run({ game_id: gameId, round, phase }, dbConn),
-            "getAliveSnapshots",
-          );
-          const werewolfSet =
-            (phase.toUpperCase() === "NIGHT" && bundles.length > 0)
-              ? new Set(
-                bundles.filter((b) => b.role === 1).map((b) => b.playerId),
-              )
-              : null;
-
-          const toPublish = aliveRows.filter((r) => {
-            const idx = Number(r.player_idx);
-            if (werewolfSet !== null && !werewolfSet.has(idx)) return false;
-            return !voterIndices.has(idx);
-          });
-
-          // 4. Queue pending punishments for each confirmed non-voter.
-          for (const row of toPublish) {
-            await runPreparedQuery(
-              insertPendingPunishment.run({
-                game_id: gameId,
-                player_idx: row.player_idx,
-                reason: `vote_timeout_${phase}_r${round}`,
-                created_at_block: blockHeight,
-              }, dbConn),
-              "insertPendingPunishment",
-            );
-            console.log(
-              `[timeout] Queued punishment game=${gameId} player=${row.player_idx}`,
-            );
-          }
-
-          // 5. Execute adminPunishPlayer on-chain for each queued punishment.
-          const punishResult = await executePendingPunishments(gameId);
-          console.log(
-            `[timeout] Executed ${punishResult.count} punishment(s) for game=${gameId}`,
-          );
-
-          // 6. Check if punishments alone ended the game (e.g., all werewolves timed out).
-          if (punishResult.count > 0) {
-            const gameEnded = await checkGameOverAfterPunishment(
-              gameId,
-              punishResult.punishedIndices,
-            );
-            if (gameEnded) {
-              console.log(
-                `[timeout] Game=${gameId} ended after punishments — skipping phase resolution`,
-              );
-              return;
-            }
-          }
-
-          // 7. Resolve the phase using the already-fetched ledger votes.
-          await resolvePhaseFromLedger(
-            gameId,
-            round,
-            phase,
-            voteEntries,
-            punishResult.punishedIndices,
-          );
-        } catch (err) {
-          console.error(
-            `[timeout] Punishment+resolution failed game=${gameId} round=${round} phase=${phase}:`,
-            err,
+            `[timeout] Queued punishment game=${gameId} player=${row.player_idx}`,
           );
         }
-      })();
-    }
 
-    yield* World.resolve(resolveRound, { game_id: gameId, round, phase });
+        // 5. Execute adminPunishPlayer on-chain for each queued punishment.
+        const punishResult = await executePendingPunishments(gameId);
+        console.log(
+          `[timeout] Executed ${punishResult.count} punishment(s) for game=${gameId}`,
+        );
+
+        // 6. Check if punishments alone ended the game (e.g., all werewolves timed out).
+        if (punishResult.count > 0) {
+          const gameEnded = await checkGameOverAfterPunishment(
+            gameId,
+            punishResult.punishedIndices,
+          );
+          if (gameEnded) {
+            console.log(
+              `[timeout] Game=${gameId} ended after punishments — skipping phase resolution`,
+            );
+            return;
+          }
+        }
+
+        // 7. Resolve the phase using the already-fetched ledger votes.
+        //    resolvePhaseFromLedger sets resolved=TRUE in the DB on success.
+        await resolvePhaseFromLedger(
+          gameId,
+          round,
+          phase,
+          voteEntries,
+          punishResult.punishedIndices,
+        );
+      } catch (err) {
+        // RELEASE the guard so the retry mechanisms can re-attempt.
+        clearResolutionTriggered(gameId, round, phase);
+        console.error(
+          `[timeout] Punishment+resolution FAILED game=${gameId} round=${round}` +
+            ` phase=${phase} — guard released, will retry:`,
+          err,
+        );
+      }
+    })();
+
     chatPost("/broadcast", {
       gameId,
       text:

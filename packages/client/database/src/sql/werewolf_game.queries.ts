@@ -160,6 +160,39 @@ const resolveRoundIR: any = {"usedParamSet":{"game_id":true,"round":true,"phase"
 export const resolveRound = new PreparedQuery<IResolveRoundParams,IResolveRoundResult>(resolveRoundIR);
 
 
+/** 'GetStuckRounds' parameters type */
+export type IGetStuckRoundsParams = void;
+
+/** 'GetStuckRounds' return type */
+export interface IGetStuckRoundsResult {
+  game_id: string;
+  round: number;
+  phase: string;
+}
+
+/** 'GetStuckRounds' query type */
+export interface IGetStuckRoundsQuery {
+  params: IGetStuckRoundsParams;
+  result: IGetStuckRoundsResult;
+}
+
+const getStuckRoundsIR: any = {"usedParamSet":{},"params":[],"statement":"SELECT rs.game_id, rs.round, rs.phase\nFROM werewolf_round_state rs\nINNER JOIN werewolf_game_view gv ON rs.game_id = gv.game_id\nWHERE rs.resolved = FALSE\n  AND rs.votes_submitted >= rs.alive_count\n  AND rs.alive_count > 0\n  AND gv.finished = FALSE"};
+
+/**
+ * Query generated from SQL:
+ * ```
+ * SELECT rs.game_id, rs.round, rs.phase
+ * FROM werewolf_round_state rs
+ * INNER JOIN werewolf_game_view gv ON rs.game_id = gv.game_id
+ * WHERE rs.resolved = FALSE
+ *   AND rs.votes_submitted >= rs.alive_count
+ *   AND rs.alive_count > 0
+ *   AND gv.finished = FALSE
+ * ```
+ */
+export const getStuckRounds = new PreparedQuery<IGetStuckRoundsParams,IGetStuckRoundsResult>(getStuckRoundsIR);
+
+
 /** 'SnapshotAlivePlayer' parameters type */
 export interface ISnapshotAlivePlayerParams {
   game_id: NumberOrString;
