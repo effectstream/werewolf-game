@@ -11,6 +11,7 @@ import {
   fetchLobbyStatus,
   fetchOpenLobby,
   fetchPlayerGames,
+  NotFoundError,
   type LobbyStatusResponse,
 } from "../services/lobbyApi";
 import {
@@ -145,6 +146,16 @@ export class LobbyScreen {
    * and two polling loops.
    */
   private _rejoinInProgress: number | null = null;
+  /**
+   * Generation token for autoDiscoverLobby. Each call increments the
+   * counter and captures its own generation. In-flight loops check whether
+   * their generation is still current and exit silently if superseded.
+   * hide() also bumps it to cancel any running discovery when the screen
+   * leaves. This prevents multiple concurrent discovery loops from racing
+   * (e.g. when the lobby screen is re-shown while a previous loop is still
+   * waiting through a node restart).
+   */
+  private _autoDiscoverGen: number = 0;
   private lobbyPollTimer: ReturnType<typeof setInterval> | null = null;
   private gameInfoPollTimer: ReturnType<typeof setInterval> | null = null;
   private readonly _initialAvatarSelection: AvatarSelection =
@@ -582,6 +593,8 @@ export class LobbyScreen {
       clearInterval(this.gameInfoPollTimer);
       this.gameInfoPollTimer = null;
     }
+    // Cancel any in-flight autoDiscoverLobby loop.
+    this._autoDiscoverGen++;
     this.finishMidnightChoiceModal("cancel");
     // Pause the render loop without disposing the WebGL renderer so it can
     // be restarted via mount() when the lobby is shown again.
@@ -838,9 +851,11 @@ export class LobbyScreen {
   }
 
   private async autoDiscoverLobby(): Promise<void> {
+    const myGen = ++this._autoDiscoverGen;
     const deadline = Date.now() + LobbyScreen.DISCOVER_TIMEOUT_MS;
     let attempt = 0;
     while (Date.now() < deadline) {
+      if (myGen !== this._autoDiscoverGen) return;
       try {
         const open = await fetchOpenLobby();
         if (open) {
@@ -851,13 +866,30 @@ export class LobbyScreen {
       } catch {
         // transient network error — keep retrying
       }
+      if (myGen !== this._autoDiscoverGen) return;
       attempt++;
       this.setStatus(`Waiting for lobby… (${attempt})`);
       await new Promise<void>((r) =>
         setTimeout(r, LobbyScreen.DISCOVER_POLL_MS)
       );
     }
-    this.setStatus("No open lobby found. Enter a Game ID to join.");
+    if (myGen !== this._autoDiscoverGen) return;
+    // Timeout reached — show a retry button instead of a dead-end.
+    this.statusEl.classList.remove("lobby-status--error");
+    this.statusEl.innerHTML = "";
+    const msg = document.createElement("span");
+    msg.textContent = "No open lobby found. ";
+    this.statusEl.appendChild(msg);
+    const retryBtn = document.createElement("button");
+    retryBtn.type = "button";
+    retryBtn.className = "ui-btn lobby-btn lobby-btn--secondary";
+    retryBtn.style.marginLeft = "8px";
+    retryBtn.textContent = "Retry Search";
+    retryBtn.addEventListener(
+      "click",
+      () => void this.autoDiscoverLobby(),
+    );
+    this.statusEl.appendChild(retryBtn);
   }
 
   private async handleFindGame(): Promise<void> {
@@ -1053,6 +1085,18 @@ export class LobbyScreen {
           }
         }
       } catch (err) {
+        if (err instanceof NotFoundError) {
+          // Game no longer exists — stop polling and search for a new lobby.
+          if (this.gameInfoPollTimer) {
+            clearInterval(this.gameInfoPollTimer);
+            this.gameInfoPollTimer = null;
+          }
+          clearSession(gameId);
+          this.resetLobbyState();
+          this.setStatus("Game no longer available. Searching for a new lobby…");
+          void this.autoDiscoverLobby();
+          return;
+        }
         console.error("[LobbyScreen] game info poll error:", err);
         // Don't stop polling on transient errors
       }
@@ -1221,9 +1265,22 @@ export class LobbyScreen {
         }),
       );
 
-      // Sessions whose status fetch failed (404, network error) → game is gone → clean up.
+      // Only clear sessions when the game genuinely doesn't exist (404).
+      // Transient errors (node restart, network blip, 5xx) must NOT wipe
+      // the session — the player should still be able to rejoin later.
       results.forEach((r, i) => {
-        if (r.status === "rejected") clearSession(sessions[i].gameId);
+        if (r.status === "rejected") {
+          if (r.reason instanceof NotFoundError) {
+            clearSession(sessions[i].gameId);
+          } else {
+            console.warn(
+              "[LobbyScreen] Transient error fetching lobby status for game",
+              sessions[i].gameId,
+              "— keeping session:",
+              r.reason,
+            );
+          }
+        }
       });
 
       // Finished games outside the 60-minute window (server-evaluated) → clean up.

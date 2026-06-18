@@ -218,6 +218,17 @@ export async function fetchOpenLobby(): Promise<OpenLobbyResponse | null> {
 }
 
 /**
+ * Thrown by lobby fetches when the backend responds 404 (game does not exist),
+ * so callers can distinguish a genuinely-gone game from a transient failure.
+ */
+export class NotFoundError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NotFoundError'
+  }
+}
+
+/**
  * Poll the lobby status to check if bundles are ready.
  */
 export async function fetchLobbyStatus(
@@ -225,6 +236,9 @@ export async function fetchLobbyStatus(
 ): Promise<LobbyStatusResponse> {
   const res = await fetch(`${API_BASE}/api/lobby_status?gameId=${gameId}`)
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new NotFoundError(`lobby_status: game ${gameId} not found`)
+    }
     const text = await res.text()
     throw new Error(`lobby_status failed: ${res.status} ${text}`)
   }
