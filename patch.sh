@@ -56,4 +56,19 @@ done
 cp ./node_modules/.deno/libsodium-wrappers-sumo@0.7.16/node_modules/libsodium-sumo/dist/modules-sumo-esm/libsodium-sumo.mjs ./node_modules/.deno/libsodium-wrappers-sumo@0.7.16/node_modules/libsodium-wrappers-sumo/dist/modules-sumo-esm/libsodium-sumo.mjs
 echo "✅ Copied libsodium-sumo.mjs to libsodium-wrappers-sumo.mjs"
 
+# Patch @seriousme/opifex socket.ts - catch unhandled async rejections on write/close
+for dir in ./node_modules/.deno/@seriousme+opifex@1.11.3*/ ; do
+    file_to_patch="${dir}node_modules/@seriousme/opifex/socket/socket.ts"
+    if [[ -f "$file_to_patch" ]]; then
+        replace_in_file "$file_to_patch" \
+            "this.writer.write(data);" \
+            "this.writer.write(data).catch(() => {});"
+        replace_in_file "$file_to_patch" \
+            "this.writer.close();" \
+            "this.writer.close().catch(() => {});"
+    else
+        echo "⚠️  Warning: opifex socket.ts not found at $file_to_patch"
+    fi
+done
+
 echo "✅ All patches applied successfully"
