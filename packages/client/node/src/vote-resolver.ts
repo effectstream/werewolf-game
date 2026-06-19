@@ -568,6 +568,7 @@ export async function resolvePhaseFromLedger(
   // cleanly instead of sending a spurious "All players voted" message.
   try {
     await resolveRound.run({ game_id: gameId, round, phase }, dbConn);
+    store.patchRoundStateCache(gameId, round, phase, { resolved: true });
   } catch (err) {
     // Non-fatal — the timeout will still set resolved=TRUE when it fires.
     console.warn(

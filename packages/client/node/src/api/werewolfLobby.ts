@@ -404,13 +404,20 @@ export async function submitVoteHandler(
 
   const voteCount = store.countVotes(gameId, round, phase);
 
-  const roundRows = await runPreparedQuery(
-    getWerewolfRoundState.run({ game_id: gameId, round, phase }, dbConn),
-    "getWerewolfRoundState",
-  );
-  const aliveCount = roundRows.length > 0
-    ? Number((roundRows[0] as unknown as { alive_count: string }).alive_count)
-    : null;
+  // Prefer the write-through cache; fall back to the DB on a cold cache.
+  const cachedRound = store.getRoundStateCache(gameId, round, phase);
+  let aliveCount: number | null;
+  if (cachedRound !== undefined) {
+    aliveCount = cachedRound.alive_count;
+  } else {
+    const roundRows = await runPreparedQuery(
+      getWerewolfRoundState.run({ game_id: gameId, round, phase }, dbConn),
+      "getWerewolfRoundState",
+    );
+    aliveCount = roundRows.length > 0
+      ? Number((roundRows[0] as unknown as { alive_count: string }).alive_count)
+      : null;
+  }
 
   // Sync vote count to round state so the timeout STF sees accurate numbers.
   if (aliveCount !== null) {
@@ -423,6 +430,9 @@ export async function submitVoteHandler(
       }, dbConn),
       "updateRoundVoteCount",
     );
+    store.patchRoundStateCache(gameId, round, phase, {
+      votes_submitted: voteCount,
+    });
   }
 
   const allVotesIn = aliveCount !== null && voteCount >= aliveCount;
@@ -448,18 +458,31 @@ export async function getVoteStatusHandler(
   round: number,
   phase: string,
 ): Promise<{ voteCount: number; aliveCount: number; timeoutBlock: number | null; currentBlock: number | null }> {
-  const roundRows = await runPreparedQuery(
-    getWerewolfRoundState.run({ game_id: gameId, round, phase }, dbConn),
-    "getWerewolfRoundState",
-  );
-  const row = roundRows.length > 0
-    ? (roundRows[0] as unknown as IGetRoundStateResult)
-    : null;
+  // Serve from the write-through cache to avoid a DB round-trip on this
+  // high-frequency frontend poll. Falls back to the DB on a cold cache
+  // (e.g. node just restarted) — the next state-machine block rewarms it.
+  const cached = store.getRoundStateCache(gameId, round, phase);
+  let aliveCount: number;
+  let timeoutBlock: number | null;
+  if (cached !== undefined) {
+    aliveCount = cached.alive_count;
+    timeoutBlock = cached.timeout_block;
+  } else {
+    const roundRows = await runPreparedQuery(
+      getWerewolfRoundState.run({ game_id: gameId, round, phase }, dbConn),
+      "getWerewolfRoundState",
+    );
+    const row = roundRows.length > 0
+      ? (roundRows[0] as unknown as IGetRoundStateResult)
+      : null;
+    aliveCount = row !== null ? Number(row.alive_count) : 0;
+    timeoutBlock = row?.timeout_block != null ? Number(row.timeout_block) : null;
+  }
   const currentBlock = await getCurrentNtpBlock(dbConn);
   return {
     voteCount: store.countVotes(gameId, round, phase),
-    aliveCount: row !== null ? Number(row.alive_count) : 0,
-    timeoutBlock: row?.timeout_block != null ? Number(row.timeout_block) : null,
+    aliveCount,
+    timeoutBlock,
     currentBlock,
   };
 }

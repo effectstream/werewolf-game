@@ -105,6 +105,22 @@ export type CachedGameView = {
 /** Write-through cache of werewolf_game_view, keyed by game_id. */
 const gameViewCache = new Map<number, CachedGameView>();
 
+/** Normalised werewolf_round_state row — number types instead of pgtyped strings. */
+export type CachedRoundState = {
+  game_id: number;
+  round: number;
+  phase: string;
+  alive_count: number;
+  votes_submitted: number;
+  timeout_block: number | null;
+  resolved: boolean;
+  timed_out: boolean;
+  round_started_block: number;
+};
+
+/** Write-through cache of werewolf_round_state, keyed by `${gameId}:${round}:${phase}`. */
+const roundStateCache = new Map<string, CachedRoundState>();
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -418,6 +434,9 @@ export function clearGameMemory(gameId: number): void {
   for (const key of decryptedVotesCache.keys()) {
     if (key.startsWith(prefix)) decryptedVotesCache.delete(key);
   }
+  for (const key of roundStateCache.keys()) {
+    if (key.startsWith(prefix)) roundStateCache.delete(key);
+  }
   for (const key of _resolutionTriggered) {
     if (key.startsWith(prefix)) _resolutionTriggered.delete(key);
   }
@@ -441,4 +460,41 @@ export function setGameViewCache(gameId: number, view: CachedGameView): void {
 
 export function getGameViewCache(gameId: number): CachedGameView | undefined {
   return gameViewCache.get(gameId);
+}
+
+// ---------------------------------------------------------------------------
+// Round-state cache (write-through, refreshed each block by the state machine)
+// ---------------------------------------------------------------------------
+
+/** Replace the cached round-state row outright (new round / authoritative refresh). */
+export function setRoundStateCache(state: CachedRoundState): void {
+  roundStateCache.set(
+    voteKey(state.game_id, state.round, state.phase),
+    state,
+  );
+}
+
+/**
+ * Merge a partial update into the cached round-state row. No-op on a cache
+ * miss — the next state-machine block refreshes the full row from the DB, so a
+ * patch before the row is seeded would only cache an incomplete row.
+ */
+export function patchRoundStateCache(
+  gameId: number,
+  round: number,
+  phase: string,
+  patch: Partial<Omit<CachedRoundState, "game_id" | "round" | "phase">>,
+): void {
+  const key = voteKey(gameId, round, phase);
+  const existing = roundStateCache.get(key);
+  if (existing === undefined) return;
+  roundStateCache.set(key, { ...existing, ...patch });
+}
+
+export function getRoundStateCache(
+  gameId: number,
+  round: number,
+  phase: string,
+): CachedRoundState | undefined {
+  return roundStateCache.get(voteKey(gameId, round, phase));
 }

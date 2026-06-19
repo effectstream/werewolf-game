@@ -42,9 +42,11 @@ import {
   getAllBundlesForGame,
   getGameSecrets,
   isResolutionTriggered,
+  patchRoundStateCache,
   purgeVotes,
   setGameViewCache,
   setResolutionTriggered,
+  setRoundStateCache,
   storePlayerPublicKey,
 } from "./store.ts";
 import { handleLobbyClosed, onLobbyCreated, restoreGameSecrets } from "./lobby-closer.ts";
@@ -277,19 +279,40 @@ stm.addStateTransition(
       })) as IGetRoundStateResult[];
 
       if (existingRows.length > 0) {
+        // Refresh the round-state cache from the authoritative DB row so the
+        // frontend-facing handlers (getVoteStatus / submitVote) can read it
+        // without hitting the DB. Warms within one block after a restart.
+        const existing = existingRows[0];
+        setRoundStateCache({
+          game_id: gameId,
+          round: gameView.round,
+          phase: gameView.phase,
+          alive_count: Number(existing.alive_count),
+          votes_submitted: Number(existing.votes_submitted),
+          timeout_block: existing.timeout_block != null
+            ? Number(existing.timeout_block)
+            : null,
+          resolved: Boolean(existing.resolved),
+          timed_out: Boolean((existing as { timed_out?: boolean }).timed_out),
+          round_started_block: Number(existing.round_started_block),
+        });
+
         // Round already initialised — sync vote count if it changed.
         const currentVotes = ledger.voteCount(
           gameId,
           gameView.round,
           gameView.phase,
         );
-        const dbVotes = Number(existingRows[0].votes_submitted);
+        const dbVotes = Number(existing.votes_submitted);
 
         if (currentVotes !== dbVotes) {
           yield* World.resolve(updateRoundVoteCount, {
             game_id: gameId,
             round: gameView.round,
             phase: gameView.phase,
+            votes_submitted: currentVotes,
+          });
+          patchRoundStateCache(gameId, gameView.round, gameView.phase, {
             votes_submitted: currentVotes,
           });
           console.log(
@@ -390,6 +413,17 @@ stm.addStateTransition(
         alive_count: eligibleVoterCount,
         round_started_block: blockHeight,
       });
+      setRoundStateCache({
+        game_id: gameId,
+        round: gameView.round,
+        phase: gameView.phase,
+        alive_count: eligibleVoterCount,
+        votes_submitted: 0,
+        timeout_block: null,
+        resolved: false,
+        timed_out: false,
+        round_started_block: blockHeight,
+      });
 
       for (const playerIdx of gameView.aliveIndices) {
         yield* World.resolve(snapshotAlivePlayer, {
@@ -406,6 +440,9 @@ stm.addStateTransition(
         game_id: gameId,
         round: gameView.round,
         phase: gameView.phase,
+        timeout_block: timeoutBlock,
+      });
+      patchRoundStateCache(gameId, gameView.round, gameView.phase, {
         timeout_block: timeoutBlock,
       });
 
@@ -686,6 +723,7 @@ stm.addStateTransition(
       round,
       phase,
     });
+    patchRoundStateCache(gameId, round, phase, { timed_out: true });
 
     // This timeout IS the resolution trigger (threshold path never fired).
     setResolutionTriggered(gameId, round, phase);
