@@ -22,6 +22,7 @@ import {
   markBundlesReady,
   setAdminSignKeyUpdate,
   updateLobbyPlayerTrackingFields,
+  upsertGameView,
 } from "@werewolf-game/database";
 import { runPreparedQuery } from "@effectstream/db";
 import * as store from "./store.ts";
@@ -293,6 +294,31 @@ export async function handleLobbyClosed(
     // Midnight game via the debug flow, and the node will detect it via
     // midnightContractState STF.
   }
+
+  // 8b. Pre-create the werewolf_game_view row so the frontend can read
+  //     /api/game_view as soon as bundles become available. Without this,
+  //     the row only exists once the Midnight createGame tx lands on-chain
+  //     and fires the midnightContractState STF — leaving a window where
+  //     bundles_ready=true but game_view 404s. Initial values mirror the
+  //     contract's createGame (Phase.Night, round 1, all players alive);
+  //     the STF upserts the authoritative values on the first on-chain update.
+  await runPreparedQuery(
+    upsertGameView.run({
+      game_id: gameId,
+      phase: "NIGHT",
+      round: 1,
+      player_count: playerCount,
+      alive_count: playerCount,
+      werewolf_count: werewolfCount,
+      villager_count: playerCount - werewolfCount,
+      alive_vector: JSON.stringify(Array(playerCount).fill(true)),
+      finished: false,
+      finished_at: null,
+      werewolf_indices: "[]",
+      updated_block: 0,
+    }, dbConn),
+    "upsertGameView",
+  );
 
   // 9. Mark bundles ready in DB.
   await runPreparedQuery(
