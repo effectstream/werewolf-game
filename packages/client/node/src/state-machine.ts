@@ -43,10 +43,11 @@ import {
   getGameSecrets,
   isResolutionTriggered,
   purgeVotes,
+  setGameViewCache,
   setResolutionTriggered,
   storePlayerPublicKey,
 } from "./store.ts";
-import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
+import { handleLobbyClosed, onLobbyCreated, restoreGameSecrets } from "./lobby-closer.ts";
 import { identifyVoters, resolvePhaseFromLedger } from "./vote-resolver.ts";
 import { fetchCurrentLedgerVotes } from "./midnight-circuit-caller.ts";
 import { getDbPool } from "./db-pool.ts";
@@ -173,6 +174,8 @@ stm.addStateTransition(
         ? bundles.filter((b) => b.role === 1).map((b) => b.playerId)
         : storedWerewolfIndices; // preserves DB value on restart; [] for non-finished games
 
+      const aliveVectorJson = JSON.stringify([...gameView.aliveVector]);
+      const werewolfIndicesJson = JSON.stringify(werewolfIndices);
       yield* World.resolve(upsertGameView, {
         game_id: gameId,
         phase: gameView.phase,
@@ -181,10 +184,23 @@ stm.addStateTransition(
         alive_count: gameView.aliveCount,
         werewolf_count: gameView.werewolfCount,
         villager_count: gameView.villagerCount,
-        alive_vector: JSON.stringify([...gameView.aliveVector]),
+        alive_vector: aliveVectorJson,
         finished: gameView.isFinished,
         finished_at: gameView.isFinished ? new Date() : null,
-        werewolf_indices: JSON.stringify(werewolfIndices),
+        werewolf_indices: werewolfIndicesJson,
+        updated_block: blockHeight,
+      });
+      setGameViewCache(gameId, {
+        game_id: gameId,
+        phase: gameView.phase,
+        round: gameView.round,
+        player_count: gameView.playerCount,
+        alive_count: gameView.aliveCount,
+        werewolf_count: gameView.werewolfCount,
+        villager_count: gameView.villagerCount,
+        alive_vector: aliveVectorJson,
+        finished: gameView.isFinished,
+        werewolf_indices: werewolfIndicesJson,
         updated_block: blockHeight,
       });
 
@@ -1044,6 +1060,11 @@ stm.addStateTransition(
     console.log(
       `[autoCreateLobby] Lobby game=${gameId} created, timeout at block=${timeoutBlock}`,
     );
+
+    // Release the single-flight guard so subsequent closes/reconciler ticks may
+    // schedule another creation. Without this the guard only clears via stale
+    // timeout, which would needlessly delay the next lobby after this one closes.
+    onLobbyCreated();
   },
 );
 

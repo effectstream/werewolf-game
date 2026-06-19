@@ -87,6 +87,24 @@ const merkleRoots = new Map<number, { field: bigint }>();
 export type CachedDecryptedVote = { voterIndex: number; target: number; round: number };
 const decryptedVotesCache = new Map<string, CachedDecryptedVote[]>();
 
+/** Normalised game-view row — same shape as werewolf_game_view but with number types. */
+export type CachedGameView = {
+  game_id: number;
+  phase: string;
+  round: number;
+  player_count: number;
+  alive_count: number;
+  werewolf_count: number;
+  villager_count: number;
+  alive_vector: string;    // JSON-encoded boolean[]
+  finished: boolean;
+  werewolf_indices: string; // JSON-encoded number[]
+  updated_block: number;
+};
+
+/** Write-through cache of werewolf_game_view, keyed by game_id. */
+const gameViewCache = new Map<number, CachedGameView>();
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -408,6 +426,19 @@ export function clearGameMemory(gameId: number): void {
   gameSecrets.delete(gameId);
   adminSignKeys.delete(gameId);
   merkleRoots.delete(gameId);
+  gameViewCache.delete(gameId);
 
   console.log(`[store] Cleared in-memory data for finished game=${gameId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Game-view cache (write-through, invalidated by state-machine and lobby-closer)
+// ---------------------------------------------------------------------------
+
+export function setGameViewCache(gameId: number, view: CachedGameView): void {
+  gameViewCache.set(gameId, view);
+}
+
+export function getGameViewCache(gameId: number): CachedGameView | undefined {
+  return gameViewCache.get(gameId);
 }

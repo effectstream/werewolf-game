@@ -571,7 +571,32 @@ function winnerOf(
   return werewolfCount === 0 ? "VILLAGERS" : "WEREWOLVES";
 }
 
+function buildGameViewResponse(row: store.CachedGameView) {
+  const aliveVector: boolean[] = JSON.parse(row.alive_vector);
+  const werewolfIndicesRaw: number[] = JSON.parse(row.werewolf_indices);
+  const players = aliveVector.map((alive, index) => ({ index, alive }));
+  // Only expose werewolf indices if the game is finished (defense in depth)
+  const werewolfIndices = row.finished ? werewolfIndicesRaw : [];
+  return {
+    gameId: row.game_id,
+    phase: row.phase,
+    round: row.round,
+    playerCount: row.player_count,
+    aliveCount: row.alive_count,
+    werewolfCount: row.werewolf_count,
+    villagerCount: row.villager_count,
+    players,
+    finished: row.finished,
+    winner: winnerOf(row.finished, row.werewolf_count, row.villager_count, aliveVector, werewolfIndicesRaw),
+    werewolfIndices,
+    updatedBlock: row.updated_block,
+  };
+}
+
 export async function getGameViewHandler(dbConn: Pool, gameId: number) {
+  const cached = store.getGameViewCache(gameId);
+  if (cached != null) return buildGameViewResponse(cached);
+
   const rows = await runPreparedQuery(
     getGameView.run({ game_id: gameId }, dbConn),
     "getGameView",
@@ -582,33 +607,21 @@ export async function getGameViewHandler(dbConn: Pool, gameId: number) {
   }
 
   const row = rows[0];
-  const aliveVector: boolean[] = JSON.parse(row.alive_vector);
-  const werewolfIndicesRaw: number[] = JSON.parse(row.werewolf_indices);
-
-  const players = aliveVector.map((alive, index) => ({
-    index,
-    alive,
-  }));
-
-  // Only expose werewolf indices if the game is finished (defense in depth)
-  const werewolfIndices = row.finished ? werewolfIndicesRaw : [];
-
-  return {
-    gameId: typeof row.game_id === "string" ? Number(row.game_id) : row.game_id,
+  return buildGameViewResponse({
+    game_id: typeof row.game_id === "string" ? Number(row.game_id) : row.game_id,
     phase: row.phase,
     round: row.round,
-    playerCount: row.player_count,
-    aliveCount: row.alive_count,
-    werewolfCount: row.werewolf_count,
-    villagerCount: row.villager_count,
-    players,
+    player_count: row.player_count,
+    alive_count: row.alive_count,
+    werewolf_count: row.werewolf_count,
+    villager_count: row.villager_count,
+    alive_vector: row.alive_vector,
     finished: row.finished,
-    winner: winnerOf(row.finished, Number(row.werewolf_count), Number(row.villager_count), aliveVector, werewolfIndicesRaw),
-    werewolfIndices,
-    updatedBlock: typeof row.updated_block === "string"
+    werewolf_indices: row.werewolf_indices,
+    updated_block: typeof row.updated_block === "string"
       ? Number(row.updated_block)
       : row.updated_block,
-  };
+  });
 }
 
 export async function openLobbyHandler(dbConn: Pool) {
