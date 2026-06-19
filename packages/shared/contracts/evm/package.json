@@ -28,9 +28,9 @@
     "deploy:mainnet": "bun run deploy:mainnet:clean && EFFECTSTREAM_ENV=mainnet bun run --env-file=../../../../.env.mainnet deploy.ts"
   },
   "dependencies": {
-    "@effectstream/evm-contracts": "0.100.23",
-    "@effectstream/evm-hardhat": "0.100.23",
-    "@effectstream/log": "0.100.23",
+    "@effectstream/evm-contracts": "0.100.26",
+    "@effectstream/evm-hardhat": "0.100.26",
+    "@effectstream/log": "0.100.26",
     "@nomicfoundation/hardhat-ignition": "3.0.2",
     "@nomicfoundation/hardhat-ignition-viem": "3.0.2",
     "@nomicfoundation/hardhat-viem": "3.0.0",

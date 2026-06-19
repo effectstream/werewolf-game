@@ -336,6 +336,21 @@ export function isResolutionTriggered(
   return _resolutionTriggered.has(resolutionKey(gameId, round, phase));
 }
 
+/**
+ * Release the in-progress guard so a failed resolution can be retried.
+ *
+ * The Set semantically means "resolution is in-progress" — set when the
+ * async resolution starts, cleared on failure. The DB `resolved` flag is the
+ * durable "completed" marker (set by resolvePhaseFromLedger on success).
+ */
+export function clearResolutionTriggered(
+  gameId: number,
+  round: number,
+  phase: string,
+): void {
+  _resolutionTriggered.delete(resolutionKey(gameId, round, phase));
+}
+
 // ---------------------------------------------------------------------------
 // Bundle Enumeration
 // ---------------------------------------------------------------------------

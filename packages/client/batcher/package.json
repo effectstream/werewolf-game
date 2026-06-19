@@ -10,9 +10,9 @@
   },
   "dependencies": {
     "@werewolf-game/evm-contracts": "workspace:*",
-    "@effectstream/batcher-sdk": "0.100.23",
-    "@effectstream/midnight-contracts": "0.100.23",
-    "@effectstream/utils": "0.100.23",
+    "@effectstream/batcher-sdk": "0.100.26",
+    "@effectstream/midnight-contracts": "0.100.26",
+    "@effectstream/utils": "0.100.26",
     "effection": "^3.5.0",
     "viem": "^2.21.3",
     "@midnight-ntwrk/ledger-v7": "7.0.3",

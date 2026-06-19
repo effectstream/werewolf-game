@@ -24,6 +24,7 @@ import { migrationTable } from "@werewolf-game/database";
 import { grammar } from "@werewolf-game/data-types/grammar";
 import { gameStateTransitions } from "./state-machine.ts";
 import { apiRouter } from "./api.preprod.ts";
+import { startResolutionRetryLoop } from "./resolution-retry.ts";
 
 // Route `log.remote(...)` events to the local tslog transport so that
 // sync-protocol errors (EFFECTSTREAM_SYNC `readData` failures, etc.) actually
@@ -39,6 +40,8 @@ log.remote = log.localForce;
 main(function* () {
   yield* init();
   console.log("\n🚀 Starting EffectStream Node (Mainnet)\n");
+
+  startResolutionRetryLoop();
 
   yield* withEffectstreamStaticConfig(nodeConfig, function* () {
     yield* start({
