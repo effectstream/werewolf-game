@@ -42,7 +42,9 @@ import {
   getAllBundlesForGame,
   getGameSecrets,
   isGameUnrecoverable,
+  isLeaderboardDone,
   isResolutionTriggered,
+  markLeaderboardDone,
   patchRoundStateCache,
   purgeVotes,
   setGameViewCache,
@@ -139,6 +141,14 @@ stm.addStateTransition(
       // is cleared on restart, so each is re-evaluated once after a restart and
       // re-marked by the recovery path below before this skip takes effect.
       if (!gameView.isFinished && isGameUnrecoverable(gameId)) {
+        continue;
+      }
+
+      // Skip finished games whose leaderboard is already persisted — terminal
+      // state, final game_view, nothing left to compute. Without this, every
+      // finished game (and they accumulate forever in the contract's `games`
+      // map) keeps doing an upsertGameView + getGameView every block.
+      if (gameView.isFinished && isLeaderboardDone(gameId)) {
         continue;
       }
 
@@ -287,6 +297,11 @@ stm.addStateTransition(
             );
           } else if (dbView?.leaderboard_processed) {
             clearGameMemory(gameId);
+            // Terminal + scored: nothing more to do for this game ever. Mark it
+            // so the top-of-loop skip drops it on subsequent blocks instead of
+            // re-upserting game_view + re-querying it forever. (Must come after
+            // clearGameMemory, which does not touch this set.)
+            markLeaderboardDone(gameId);
           }
         }
 

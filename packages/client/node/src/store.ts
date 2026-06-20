@@ -411,6 +411,35 @@ export function isGameUnrecoverable(gameId: number): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Finished + leaderboard-processed skip set
+// ---------------------------------------------------------------------------
+
+/**
+ * Finished games whose leaderboard has been persisted. Their on-chain state is
+ * terminal and their game_view row is final, so there is nothing left to do —
+ * yet they remain in the contract's insert-only `games` map and the state
+ * machine would otherwise re-`upsertGameView` + re-query them every block,
+ * forever. Since *every* game eventually finishes, this set is what keeps
+ * per-block work bounded to live games as the game count grows.
+ *
+ * Deliberately NOT cleared by clearGameMemory (which runs on the same block we
+ * mark a game done) — clearing it would re-admit the game to per-block
+ * processing and loop. Lost on restart: each finished game is processed once
+ * post-restart, re-confirmed leaderboard-done, and re-marked.
+ */
+const leaderboardDoneGames = new Set<number>();
+
+/** Mark a finished game as fully processed (leaderboard persisted) → skippable. */
+export function markLeaderboardDone(gameId: number): void {
+  leaderboardDoneGames.add(gameId);
+}
+
+/** True if this finished game's leaderboard is done and it needs no more work. */
+export function isLeaderboardDone(gameId: number): boolean {
+  return leaderboardDoneGames.has(gameId);
+}
+
+// ---------------------------------------------------------------------------
 // Bundle Enumeration
 // ---------------------------------------------------------------------------
 
