@@ -129,6 +129,19 @@ stm.addStateTransition(
         continue;
       }
 
+      // Skip zombie games entirely. A non-finished on-chain game already proven
+      // unrecoverable (no DB lobby/players — typically wiped-DB leftovers stuck
+      // at round 1 forever) has nothing to track or resolve, so all per-block
+      // work for it is pure waste: game_view upsert, round-state queries, and
+      // recovery retries. These accumulate in the contract's insert-only `games`
+      // map and would otherwise be processed every block. Finished games are NOT
+      // skipped here so leaderboard processing still runs. The unrecoverable set
+      // is cleared on restart, so each is re-evaluated once after a restart and
+      // re-marked by the recovery path below before this skip takes effect.
+      if (!gameView.isFinished && isGameUnrecoverable(gameId)) {
+        continue;
+      }
+
       console.log(
         `[midnight] game=${gameId} round=${gameView.round} phase=${gameView.phase}` +
           ` aliveCount=${gameView.aliveCount} aliveIndices=[${
