@@ -386,6 +386,31 @@ export function clearResolutionTriggered(
 }
 
 // ---------------------------------------------------------------------------
+// Unrecoverable-game negative cache
+// ---------------------------------------------------------------------------
+
+/**
+ * Games for which secret recovery is permanently impossible — no players /
+ * no seed in the DB, or already finished (typically on-chain games left over
+ * after a DB wipe). The state machine sees these in the Midnight ledger every
+ * block and would otherwise re-trigger `restoreGameSecrets` on each cycle,
+ * spamming the DB (getGameView / getLobbyPlayers) for a result that can never
+ * change. Marking them here stops the retry storm. Lost on restart — which is
+ * correct: a restart re-attempts each once and re-marks the still-broken ones.
+ */
+const unrecoverableGames = new Set<number>();
+
+/** Mark a game as permanently unrecoverable (data missing/finished). */
+export function markGameUnrecoverable(gameId: number): void {
+  unrecoverableGames.add(gameId);
+}
+
+/** True if recovery for this game has been determined permanently impossible. */
+export function isGameUnrecoverable(gameId: number): boolean {
+  return unrecoverableGames.has(gameId);
+}
+
+// ---------------------------------------------------------------------------
 // Bundle Enumeration
 // ---------------------------------------------------------------------------
 
@@ -446,6 +471,7 @@ export function clearGameMemory(gameId: number): void {
   adminSignKeys.delete(gameId);
   merkleRoots.delete(gameId);
   gameViewCache.delete(gameId);
+  unrecoverableGames.delete(gameId);
 
   console.log(`[store] Cleared in-memory data for finished game=${gameId}`);
 }

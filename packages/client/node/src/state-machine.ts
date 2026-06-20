@@ -41,6 +41,7 @@ import {
   clearResolutionTriggered,
   getAllBundlesForGame,
   getGameSecrets,
+  isGameUnrecoverable,
   isResolutionTriggered,
   patchRoundStateCache,
   purgeVotes,
@@ -137,7 +138,14 @@ stm.addStateTransition(
 
       // If secrets are missing (e.g. server restart), trigger async recovery so
       // the next STF cycle has everything in memory for vote decryption + admin circuits.
-      if (!getGameSecrets(gameId) && !gameView.isFinished) {
+      // Skip games already proven unrecoverable (no players/seed in DB) — otherwise
+      // recovery is re-triggered every block, flooding the DB with getGameView /
+      // getLobbyPlayers queries that can never succeed.
+      if (
+        !getGameSecrets(gameId) &&
+        !gameView.isFinished &&
+        !isGameUnrecoverable(gameId)
+      ) {
         console.warn(
           `[midnight] game=${gameId}: GameSecrets not in memory — triggering recovery`,
         );

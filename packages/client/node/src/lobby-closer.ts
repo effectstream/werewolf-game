@@ -18,6 +18,7 @@ import Prando from "prando";
 const PrandoClass = (Prando as any).default || Prando;
 import {
   getEncryptedGameSeed,
+  getGameView,
   getLobbyPlayers,
   markBundlesReady,
   setAdminSignKeyUpdate,
@@ -422,15 +423,54 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
   const dbConn = getDbPool();
   console.log(`[lobby-closer] Attempting secret recovery for game=${gameId}`);
 
+  // 0. Prune finished games — in-memory bundles/secrets are only needed for
+  //    active gameplay (vote decryption, admin circuits, punishments). The
+  //    state-machine STF already guards this, but vote-resolver and other
+  //    callers may invoke recovery on a finished game after a restart; without
+  //    this check they'd regenerate bundles only to discard them, and would
+  //    log misleading "recovery failed" errors when the underlying data is
+  //    simply no longer relevant.
+  try {
+    const viewRows = await runPreparedQuery(
+      getGameView.run({ game_id: gameId }, dbConn),
+      "getGameView",
+    );
+    if (viewRows[0]?.finished) {
+      console.log(
+        `[lobby-closer] Skipping recovery for game=${gameId}: game is finished`,
+      );
+      store.markGameUnrecoverable(gameId);
+      return false;
+    }
+  } catch (err) {
+    // If the view row is missing or the lookup fails, fall through and let
+    // the player/seed checks below decide — don't block recovery on a
+    // transient DB error.
+    console.warn(
+      `[lobby-closer] game=${gameId} finished-check failed — proceeding:`,
+      err,
+    );
+  }
+
   // 1. Get player list (preserves join order → bundle assignment).
   const players = await runPreparedQuery(
     getLobbyPlayers.run({ game_id: gameId }, dbConn),
     "getLobbyPlayers",
   );
+  if (players.length === 0) {
+    // No players in DB → likely a cancelled/abandoned lobby that never had
+    // bundles. Skip gracefully rather than logging a recovery failure.
+    console.log(
+      `[lobby-closer] Skipping recovery for game=${gameId}: no players in DB`,
+    );
+    store.markGameUnrecoverable(gameId);
+    return false;
+  }
   if (players.length < 2) {
     console.error(
       `[lobby-closer] Recovery failed for game=${gameId}: only ${players.length} player(s) in DB`,
     );
+    store.markGameUnrecoverable(gameId);
     return false;
   }
 
@@ -447,6 +487,7 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
     console.error(
       `[lobby-closer] Recovery failed for game=${gameId}: no encrypted_game_seed in DB`,
     );
+    store.markGameUnrecoverable(gameId);
     return false;
   }
 
@@ -459,6 +500,7 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
       `[lobby-closer] Recovery failed for game=${gameId}: seed decryption failed`,
       err,
     );
+    store.markGameUnrecoverable(gameId);
     return false;
   }
 
