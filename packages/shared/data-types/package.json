@@ -11,11 +11,11 @@
   "dependencies": {
     "@werewolf-game/midnight-contract": "workspace:*",
     "@werewolf-game/evm-contracts": "workspace:*",
-    "@effectstream/concise": "0.100.26",
-    "@effectstream/config": "0.100.26",
-    "@effectstream/utils": "0.100.26",
-    "@effectstream/db": "0.100.26",
-    "@effectstream/sm": "0.100.26",
+    "@effectstream/concise": "0.100.27",
+    "@effectstream/config": "0.100.27",
+    "@effectstream/utils": "0.100.27",
+    "@effectstream/db": "0.100.27",
+    "@effectstream/sm": "0.100.27",
     "@midnight-ntwrk/compact-runtime": "0.15.0",
     "viem": "2.37.3",
     "@sinclair/typebox": "0.34.41"
