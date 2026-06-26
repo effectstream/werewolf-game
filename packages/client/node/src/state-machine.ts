@@ -41,12 +41,18 @@ import {
   clearResolutionTriggered,
   getAllBundlesForGame,
   getGameSecrets,
+  isGameUnrecoverable,
+  isLeaderboardDone,
   isResolutionTriggered,
+  markLeaderboardDone,
+  patchRoundStateCache,
   purgeVotes,
+  setGameViewCache,
   setResolutionTriggered,
+  setRoundStateCache,
   storePlayerPublicKey,
 } from "./store.ts";
-import { handleLobbyClosed, restoreGameSecrets } from "./lobby-closer.ts";
+import { handleLobbyClosed, onLobbyCreated, restoreGameSecrets } from "./lobby-closer.ts";
 import { identifyVoters, resolvePhaseFromLedger } from "./vote-resolver.ts";
 import { fetchCurrentLedgerVotes } from "./midnight-circuit-caller.ts";
 import { getDbPool } from "./db-pool.ts";
@@ -125,6 +131,27 @@ stm.addStateTransition(
         continue;
       }
 
+      // Skip zombie games entirely. A non-finished on-chain game already proven
+      // unrecoverable (no DB lobby/players — typically wiped-DB leftovers stuck
+      // at round 1 forever) has nothing to track or resolve, so all per-block
+      // work for it is pure waste: game_view upsert, round-state queries, and
+      // recovery retries. These accumulate in the contract's insert-only `games`
+      // map and would otherwise be processed every block. Finished games are NOT
+      // skipped here so leaderboard processing still runs. The unrecoverable set
+      // is cleared on restart, so each is re-evaluated once after a restart and
+      // re-marked by the recovery path below before this skip takes effect.
+      if (!gameView.isFinished && isGameUnrecoverable(gameId)) {
+        continue;
+      }
+
+      // Skip finished games whose leaderboard is already persisted — terminal
+      // state, final game_view, nothing left to compute. Without this, every
+      // finished game (and they accumulate forever in the contract's `games`
+      // map) keeps doing an upsertGameView + getGameView every block.
+      if (gameView.isFinished && isLeaderboardDone(gameId)) {
+        continue;
+      }
+
       console.log(
         `[midnight] game=${gameId} round=${gameView.round} phase=${gameView.phase}` +
           ` aliveCount=${gameView.aliveCount} aliveIndices=[${
@@ -134,7 +161,14 @@ stm.addStateTransition(
 
       // If secrets are missing (e.g. server restart), trigger async recovery so
       // the next STF cycle has everything in memory for vote decryption + admin circuits.
-      if (!getGameSecrets(gameId) && !gameView.isFinished) {
+      // Skip games already proven unrecoverable (no players/seed in DB) — otherwise
+      // recovery is re-triggered every block, flooding the DB with getGameView /
+      // getLobbyPlayers queries that can never succeed.
+      if (
+        !getGameSecrets(gameId) &&
+        !gameView.isFinished &&
+        !isGameUnrecoverable(gameId)
+      ) {
         console.warn(
           `[midnight] game=${gameId}: GameSecrets not in memory — triggering recovery`,
         );
@@ -173,6 +207,8 @@ stm.addStateTransition(
         ? bundles.filter((b) => b.role === 1).map((b) => b.playerId)
         : storedWerewolfIndices; // preserves DB value on restart; [] for non-finished games
 
+      const aliveVectorJson = JSON.stringify([...gameView.aliveVector]);
+      const werewolfIndicesJson = JSON.stringify(werewolfIndices);
       yield* World.resolve(upsertGameView, {
         game_id: gameId,
         phase: gameView.phase,
@@ -181,10 +217,23 @@ stm.addStateTransition(
         alive_count: gameView.aliveCount,
         werewolf_count: gameView.werewolfCount,
         villager_count: gameView.villagerCount,
-        alive_vector: JSON.stringify([...gameView.aliveVector]),
+        alive_vector: aliveVectorJson,
         finished: gameView.isFinished,
         finished_at: gameView.isFinished ? new Date() : null,
-        werewolf_indices: JSON.stringify(werewolfIndices),
+        werewolf_indices: werewolfIndicesJson,
+        updated_block: blockHeight,
+      });
+      setGameViewCache(gameId, {
+        game_id: gameId,
+        phase: gameView.phase,
+        round: gameView.round,
+        player_count: gameView.playerCount,
+        alive_count: gameView.aliveCount,
+        werewolf_count: gameView.werewolfCount,
+        villager_count: gameView.villagerCount,
+        alive_vector: aliveVectorJson,
+        finished: gameView.isFinished,
+        werewolf_indices: werewolfIndicesJson,
         updated_block: blockHeight,
       });
 
@@ -248,6 +297,11 @@ stm.addStateTransition(
             );
           } else if (dbView?.leaderboard_processed) {
             clearGameMemory(gameId);
+            // Terminal + scored: nothing more to do for this game ever. Mark it
+            // so the top-of-loop skip drops it on subsequent blocks instead of
+            // re-upserting game_view + re-querying it forever. (Must come after
+            // clearGameMemory, which does not touch this set.)
+            markLeaderboardDone(gameId);
           }
         }
 
@@ -261,19 +315,40 @@ stm.addStateTransition(
       })) as IGetRoundStateResult[];
 
       if (existingRows.length > 0) {
+        // Refresh the round-state cache from the authoritative DB row so the
+        // frontend-facing handlers (getVoteStatus / submitVote) can read it
+        // without hitting the DB. Warms within one block after a restart.
+        const existing = existingRows[0];
+        setRoundStateCache({
+          game_id: gameId,
+          round: gameView.round,
+          phase: gameView.phase,
+          alive_count: Number(existing.alive_count),
+          votes_submitted: Number(existing.votes_submitted),
+          timeout_block: existing.timeout_block != null
+            ? Number(existing.timeout_block)
+            : null,
+          resolved: Boolean(existing.resolved),
+          timed_out: Boolean((existing as { timed_out?: boolean }).timed_out),
+          round_started_block: Number(existing.round_started_block),
+        });
+
         // Round already initialised — sync vote count if it changed.
         const currentVotes = ledger.voteCount(
           gameId,
           gameView.round,
           gameView.phase,
         );
-        const dbVotes = Number(existingRows[0].votes_submitted);
+        const dbVotes = Number(existing.votes_submitted);
 
         if (currentVotes !== dbVotes) {
           yield* World.resolve(updateRoundVoteCount, {
             game_id: gameId,
             round: gameView.round,
             phase: gameView.phase,
+            votes_submitted: currentVotes,
+          });
+          patchRoundStateCache(gameId, gameView.round, gameView.phase, {
             votes_submitted: currentVotes,
           });
           console.log(
@@ -374,6 +449,17 @@ stm.addStateTransition(
         alive_count: eligibleVoterCount,
         round_started_block: blockHeight,
       });
+      setRoundStateCache({
+        game_id: gameId,
+        round: gameView.round,
+        phase: gameView.phase,
+        alive_count: eligibleVoterCount,
+        votes_submitted: 0,
+        timeout_block: null,
+        resolved: false,
+        timed_out: false,
+        round_started_block: blockHeight,
+      });
 
       for (const playerIdx of gameView.aliveIndices) {
         yield* World.resolve(snapshotAlivePlayer, {
@@ -390,6 +476,9 @@ stm.addStateTransition(
         game_id: gameId,
         round: gameView.round,
         phase: gameView.phase,
+        timeout_block: timeoutBlock,
+      });
+      patchRoundStateCache(gameId, gameView.round, gameView.phase, {
         timeout_block: timeoutBlock,
       });
 
@@ -670,6 +759,7 @@ stm.addStateTransition(
       round,
       phase,
     });
+    patchRoundStateCache(gameId, round, phase, { timed_out: true });
 
     // This timeout IS the resolution trigger (threshold path never fired).
     setResolutionTriggered(gameId, round, phase);
@@ -1044,6 +1134,11 @@ stm.addStateTransition(
     console.log(
       `[autoCreateLobby] Lobby game=${gameId} created, timeout at block=${timeoutBlock}`,
     );
+
+    // Release the single-flight guard so subsequent closes/reconciler ticks may
+    // schedule another creation. Without this the guard only clears via stale
+    // timeout, which would needlessly delay the next lobby after this one closes.
+    onLobbyCreated();
   },
 );
 

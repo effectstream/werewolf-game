@@ -87,6 +87,40 @@ const merkleRoots = new Map<number, { field: bigint }>();
 export type CachedDecryptedVote = { voterIndex: number; target: number; round: number };
 const decryptedVotesCache = new Map<string, CachedDecryptedVote[]>();
 
+/** Normalised game-view row — same shape as werewolf_game_view but with number types. */
+export type CachedGameView = {
+  game_id: number;
+  phase: string;
+  round: number;
+  player_count: number;
+  alive_count: number;
+  werewolf_count: number;
+  villager_count: number;
+  alive_vector: string;    // JSON-encoded boolean[]
+  finished: boolean;
+  werewolf_indices: string; // JSON-encoded number[]
+  updated_block: number;
+};
+
+/** Write-through cache of werewolf_game_view, keyed by game_id. */
+const gameViewCache = new Map<number, CachedGameView>();
+
+/** Normalised werewolf_round_state row — number types instead of pgtyped strings. */
+export type CachedRoundState = {
+  game_id: number;
+  round: number;
+  phase: string;
+  alive_count: number;
+  votes_submitted: number;
+  timeout_block: number | null;
+  resolved: boolean;
+  timed_out: boolean;
+  round_started_block: number;
+};
+
+/** Write-through cache of werewolf_round_state, keyed by `${gameId}:${round}:${phase}`. */
+const roundStateCache = new Map<string, CachedRoundState>();
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -352,6 +386,60 @@ export function clearResolutionTriggered(
 }
 
 // ---------------------------------------------------------------------------
+// Unrecoverable-game negative cache
+// ---------------------------------------------------------------------------
+
+/**
+ * Games for which secret recovery is permanently impossible — no players /
+ * no seed in the DB, or already finished (typically on-chain games left over
+ * after a DB wipe). The state machine sees these in the Midnight ledger every
+ * block and would otherwise re-trigger `restoreGameSecrets` on each cycle,
+ * spamming the DB (getGameView / getLobbyPlayers) for a result that can never
+ * change. Marking them here stops the retry storm. Lost on restart — which is
+ * correct: a restart re-attempts each once and re-marks the still-broken ones.
+ */
+const unrecoverableGames = new Set<number>();
+
+/** Mark a game as permanently unrecoverable (data missing/finished). */
+export function markGameUnrecoverable(gameId: number): void {
+  unrecoverableGames.add(gameId);
+}
+
+/** True if recovery for this game has been determined permanently impossible. */
+export function isGameUnrecoverable(gameId: number): boolean {
+  return unrecoverableGames.has(gameId);
+}
+
+// ---------------------------------------------------------------------------
+// Finished + leaderboard-processed skip set
+// ---------------------------------------------------------------------------
+
+/**
+ * Finished games whose leaderboard has been persisted. Their on-chain state is
+ * terminal and their game_view row is final, so there is nothing left to do —
+ * yet they remain in the contract's insert-only `games` map and the state
+ * machine would otherwise re-`upsertGameView` + re-query them every block,
+ * forever. Since *every* game eventually finishes, this set is what keeps
+ * per-block work bounded to live games as the game count grows.
+ *
+ * Deliberately NOT cleared by clearGameMemory (which runs on the same block we
+ * mark a game done) — clearing it would re-admit the game to per-block
+ * processing and loop. Lost on restart: each finished game is processed once
+ * post-restart, re-confirmed leaderboard-done, and re-marked.
+ */
+const leaderboardDoneGames = new Set<number>();
+
+/** Mark a finished game as fully processed (leaderboard persisted) → skippable. */
+export function markLeaderboardDone(gameId: number): void {
+  leaderboardDoneGames.add(gameId);
+}
+
+/** True if this finished game's leaderboard is done and it needs no more work. */
+export function isLeaderboardDone(gameId: number): boolean {
+  return leaderboardDoneGames.has(gameId);
+}
+
+// ---------------------------------------------------------------------------
 // Bundle Enumeration
 // ---------------------------------------------------------------------------
 
@@ -400,6 +488,9 @@ export function clearGameMemory(gameId: number): void {
   for (const key of decryptedVotesCache.keys()) {
     if (key.startsWith(prefix)) decryptedVotesCache.delete(key);
   }
+  for (const key of roundStateCache.keys()) {
+    if (key.startsWith(prefix)) roundStateCache.delete(key);
+  }
   for (const key of _resolutionTriggered) {
     if (key.startsWith(prefix)) _resolutionTriggered.delete(key);
   }
@@ -408,6 +499,57 @@ export function clearGameMemory(gameId: number): void {
   gameSecrets.delete(gameId);
   adminSignKeys.delete(gameId);
   merkleRoots.delete(gameId);
+  gameViewCache.delete(gameId);
+  unrecoverableGames.delete(gameId);
 
   console.log(`[store] Cleared in-memory data for finished game=${gameId}`);
+}
+
+// ---------------------------------------------------------------------------
+// Game-view cache (write-through, invalidated by state-machine and lobby-closer)
+// ---------------------------------------------------------------------------
+
+export function setGameViewCache(gameId: number, view: CachedGameView): void {
+  gameViewCache.set(gameId, view);
+}
+
+export function getGameViewCache(gameId: number): CachedGameView | undefined {
+  return gameViewCache.get(gameId);
+}
+
+// ---------------------------------------------------------------------------
+// Round-state cache (write-through, refreshed each block by the state machine)
+// ---------------------------------------------------------------------------
+
+/** Replace the cached round-state row outright (new round / authoritative refresh). */
+export function setRoundStateCache(state: CachedRoundState): void {
+  roundStateCache.set(
+    voteKey(state.game_id, state.round, state.phase),
+    state,
+  );
+}
+
+/**
+ * Merge a partial update into the cached round-state row. No-op on a cache
+ * miss — the next state-machine block refreshes the full row from the DB, so a
+ * patch before the row is seeded would only cache an incomplete row.
+ */
+export function patchRoundStateCache(
+  gameId: number,
+  round: number,
+  phase: string,
+  patch: Partial<Omit<CachedRoundState, "game_id" | "round" | "phase">>,
+): void {
+  const key = voteKey(gameId, round, phase);
+  const existing = roundStateCache.get(key);
+  if (existing === undefined) return;
+  roundStateCache.set(key, { ...existing, ...patch });
+}
+
+export function getRoundStateCache(
+  gameId: number,
+  round: number,
+  phase: string,
+): CachedRoundState | undefined {
+  return roundStateCache.get(voteKey(gameId, round, phase));
 }

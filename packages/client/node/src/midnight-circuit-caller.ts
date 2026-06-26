@@ -252,6 +252,12 @@ export interface CallMidnightCircuitResult {
   coinPublicKey: Uint8Array;
 }
 
+// Serialize all circuit calls so only one indexerPublicDataProvider WebSocket
+// is open at a time. Concurrent WebSocket connections to the Midnight indexer
+// (one per callMidnightCircuit + effectstream's own sync connection) can
+// disrupt effectstream's block stream, causing the node to hang.
+let _circuitQueue: Promise<void> = Promise.resolve();
+
 /**
  * Call a Midnight contract circuit via the delegated balancing pattern.
  *
@@ -263,8 +269,21 @@ export interface CallMidnightCircuitResult {
  *
  * Returns the seed and coin public key used, so callers can persist them for
  * subsequent circuit calls (delegated balancing).
+ *
+ * Calls are serialized through a shared queue to avoid concurrent WebSocket
+ * connections to the Midnight indexer interfering with effectstream's sync.
  */
-export async function callMidnightCircuit(
+export function callMidnightCircuit(
+  params: CallMidnightCircuitParams,
+): Promise<CallMidnightCircuitResult> {
+  let releaseSlot!: () => void;
+  const slot = new Promise<void>((r) => (releaseSlot = r));
+  const prev = _circuitQueue;
+  _circuitQueue = slot;
+  return prev.then(() => _callMidnightCircuit(params)).finally(releaseSlot);
+}
+
+async function _callMidnightCircuit(
   params: CallMidnightCircuitParams,
 ): Promise<CallMidnightCircuitResult> {
   const { circuitId, callFn, batcherUrl } = params;

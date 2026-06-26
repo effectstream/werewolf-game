@@ -18,10 +18,12 @@ import Prando from "prando";
 const PrandoClass = (Prando as any).default || Prando;
 import {
   getEncryptedGameSeed,
+  getGameView,
   getLobbyPlayers,
   markBundlesReady,
   setAdminSignKeyUpdate,
   updateLobbyPlayerTrackingFields,
+  upsertGameView,
 } from "@werewolf-game/database";
 import { runPreparedQuery } from "@effectstream/db";
 import * as store from "./store.ts";
@@ -66,6 +68,58 @@ const _systemAccount = privateKeyToAccount(
 // SECURITY_NAMESPACE. Omitting it (the old "") made autoCreateLobby posts fail
 // verification, breaking the lobby auto-create chain.
 const SECURITY_NAMESPACE = "evm-midnight-node";
+
+// --- Single-flight lobby creation guard -------------------------------------
+//
+// Lobby creation is asynchronous: scheduleNextLobby() posts to the batcher, the
+// batcher includes the input on-chain, and only then does the autoCreateLobby
+// STF insert the lobby into the DB — a window of several blocks. During that
+// window a DB "open lobby" check still sees zero lobbies, so two lobbies
+// closing near-simultaneously would each schedule a replacement, perpetuating a
+// multi-lobby state.
+//
+// This in-memory flag (the node is a single process) guarantees at most ONE
+// creation is pending at a time. It is set when we successfully post to the
+// batcher and cleared by onLobbyCreated() (called from the autoCreateLobby STF
+// once the lobby lands). A staleness safety-net clears it if a post succeeded
+// but the STF never fired (e.g. input dropped) so we don't deadlock.
+let lobbyCreationInFlightSince: number | null = null;
+const LOBBY_CREATION_STALE_MS = 10 * 60 * 1000; // 10 min — well beyond normal landing time
+
+// Periodic backstop: if no open lobby exists and nothing is in-flight, create
+// one. Covers stuck guards, lobbies closed without scheduling, and the
+// "create one on node start" requirement.
+const LOBBY_RECONCILE_INTERVAL_MS = 25 * 60 * 1000; // 25 min
+
+function isLobbyCreationInFlight(): boolean {
+  if (lobbyCreationInFlightSince === null) return false;
+  if (Date.now() - lobbyCreationInFlightSince > LOBBY_CREATION_STALE_MS) {
+    console.warn(
+      "[lobby-closer] Lobby-creation guard went stale — clearing (STF never landed?)",
+    );
+    lobbyCreationInFlightSince = null;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Called from the autoCreateLobby STF (state-machine.ts) once a new lobby has
+ * actually been inserted into the DB. Releases the single-flight guard so the
+ * next close/reconciler tick may schedule another creation.
+ */
+export function onLobbyCreated(): void {
+  lobbyCreationInFlightSince = null;
+}
+
+/** Count currently-open (closed = FALSE) lobbies. Returns -1 on error. */
+async function countOpenLobbies(): Promise<number> {
+  const dbConn = getDbPool();
+  const res = await dbConn.query(
+    "SELECT COUNT(*) AS cnt FROM werewolf_lobby WHERE closed = FALSE",
+  );
+  return parseInt(res.rows[0]?.cnt ?? "0", 10);
+}
 
 /**
  * Reconstruct the message the paimaL2 batcher adapter + node L2 primitive verify.
@@ -294,6 +348,45 @@ export async function handleLobbyClosed(
     // midnightContractState STF.
   }
 
+  // 8b. Pre-create the werewolf_game_view row so the frontend can read
+  //     /api/game_view as soon as bundles become available. Without this,
+  //     the row only exists once the Midnight createGame tx lands on-chain
+  //     and fires the midnightContractState STF — leaving a window where
+  //     bundles_ready=true but game_view 404s. Initial values mirror the
+  //     contract's createGame (Phase.Night, round 1, all players alive);
+  //     the STF upserts the authoritative values on the first on-chain update.
+  const initialAliveVector = JSON.stringify(Array(playerCount).fill(true));
+  await runPreparedQuery(
+    upsertGameView.run({
+      game_id: gameId,
+      phase: "NIGHT",
+      round: 1,
+      player_count: playerCount,
+      alive_count: playerCount,
+      werewolf_count: werewolfCount,
+      villager_count: playerCount - werewolfCount,
+      alive_vector: initialAliveVector,
+      finished: false,
+      finished_at: null,
+      werewolf_indices: "[]",
+      updated_block: 0,
+    }, dbConn),
+    "upsertGameView",
+  );
+  store.setGameViewCache(gameId, {
+    game_id: gameId,
+    phase: "NIGHT",
+    round: 1,
+    player_count: playerCount,
+    alive_count: playerCount,
+    werewolf_count: werewolfCount,
+    villager_count: playerCount - werewolfCount,
+    alive_vector: initialAliveVector,
+    finished: false,
+    werewolf_indices: "[]",
+    updated_block: 0,
+  });
+
   // 9. Mark bundles ready in DB.
   await runPreparedQuery(
     markBundlesReady.run({ game_id: gameId }, dbConn),
@@ -330,15 +423,54 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
   const dbConn = getDbPool();
   console.log(`[lobby-closer] Attempting secret recovery for game=${gameId}`);
 
+  // 0. Prune finished games — in-memory bundles/secrets are only needed for
+  //    active gameplay (vote decryption, admin circuits, punishments). The
+  //    state-machine STF already guards this, but vote-resolver and other
+  //    callers may invoke recovery on a finished game after a restart; without
+  //    this check they'd regenerate bundles only to discard them, and would
+  //    log misleading "recovery failed" errors when the underlying data is
+  //    simply no longer relevant.
+  try {
+    const viewRows = await runPreparedQuery(
+      getGameView.run({ game_id: gameId }, dbConn),
+      "getGameView",
+    );
+    if (viewRows[0]?.finished) {
+      console.log(
+        `[lobby-closer] Skipping recovery for game=${gameId}: game is finished`,
+      );
+      store.markGameUnrecoverable(gameId);
+      return false;
+    }
+  } catch (err) {
+    // If the view row is missing or the lookup fails, fall through and let
+    // the player/seed checks below decide — don't block recovery on a
+    // transient DB error.
+    console.warn(
+      `[lobby-closer] game=${gameId} finished-check failed — proceeding:`,
+      err,
+    );
+  }
+
   // 1. Get player list (preserves join order → bundle assignment).
   const players = await runPreparedQuery(
     getLobbyPlayers.run({ game_id: gameId }, dbConn),
     "getLobbyPlayers",
   );
+  if (players.length === 0) {
+    // No players in DB → likely a cancelled/abandoned lobby that never had
+    // bundles. Skip gracefully rather than logging a recovery failure.
+    console.log(
+      `[lobby-closer] Skipping recovery for game=${gameId}: no players in DB`,
+    );
+    store.markGameUnrecoverable(gameId);
+    return false;
+  }
   if (players.length < 2) {
     console.error(
       `[lobby-closer] Recovery failed for game=${gameId}: only ${players.length} player(s) in DB`,
     );
+    store.markGameUnrecoverable(gameId);
     return false;
   }
 
@@ -355,6 +487,7 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
     console.error(
       `[lobby-closer] Recovery failed for game=${gameId}: no encrypted_game_seed in DB`,
     );
+    store.markGameUnrecoverable(gameId);
     return false;
   }
 
@@ -367,6 +500,7 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
       `[lobby-closer] Recovery failed for game=${gameId}: seed decryption failed`,
       err,
     );
+    store.markGameUnrecoverable(gameId);
     return false;
   }
 
@@ -423,10 +557,39 @@ export async function restoreGameSecrets(gameId: number): Promise<boolean> {
 /**
  * Schedule the next auto-lobby creation via the batcher.
  * The autoCreateLobby STF will fire and create the lobby + schedule its timeout.
+ *
+ * Self-guarded: at most one creation is pending per process. If a creation is
+ * already in-flight, or an open lobby already exists, this is a no-op. This
+ * makes every caller (handleLobbyClosed, startup bootstrap, the reconciler)
+ * cooperative — they can all call this safely and only one lobby will result.
  */
 export async function scheduleNextLobby(
   currentGameSeed?: Uint8Array,
 ): Promise<void> {
+  // 1. Single-flight: another creation is pending on-chain. Don't stack.
+  if (isLobbyCreationInFlight()) {
+    console.log("[lobby-closer] Lobby creation already in-flight — skipping");
+    return;
+  }
+
+  // 2. Don't create a duplicate if an open lobby already exists.
+  try {
+    const openCount = await countOpenLobbies();
+    if (openCount > 0) {
+      console.log(
+        `[lobby-closer] ${openCount} open lobby(ies) already exist — skipping creation`,
+      );
+      return;
+    }
+  } catch (err) {
+    // If the check itself fails, fall through and let the in-flight guard
+    // (set below) be the main protection rather than blocking creation.
+    console.warn("[lobby-closer] Open-lobby check failed:", err);
+  }
+
+  // Reserve the slot BEFORE posting so a concurrent close can't race in.
+  lobbyCreationInFlightSince = Date.now();
+
   // Post to batcher to trigger the autoCreateLobby scheduled data.
   // This uses the same batcher /send-input mechanism for EVM inputs.
   try {
@@ -476,14 +639,53 @@ export async function scheduleNextLobby(
 
     if (response.ok) {
       console.log("[lobby-closer] Next lobby creation scheduled via batcher");
+      // Guard stays set — cleared by onLobbyCreated() when the STF lands.
     } else {
       const text = await response.text();
       console.warn(
         `[lobby-closer] Failed to schedule next lobby: ${response.status} ${text}`,
       );
+      lobbyCreationInFlightSince = null; // release so the reconciler can retry
     }
   } catch (err) {
     console.warn("[lobby-closer] Failed to schedule next lobby:", err);
+    lobbyCreationInFlightSince = null; // release so the reconciler can retry
     throw err;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Reconciler: periodic guarantee that exactly one open lobby exists.
+// Runs on node start (after a short grace period) and every 25 min thereafter.
+// Safe to call alongside the startup bootstrap and handleLobbyClosed — they all
+// route through the guarded scheduleNextLobby, so only one creation results.
+// ---------------------------------------------------------------------------
+export function startLobbyReconciler(): void {
+  const reconcile = async () => {
+    try {
+      if (isLobbyCreationInFlight()) return;
+      const openCount = await countOpenLobbies();
+      if (openCount === 0) {
+        console.log("[lobby-reconciler] No open lobby — creating one");
+        await scheduleNextLobby();
+      } else if (openCount > 1) {
+        // Self-heal: excess lobbies will close on their own timeouts; once they
+        // do, the guard ensures only one replacement is created, converging back
+        // to a single lobby. Nothing to force-close here.
+        console.log(
+          `[lobby-reconciler] ${openCount} open lobbies — letting extras time out`,
+        );
+      }
+    } catch (err) {
+      console.warn("[lobby-reconciler] Check failed:", err);
+    }
+  };
+
+  // First tick after a grace period so the startup bootstrap + migrations settle
+  // before we second-guess lobby state.
+  setTimeout(reconcile, 30_000);
+  setInterval(reconcile, LOBBY_RECONCILE_INTERVAL_MS);
+  console.log(
+    `[lobby-reconciler] Started (interval=${LOBBY_RECONCILE_INTERVAL_MS / 1000}s, first tick in 30s)`,
+  );
 }

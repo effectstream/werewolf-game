@@ -1527,9 +1527,12 @@ export class LobbyScreen {
     appearanceCode: number,
   ): Promise<void> {
     return new Promise((resolve) => {
+      let isResolved = false;
       const poll = async () => {
+        if (isResolved) return;
         try {
           const status = await fetchLobbyStatus(gameId);
+          if (isResolved) return;
           console.log("[LobbyScreen] lobby status:", status);
 
           // Update the game info display with live player count and timer
@@ -1563,6 +1566,7 @@ export class LobbyScreen {
           }
 
           if (status.bundlesReady) {
+            isResolved = true;
             // Bundles are ready — fetch ours
             if (this.lobbyPollTimer) {
               clearInterval(this.lobbyPollTimer);
@@ -1585,6 +1589,8 @@ export class LobbyScreen {
               );
               resolve();
             } catch (err) {
+              // Reset the resolved flag so we can retry on the next tick
+              isResolved = false;
               console.error(
                 "[LobbyScreen] PollForBundles bundle fetch error:",
                 err,
@@ -1595,6 +1601,7 @@ export class LobbyScreen {
               // Keep polling even after error - don't resolve
             }
           } else if (status.state === "closed" && !status.bundlesReady && status.playerCount < LOBBY_MIN_PLAYERS) {
+            isResolved = true;
             // Not enough players joined — lobby was cancelled, bundles will never arrive
             if (this.lobbyPollTimer) {
               clearInterval(this.lobbyPollTimer);

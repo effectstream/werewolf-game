@@ -357,6 +357,7 @@ const lobbyLeaderboard = new LeaderboardManager({ noAutoToggle: true })
 lobbyScreen.onLeaderboardClick = () => lobbyLeaderboard.toggle()
 
 let activeManagers: GameManagers | null = null
+let bootingGameId: number | null = null
 
 lobbyScreen.onJoined = (
   gameId: number,
@@ -365,6 +366,12 @@ lobbyScreen.onJoined = (
   nickname: string,
   appearanceCode: number,
 ) => {
+  if (bootingGameId === gameId || (activeManagers && gameState.lobbyGameId === gameId)) {
+    console.log('[main] Already booting or booted game:', gameId)
+    return
+  }
+  bootingGameId = gameId
+
   if (activeManagers) {
     destroyGame(activeManagers)
     activeManagers = null
@@ -406,6 +413,7 @@ lobbyScreen.onJoined = (
 
   bootGame().then((managers) => {
     activeManagers = managers
+    bootingGameId = null
 
     // Return to Lobby button
     const returnBtn = document.querySelector<HTMLButtonElement>('#returnToLobbyBtn')
@@ -459,6 +467,7 @@ lobbyScreen.onJoined = (
       gameState.setGameStarted()
     }
   }).catch((err) => {
+    bootingGameId = null
     console.error('[bootGame] Failed to start game:', err)
   })
 }

@@ -18,12 +18,14 @@ import { grammar } from "@werewolf-game/data-types/grammar";
 import { gameStateTransitions } from "./state-machine.ts";
 import { apiRouter } from "./api.ts";
 import { startResolutionRetryLoop } from "./resolution-retry.ts";
+import { startLobbyReconciler } from "./lobby-closer.ts";
 
 main(function* () {
   yield* init();
   console.log("\n🚀 Starting EffectStream Node (Local)\n");
 
   startResolutionRetryLoop();
+  startLobbyReconciler();
 
   yield* withEffectstreamStaticConfig(nodeConfig, function* () {
     yield* start({
